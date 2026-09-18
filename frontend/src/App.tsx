@@ -3,14 +3,16 @@ import { Chat } from './components/Chat.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
 import { Acciones } from './components/Acciones.tsx';
 import { Asistentes } from './components/Asistentes.tsx';
+import { Bitacora } from './components/Bitacora.tsx';
 
-type Tab = 'chat' | 'dashboard' | 'acciones' | 'asistentes';
+type Tab = 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'chat', label: 'Chat' },
     { id: 'acciones', label: 'Acciones' },
     { id: 'asistentes', label: 'Asistentes' },
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'bitacora', label: 'Bitácora' },
 ];
 
 export function App() {
@@ -37,6 +39,7 @@ export function App() {
                 {tab === 'acciones' && <Acciones />}
                 {tab === 'asistentes' && <Asistentes />}
                 {tab === 'dashboard' && <Dashboard />}
+                {tab === 'bitacora' && <Bitacora />}
             </main>
         </div>
     );

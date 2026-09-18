@@ -72,6 +72,31 @@ app.post('/tareas', async (req, res) => {
     return { resultado };
 });
 
+app.get('/logs', async (req) => {
+    const query = req.query as { asistente_id?: string; limit?: string; conversacion_id?: string };
+    const limit = Math.min(Number(query.limit ?? 50), 200);
+
+    let q = supabase
+        .from('logs_asistente')
+        .select('id, asistente_id, conversacion_id, entrada, salida, herramienta, tokens_in, tokens_out, costo_usd, duracion_ms, error, creado_en')
+        .order('creado_en', { ascending: false })
+        .limit(limit);
+    if (query.asistente_id) q = q.eq('asistente_id', query.asistente_id);
+    if (query.conversacion_id) q = q.eq('conversacion_id', query.conversacion_id);
+
+    const { data, error } = await q;
+    if (error) throw error;
+
+    const { data: asistentes } = await supabase.from('asistentes').select('id, nombre');
+    const nombres = new Map((asistentes ?? []).map((a) => [a.id, a.nombre]));
+    return {
+        logs: (data ?? []).map((l) => ({
+            ...l,
+            asistente_nombre: nombres.get(l.asistente_id) ?? null,
+        })),
+    };
+});
+
 app.get('/conversaciones/:id/mensajes', async (req, res) => {
     const { id } = req.params as { id: string };
     const { data, error } = await supabase

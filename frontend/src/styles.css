@@ -418,3 +418,80 @@ textarea.payload.editable {
     gap: 14px;
     margin-bottom: 14px;
 }
+
+.bitacora {
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 20px;
+}
+.bitacora h2 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--sutil);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.filtros {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.filtros select {
+    background: var(--bg);
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 13px;
+}
+.log-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin-top: 12px;
+}
+.log-table th, .log-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--borde);
+}
+.log-table th {
+    color: var(--sutil);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+}
+.log-table tbody tr {
+    cursor: pointer;
+}
+.log-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+.log-error td { color: #e57373; }
+.log-detalle-row td { padding: 12px 10px; background: var(--bg); }
+.log-detalle-row:hover { background: var(--bg) !important; }
+.log-bloque {
+    margin-bottom: 10px;
+}
+.log-bloque strong {
+    color: var(--sutil);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: block;
+    margin-bottom: 4px;
+}
+.log-bloque pre {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    max-height: 300px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+}
+.log-bloque-error { color: #e57373; }

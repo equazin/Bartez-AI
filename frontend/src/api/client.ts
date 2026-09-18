@@ -33,6 +33,31 @@ export interface MensajePersistido {
     creado_en: string;
 }
 
+export interface LogEntry {
+    id: string;
+    asistente_id: string;
+    asistente_nombre: string | null;
+    conversacion_id: string | null;
+    entrada: Record<string, unknown> | null;
+    salida: Record<string, unknown> | null;
+    herramienta: string | null;
+    tokens_in: number | null;
+    tokens_out: number | null;
+    costo_usd: number | null;
+    duracion_ms: number | null;
+    error: string | null;
+    creado_en: string;
+}
+
+export async function listarLogs(params: { asistente_id?: string; limit?: number } = {}): Promise<{ logs: LogEntry[] }> {
+    const qs = new URLSearchParams();
+    if (params.asistente_id) qs.set('asistente_id', params.asistente_id);
+    if (params.limit) qs.set('limit', String(params.limit));
+    const res = await fetch(`${BASE}/logs?${qs.toString()}`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
 export async function cargarMensajes(conversacionId: string): Promise<MensajePersistido[]> {
     const res = await fetch(`${BASE}/conversaciones/${conversacionId}/mensajes`);
     if (!res.ok) return [];
