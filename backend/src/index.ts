@@ -72,6 +72,35 @@ app.post('/tareas', async (req, res) => {
     return { resultado };
 });
 
+app.get('/metricas/serie', async (req) => {
+    const query = req.query as { dias?: string };
+    const dias = Math.min(Math.max(Number(query.dias ?? 7), 1), 90);
+    const hasta = new Date();
+    const desde = new Date(hasta.getTime() - dias * 24 * 60 * 60 * 1000);
+
+    const { data: logs, error } = await supabase
+        .from('logs_asistente')
+        .select('creado_en, tokens_in, tokens_out, costo_usd')
+        .gte('creado_en', desde.toISOString());
+    if (error) throw error;
+
+    // Agregar por día
+    const buckets = new Map<string, { fecha: string; tokens: number; costo_usd: number }>();
+    for (let i = 0; i < dias; i++) {
+        const d = new Date(desde.getTime() + i * 24 * 60 * 60 * 1000);
+        const key = d.toISOString().slice(0, 10);
+        buckets.set(key, { fecha: key, tokens: 0, costo_usd: 0 });
+    }
+    for (const l of logs ?? []) {
+        const key = (l.creado_en as string).slice(0, 10);
+        const b = buckets.get(key);
+        if (!b) continue;
+        b.tokens += (l.tokens_in ?? 0) + (l.tokens_out ?? 0);
+        b.costo_usd += Number(l.costo_usd ?? 0);
+    }
+    return { serie: Array.from(buckets.values()) };
+});
+
 app.get('/logs', async (req) => {
     const query = req.query as { asistente_id?: string; limit?: string; conversacion_id?: string };
     const limit = Math.min(Number(query.limit ?? 50), 200);

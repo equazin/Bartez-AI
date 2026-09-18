@@ -49,6 +49,18 @@ export interface LogEntry {
     creado_en: string;
 }
 
+export interface PuntoSerie {
+    fecha: string;
+    tokens: number;
+    costo_usd: number;
+}
+
+export async function serieMetricas(dias = 7): Promise<{ serie: PuntoSerie[] }> {
+    const res = await fetch(`${BASE}/metricas/serie?dias=${dias}`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
 export async function listarLogs(params: { asistente_id?: string; limit?: number } = {}): Promise<{ logs: LogEntry[] }> {
     const qs = new URLSearchParams();
     if (params.asistente_id) qs.set('asistente_id', params.asistente_id);
