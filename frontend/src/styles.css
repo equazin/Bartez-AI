@@ -543,17 +543,19 @@ textarea.payload.editable {
     gap: 8px;
 }
 .ops-kpi .lbl { color: var(--sutil); font-size: 12px; }
-.ops-kpi .row { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.ops-kpi .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .ops-kpi .val {
     font-family: "SF Mono", Menlo, Consolas, monospace;
     font-variant-numeric: tabular-nums;
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 500;
     line-height: 1;
     color: var(--texto);
+    letter-spacing: -0.01em;
 }
 .ops-kpi .val.ok { color: #4caf80; }
-.ops-kpi .sub { color: var(--sutil); font-size: 11px; font-family: "SF Mono", Menlo, monospace; text-align: right; }
+.ops-kpi .sub { color: var(--sutil); font-size: 11px; font-family: "SF Mono", Menlo, monospace; margin-top: 2px; }
+.ops-kpi .spark { flex-shrink: 0; opacity: 0.9; }
 
 /* Kanban */
 .ops-kanban {
@@ -568,7 +570,7 @@ textarea.payload.editable {
     padding: 12px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     min-height: 320px;
 }
 .k-col.alerta { background: rgba(240, 173, 78, 0.06); border-color: rgba(240, 173, 78, 0.25); }
@@ -689,11 +691,17 @@ textarea.payload.editable {
     font-size: 10.5px;
     margin-top: 2px;
 }
-.k-card-b.done { opacity: 0.65; }
+.k-card-b.done { opacity: 0.7; }
 .k-card-b.done .title {
-    text-decoration: line-through;
-    text-decoration-color: var(--sutil);
-    text-decoration-thickness: 1px;
+    color: var(--sutil);
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+}
+.k-card-b.done .title::before {
+    content: '✓ ';
+    color: #4caf80;
+    font-weight: 700;
+    margin-right: 2px;
 }
 .ver-todas {
     background: transparent;

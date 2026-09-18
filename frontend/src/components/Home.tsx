@@ -169,6 +169,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     // Chart SVG dimensions
     const maxTokens = Math.max(1, ...serie.map((s) => s.tokens));
     const maxCosto = Math.max(0.0001, ...serie.map((s) => s.costo_usd));
+    const sparkFlat = serie.map((s) => s.tokens);
 
     return (
         <section className="ops">
@@ -185,10 +186,16 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
 
             {/* KPIs */}
             <div className="ops-kpis">
-                <KPI label="Propuestas enviadas" val={negocio?.propuestas_enviadas ?? 0} />
-                <KPI label="Ventas cerradas" val={negocio?.ventas_cerradas ?? 0} accent="ok" />
-                <KPI label="Prospectos calificados" val={negocio?.prospectos_calificados ?? 0} />
-                <KPI label="Costo IA · hoy" val={`$${costoHoy.toFixed(4)}`} sub={`${tokensHoy.toLocaleString('es-AR')} tokens`} />
+                <KPI label="Propuestas enviadas" val={negocio?.propuestas_enviadas ?? 0} spark={sparkFlat} tone="ok" />
+                <KPI label="Ventas cerradas" val={negocio?.ventas_cerradas ?? 0} accent="ok" spark={sparkFlat} tone="ok" />
+                <KPI label="Prospectos calificados" val={negocio?.prospectos_calificados ?? 0} spark={sparkFlat} tone="ok" />
+                <KPI
+                    label="Costo IA · hoy"
+                    val={`$${costoHoy.toFixed(4)}`}
+                    sub={`${tokensHoy.toLocaleString('es-AR')} tokens`}
+                    spark={serie.map((s) => s.costo_usd)}
+                    tone="warn"
+                />
             </div>
 
             {/* Kanban */}
@@ -356,25 +363,64 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     );
 }
 
-function KPI({ label, val, sub, accent }: { label: string; val: string | number; sub?: string; accent?: 'ok' | 'warn' }) {
+function KPI({
+    label,
+    val,
+    sub,
+    accent,
+    spark,
+    tone = 'ok',
+}: {
+    label: string;
+    val: string | number;
+    sub?: string;
+    accent?: 'ok' | 'warn';
+    spark?: number[];
+    tone?: 'ok' | 'warn';
+}) {
     return (
         <div className="ops-kpi">
             <div className="lbl">{label}</div>
             <div className="row">
                 <div className={`val ${accent ?? ''}`}>{val}</div>
-                {sub && <div className="sub">{sub}</div>}
+                {spark && spark.length > 1 && <Spark data={spark} tone={tone} />}
             </div>
+            {sub && <div className="sub">{sub}</div>}
         </div>
     );
 }
 
+function Spark({ data, tone }: { data: number[]; tone: 'ok' | 'warn' }) {
+    const max = Math.max(0.0001, ...data);
+    const w = 70;
+    const h = 24;
+    const step = w / Math.max(1, data.length - 1);
+    const pts = data.map((v, i) => `${i * step},${h - (v / max) * (h - 4) - 2}`).join(' ');
+    const color = tone === 'warn' ? 'var(--acento)' : '#4caf80';
+    return (
+        <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="spark">
+            <polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} />
+        </svg>
+    );
+}
+
 function ChartSerie({ serie, maxTokens, maxCosto }: { serie: PuntoSerie[]; maxTokens: number; maxCosto: number }) {
-    if (serie.length === 0) {
-        return <p className="vacio-mini">Sin datos todavía.</p>;
-    }
     const w = 600;
     const h = 180;
     const step = w / Math.max(1, serie.length - 1);
+    if (serie.length === 0) {
+        // Placeholder: grid vacía para que el panel no colapse
+        return (
+            <svg viewBox={`0 0 ${w} ${h + 20}`} preserveAspectRatio="none" className="ops-chart">
+                {[0.25, 0.5, 0.75].map((f) => (
+                    <line key={f} x1="0" y1={h * f} x2={w} y2={h * f} stroke="var(--borde)" />
+                ))}
+                <text x={w / 2} y={h / 2 + 5} fontSize="12" fill="var(--sutil)" textAnchor="middle" fontStyle="italic">
+                    Sin datos de los últimos 7 días
+                </text>
+            </svg>
+        );
+    }
     const pTokens = serie.map((s, i) => `${i * step},${h - (s.tokens / maxTokens) * (h - 20)}`).join(' ');
     const pCosto = serie.map((s, i) => `${i * step},${h - (s.costo_usd / maxCosto) * (h - 20)}`).join(' ');
     const areaCosto = `M0,${h} L${pCosto.split(' ').join(' L')} L${w},${h} Z`;
@@ -437,11 +483,20 @@ function slugArea(nombre: string | null): string {
     if (!nombre) return '';
     return nombre.toLowerCase().replace(/[^a-z]/g, '').slice(0, 8);
 }
+function limpiarTexto(t: string): string {
+    // Extrae el contenido de <respuesta>...</respuesta> si aparece; si no, deja el texto tal cual.
+    const m = /<respuesta>([\s\S]*?)<\/respuesta>/i.exec(t);
+    const s = m?.[1] ?? t;
+    return s.replace(/<[^>]+>/g, '').trim();
+}
 function textoDeLog(l: LogEntry): string {
     if (l.error) return `Error: ${l.error.slice(0, 60)}`;
-    const s = (l.salida as { respuesta?: string } | null)?.respuesta;
-    if (typeof s === 'string' && s.length > 0) return s.slice(0, 80) + (s.length > 80 ? '…' : '');
+    const s = (l.salida as { respuesta?: string; accion?: { tipo?: string } } | null)?.respuesta;
+    if (typeof s === 'string' && s.length > 0) {
+        const c = limpiarTexto(s);
+        return c.slice(0, 90) + (c.length > 90 ? '…' : '');
+    }
     const e = (l.entrada as { texto?: string } | null)?.texto;
-    if (typeof e === 'string') return e.slice(0, 80);
+    if (typeof e === 'string') return e.slice(0, 90);
     return `${(l.tokens_in ?? 0) + (l.tokens_out ?? 0)} tokens procesados`;
 }
