@@ -3,6 +3,7 @@
 
 import 'dotenv/config';
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { z } from 'zod';
 import { catalogo } from './orchestrator/catalog.js';
 import { enrutar } from './orchestrator/router.js';
@@ -48,6 +49,9 @@ app.get('/metricas/hoy', async () => {
 });
 
 async function main() {
+    await app.register(cors, {
+        origin: true, // en dev acepta cualquier origen local (localhost:5173, etc.)
+    });
     try {
         await catalogo.cargar();
     } catch (err) {
