@@ -1,13 +1,15 @@
 import { useState } from 'react';
+import { Home } from './components/Home.tsx';
 import { Chat } from './components/Chat.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
 import { Acciones } from './components/Acciones.tsx';
 import { Asistentes } from './components/Asistentes.tsx';
 import { Bitacora } from './components/Bitacora.tsx';
 
-type Tab = 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora';
+type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora';
 
 const TABS: { id: Tab; label: string }[] = [
+    { id: 'home', label: 'Inicio' },
     { id: 'chat', label: 'Chat' },
     { id: 'acciones', label: 'Acciones' },
     { id: 'asistentes', label: 'Asistentes' },
@@ -16,7 +18,7 @@ const TABS: { id: Tab; label: string }[] = [
 ];
 
 export function App() {
-    const [tab, setTab] = useState<Tab>('chat');
+    const [tab, setTab] = useState<Tab>('home');
 
     return (
         <div className="app">
@@ -35,6 +37,7 @@ export function App() {
                 </nav>
             </header>
             <main>
+                {tab === 'home' && <Home irA={(t) => setTab(t as Tab)} />}
                 {tab === 'chat' && <Chat />}
                 {tab === 'acciones' && <Acciones />}
                 {tab === 'asistentes' && <Asistentes />}
