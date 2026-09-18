@@ -6,10 +6,17 @@ const BASE = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
 export interface TareaEntrada {
     canal: 'correo' | 'whatsapp' | 'panel';
     texto: string;
+    conversacionId?: string;
     metadata?: Record<string, unknown>;
 }
 
-export async function enviarTarea(t: TareaEntrada): Promise<{ resultado: unknown }> {
+export interface RespuestaTarea {
+    respuesta: string;
+    conversacionId: string;
+    requiereAprobacion: boolean;
+}
+
+export async function enviarTarea(t: TareaEntrada): Promise<{ resultado: RespuestaTarea }> {
     const res = await fetch(`${BASE}/tareas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -17,6 +24,20 @@ export async function enviarTarea(t: TareaEntrada): Promise<{ resultado: unknown
     });
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
+}
+
+export interface MensajePersistido {
+    id: string;
+    remitente: string;
+    texto: string;
+    creado_en: string;
+}
+
+export async function cargarMensajes(conversacionId: string): Promise<MensajePersistido[]> {
+    const res = await fetch(`${BASE}/conversaciones/${conversacionId}/mensajes`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.mensajes ?? [];
 }
 
 export async function metricasHoy(): Promise<{ sistema: unknown[]; negocio: unknown }> {

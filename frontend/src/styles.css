@@ -59,6 +59,22 @@ nav button.activo {
     padding: 20px;
 }
 
+.chat-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 8px;
+}
+.chat-toolbar button {
+    background: transparent;
+    color: var(--sutil);
+    border: 1px solid var(--borde);
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+}
+.chat-toolbar button:hover:not(:disabled) { color: var(--texto); }
+
 .chat .historial {
     min-height: 300px;
     max-height: 55vh;

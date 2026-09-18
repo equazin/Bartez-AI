@@ -72,6 +72,17 @@ app.post('/tareas', async (req, res) => {
     return { resultado };
 });
 
+app.get('/conversaciones/:id/mensajes', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const { data, error } = await supabase
+        .from('mensajes')
+        .select('id, remitente, texto, creado_en')
+        .eq('conversacion_id', id)
+        .order('creado_en', { ascending: true });
+    if (error) return res.status(404).send({ error: error.message });
+    return { mensajes: data ?? [] };
+});
+
 // ---------- Acciones pendientes ----------
 
 app.get('/acciones', async (req) => {
