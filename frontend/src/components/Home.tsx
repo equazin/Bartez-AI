@@ -396,7 +396,7 @@ function Spark({ data, tone }: { data: number[]; tone: 'ok' | 'warn' }) {
     const h = 24;
     const step = w / Math.max(1, data.length - 1);
     const pts = data.map((v, i) => `${i * step},${h - (v / max) * (h - 4) - 2}`).join(' ');
-    const color = tone === 'warn' ? 'var(--acento)' : '#4caf80';
+    const color = tone === 'warn' ? 'var(--acento)' : 'var(--ok)';
     return (
         <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="spark">
             <polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} />
@@ -438,7 +438,7 @@ function ChartSerie({ serie, maxTokens, maxCosto }: { serie: PuntoSerie[]; maxTo
             ))}
             <path d={areaCosto} fill="url(#ops-grad)" />
             <polyline fill="none" stroke="var(--acento)" strokeWidth="2" points={pCosto} />
-            <polyline fill="none" stroke="#4caf80" strokeWidth="2" strokeDasharray="3,3" points={pTokens} />
+            <polyline fill="none" stroke="var(--ok)" strokeWidth="2" strokeDasharray="3,3" points={pTokens} />
             {serie.map((s, i) => (
                 <text
                     key={s.fecha}
