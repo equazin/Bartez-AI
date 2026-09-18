@@ -1,30 +1,40 @@
 import { useState } from 'react';
 import { Chat } from './components/Chat.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
+import { Acciones } from './components/Acciones.tsx';
+
+type Tab = 'chat' | 'dashboard' | 'acciones';
+
+const TABS: { id: Tab; label: string }[] = [
+    { id: 'chat', label: 'Chat' },
+    { id: 'acciones', label: 'Acciones' },
+    { id: 'dashboard', label: 'Dashboard' },
+];
 
 export function App() {
-    const [tab, setTab] = useState<'chat' | 'dashboard'>('chat');
+    const [tab, setTab] = useState<Tab>('chat');
 
     return (
         <div className="app">
             <header>
                 <h1>Bartez AI</h1>
                 <nav>
-                    <button
-                        className={tab === 'chat' ? 'activo' : ''}
-                        onClick={() => setTab('chat')}
-                    >
-                        Chat
-                    </button>
-                    <button
-                        className={tab === 'dashboard' ? 'activo' : ''}
-                        onClick={() => setTab('dashboard')}
-                    >
-                        Dashboard
-                    </button>
+                    {TABS.map((t) => (
+                        <button
+                            key={t.id}
+                            className={tab === t.id ? 'activo' : ''}
+                            onClick={() => setTab(t.id)}
+                        >
+                            {t.label}
+                        </button>
+                    ))}
                 </nav>
             </header>
-            <main>{tab === 'chat' ? <Chat /> : <Dashboard />}</main>
+            <main>
+                {tab === 'chat' && <Chat />}
+                {tab === 'acciones' && <Acciones />}
+                {tab === 'dashboard' && <Dashboard />}
+            </main>
         </div>
     );
 }

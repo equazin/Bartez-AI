@@ -34,6 +34,104 @@ app.post('/tareas', async (req, res) => {
     return { resultado };
 });
 
+// ---------- Acciones pendientes ----------
+
+app.get('/acciones', async (req) => {
+    const query = req.query as { estado?: string; limit?: string };
+    const estado = query.estado ?? 'pendiente';
+    const limit = Math.min(Number(query.limit ?? 50), 200);
+
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .select('id, asistente_id, conversacion_id, accion, payload, estado, respuesta, notificado_en, resuelto_en, creado_en')
+        .eq('estado', estado)
+        .order('creado_en', { ascending: false })
+        .limit(limit);
+    if (error) throw error;
+
+    const { data: asistentes } = await supabase.from('asistentes').select('id, nombre');
+    const nombres = new Map((asistentes ?? []).map((a) => [a.id, a.nombre]));
+    return {
+        acciones: (data ?? []).map((a) => ({
+            ...a,
+            asistente_nombre: nombres.get(a.asistente_id) ?? null,
+        })),
+    };
+});
+
+const ResolucionSchema = z.object({
+    payload: z.record(z.unknown()).optional(), // solo cuando estado="editada": el payload editado
+    nota: z.string().optional(),
+});
+
+app.post('/acciones/:id/aprobar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = ResolucionSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .update({
+            estado: 'aprobada',
+            respuesta: { por: 'humano', nota: parseo.data.nota ?? null },
+            resuelto_en: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('estado', 'pendiente')
+        .select()
+        .single();
+    if (error) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
+
+    // TODO: aquí disparar la ejecución real (enviar el correo por Ferozo, etc.)
+    return { accion: data };
+});
+
+app.post('/acciones/:id/editar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = ResolucionSchema.safeParse(req.body ?? {});
+    if (!parseo.success || !parseo.data.payload) {
+        return res.status(400).send({ error: 'Falta payload editado' });
+    }
+
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .update({
+            estado: 'editada',
+            payload: parseo.data.payload,
+            respuesta: { por: 'humano', nota: parseo.data.nota ?? null },
+            resuelto_en: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('estado', 'pendiente')
+        .select()
+        .single();
+    if (error) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
+
+    // TODO: disparar ejecución con el payload editado
+    return { accion: data };
+});
+
+app.post('/acciones/:id/rechazar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = ResolucionSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .update({
+            estado: 'rechazada',
+            respuesta: { por: 'humano', nota: parseo.data.nota ?? null },
+            resuelto_en: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('estado', 'pendiente')
+        .select()
+        .single();
+    if (error) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
+
+    return { accion: data };
+});
+
 app.get('/metricas/hoy', async () => {
     const hoy = new Date().toISOString().slice(0, 10);
     const inicioHoy = `${hoy}T00:00:00Z`;
