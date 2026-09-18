@@ -1,6 +1,7 @@
 // Entry point del backend.
 // Expone una API HTTP mínima que el panel web consume.
 
+import 'dotenv/config';
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { catalogo } from './orchestrator/catalog.js';
