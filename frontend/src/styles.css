@@ -82,6 +82,16 @@ nav button.activo {
 
 .mensaje.usuario { border-left: 3px solid var(--acento); }
 
+.cuerpo-md p { margin: 6px 0; }
+.cuerpo-md p:first-child { margin-top: 0; }
+.cuerpo-md p:last-child { margin-bottom: 0; }
+.cuerpo-md ul, .cuerpo-md ol { margin: 6px 0; padding-left: 22px; }
+.cuerpo-md li { margin: 3px 0; }
+.cuerpo-md code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+.cuerpo-md pre { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px; overflow-x: auto; }
+.cuerpo-md h1, .cuerpo-md h2, .cuerpo-md h3 { margin: 12px 0 6px; }
+.cuerpo-md a { color: var(--acento); }
+
 .entrada {
     display: flex;
     gap: 8px;

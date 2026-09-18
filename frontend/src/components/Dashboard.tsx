@@ -3,6 +3,7 @@ import { metricasHoy } from '../api/client.ts';
 
 interface MetricaSistema {
     asistente_id: string;
+    nombre?: string;
     conversaciones: number;
     mensajes: number;
     acciones_aprobadas: number;
@@ -78,7 +79,7 @@ export function Dashboard() {
                         <tbody>
                             {sistema.map((m) => (
                                 <tr key={m.asistente_id}>
-                                    <td>{m.asistente_id.slice(0, 8)}</td>
+                                    <td>{m.nombre ?? m.asistente_id.slice(0, 8)}</td>
                                     <td>{m.conversaciones}</td>
                                     <td>{m.mensajes}</td>
                                     <td>{m.acciones_aprobadas}</td>

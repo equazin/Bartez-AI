@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { enviarTarea } from '../api/client.ts';
 
 interface Mensaje {
@@ -41,7 +42,13 @@ export function Chat() {
                 {historial.map((m, i) => (
                     <div key={i} className={`mensaje ${m.rol}`}>
                         <span className="rol">{m.rol === 'usuario' ? 'Vos' : 'Bartez AI'}:</span>
-                        <p>{m.texto}</p>
+                        {m.rol === 'sistema' ? (
+                            <div className="cuerpo-md">
+                                <ReactMarkdown>{m.texto}</ReactMarkdown>
+                            </div>
+                        ) : (
+                            <p>{m.texto}</p>
+                        )}
                     </div>
                 ))}
                 {cargando && <div className="mensaje sistema">…procesando</div>}

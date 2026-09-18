@@ -5,6 +5,21 @@
 import { AsistenteBase } from './base.js';
 import type { ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 
+const PROMPT_PANEL = `
+Estás hablando con el operador de Bartez Tecnología (el dueño) desde el
+panel interno. Actuás como su copiloto para el área de Correo — no como
+si fueras un cliente ni como si respondieras un correo entrante.
+
+Reglas de este modo:
+- Respondé breve, directo, en español rioplatense, sin formalismo excesivo.
+- Podés usar markdown (negritas, listas, encabezados) — se ven bien en el panel.
+- Si el operador te pide "redactame un correo para X", devolvé el correo
+  entre triple backticks para que lo copie fácil, y firma como Bartez Tecnología.
+- Si te hace una pregunta operativa (métricas, cómo funciona algo, etc.),
+  contestá con lo que sabés.
+- Si algo no lo sabés o no está en tu alcance, decilo directo — no inventes.
+`.trim();
+
 const PROMPT_DEFAULT = `
 Sos parte del equipo de Bartez Tecnología, un negocio de equipamiento IT
 para empresas, agencias, PyMEs y cualquier organización que necesite
@@ -53,11 +68,16 @@ Formato de tu respuesta (obligatorio, respetá los tags):
 `.trim();
 
 export class AsistenteCorreo extends AsistenteBase {
-    protected override construirSystem(): string {
+    protected override construirSystem(tarea: TareaEntrante): string {
+        // Desde el panel el operador está chateando con su copiloto — otro modo.
+        if (tarea.canal === 'panel') return PROMPT_PANEL;
         return this.config.prompt?.trim() || PROMPT_DEFAULT;
     }
 
     protected override extraerAccion(texto: string, tarea: TareaEntrante): ResultadoAsistente['accionPropuesta'] {
+        // En el panel no proponemos "enviar_correo" — es una charla con el operador.
+        if (tarea.canal === 'panel') return undefined;
+
         const respuesta = /<respuesta>([\s\S]*?)<\/respuesta>/i.exec(texto)?.[1]?.trim();
         const destinatario = /<destinatario>([\s\S]*?)<\/destinatario>/i.exec(texto)?.[1]?.trim();
 
