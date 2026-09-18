@@ -181,6 +181,29 @@ app.post('/acciones/:id/rechazar', async (req, res) => {
     return { accion: data };
 });
 
+const MetricaNegocioSchema = z.object({
+    propuestas_enviadas: z.number().int().min(0).optional(),
+    ventas_cerradas: z.number().int().min(0).optional(),
+    prospectos_calificados: z.number().int().min(0).optional(),
+    notas: z.string().optional(),
+});
+
+app.post('/metricas/negocio/hoy', async (req, res) => {
+    const parseo = MetricaNegocioSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const hoy = new Date().toISOString().slice(0, 10);
+    const fila = { fecha: hoy, ...parseo.data };
+
+    const { data, error } = await supabase
+        .from('metricas_negocio')
+        .upsert(fila, { onConflict: 'fecha' })
+        .select()
+        .single();
+    if (error) return res.status(500).send({ error: error.message });
+    return { negocio: data };
+});
+
 app.get('/metricas/hoy', async () => {
     const hoy = new Date().toISOString().slice(0, 10);
     const inicioHoy = `${hoy}T00:00:00Z`;

@@ -171,6 +171,54 @@ nav button.activo {
     font-size: 13px;
 }
 
+.notas-negocio {
+    color: var(--sutil);
+    font-size: 13px;
+    margin: 12px 0 0;
+    background: var(--bg);
+    padding: 8px 12px;
+    border-radius: 4px;
+    border-left: 3px solid var(--acento);
+}
+.edit-metricas {
+    background: var(--bg);
+    padding: 14px;
+    border-radius: 6px;
+    border: 1px solid var(--borde);
+    margin-bottom: 24px;
+}
+.edit-metricas-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.edit-metricas label {
+    display: block;
+    color: var(--sutil);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+}
+.edit-metricas input,
+.edit-metricas textarea {
+    width: 100%;
+    margin-top: 4px;
+    background: var(--panel);
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 14px;
+}
+.edit-metricas textarea {
+    resize: vertical;
+    font-family: inherit;
+    margin-bottom: 12px;
+}
+
 .metrica-sistema table {
     width: 100%;
     border-collapse: collapse;

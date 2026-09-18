@@ -46,6 +46,25 @@ export async function metricasHoy(): Promise<{ sistema: unknown[]; negocio: unkn
     return res.json();
 }
 
+export interface MetricaNegocioInput {
+    propuestas_enviadas?: number;
+    ventas_cerradas?: number;
+    prospectos_calificados?: number;
+    notas?: string;
+}
+
+export async function guardarMetricasNegocio(m: MetricaNegocioInput): Promise<void> {
+    const res = await fetch(`${BASE}/metricas/negocio/hoy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(m),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+}
+
 export interface AccionPendiente {
     id: string;
     asistente_id: string;
