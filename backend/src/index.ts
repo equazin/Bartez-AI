@@ -22,7 +22,45 @@ const TareaSchema = z.object({
 app.get('/health', async () => ({ ok: true }));
 
 app.get('/asistentes', async () => {
-    return { asistentes: catalogo.listarActivos().map((a) => a.config) };
+    // Lee TODOS los asistentes del catálogo (activos y dormidos) para el editor
+    const { data, error } = await supabase
+        .from('asistentes')
+        .select('id, nombre, area, modelo, prompt, autonomia, activo, actualizado_en')
+        .order('activo', { ascending: false })
+        .order('nombre', { ascending: true });
+    if (error) throw error;
+    return { asistentes: data ?? [] };
+});
+
+const AsistenteUpdateSchema = z.object({
+    prompt: z.string().optional(),
+    modelo: z.enum(['sonnet', 'haiku']).optional(),
+    autonomia: z.number().int().min(0).max(100).optional(),
+    activo: z.boolean().optional(),
+});
+
+app.patch('/asistentes/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = AsistenteUpdateSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const cambios = { ...parseo.data, actualizado_en: new Date().toISOString() };
+    const { data, error } = await supabase
+        .from('asistentes')
+        .update(cambios)
+        .eq('id', id)
+        .select()
+        .single();
+    if (error) return res.status(404).send({ error: 'Asistente no encontrado' });
+
+    // Recarga el catálogo en memoria para que los cambios apliquen sin reiniciar
+    try {
+        await catalogo.cargar();
+    } catch (err) {
+        app.log.warn({ err }, 'no se pudo recargar el catálogo tras patch');
+    }
+
+    return { asistente: data };
 });
 
 app.post('/tareas', async (req, res) => {

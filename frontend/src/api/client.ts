@@ -42,6 +42,40 @@ export async function listarAcciones(estado = 'pendiente'): Promise<{ acciones: 
     return res.json();
 }
 
+export interface AsistenteEditable {
+    id: string;
+    nombre: string;
+    area: string;
+    modelo: 'sonnet' | 'haiku';
+    prompt: string;
+    autonomia: number;
+    activo: boolean;
+    actualizado_en: string;
+}
+
+export async function listarAsistentes(): Promise<{ asistentes: AsistenteEditable[] }> {
+    const res = await fetch(`${BASE}/asistentes`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function actualizarAsistente(
+    id: string,
+    cambios: Partial<Pick<AsistenteEditable, 'prompt' | 'modelo' | 'autonomia' | 'activo'>>,
+): Promise<AsistenteEditable> {
+    const res = await fetch(`${BASE}/asistentes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cambios),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    const data = await res.json();
+    return data.asistente;
+}
+
 export async function resolverAccion(
     id: string,
     resolucion: 'aprobar' | 'editar' | 'rechazar',

@@ -279,3 +279,78 @@ textarea.payload.editable {
     border: 1px solid #e57373;
     font-weight: 400;
 }
+
+.asistentes {
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 20px;
+}
+.asistentes h2 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--sutil);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.asistente-card {
+    background: var(--bg);
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+.asistente-card.dormido {
+    opacity: 0.55;
+}
+.asistente-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px;
+    cursor: pointer;
+    user-select: none;
+}
+.asistente-head strong {
+    margin-right: 10px;
+}
+.estado {
+    display: inline-block;
+    margin-right: 8px;
+    font-size: 14px;
+}
+.estado.on { color: #4caf50; }
+.estado.off { color: var(--sutil); }
+.asistente-body {
+    padding: 0 14px 14px;
+    border-top: 1px solid var(--borde);
+}
+.asistente-body label {
+    display: block;
+    color: var(--sutil);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 14px 0 6px;
+}
+.asistente-body textarea,
+.asistente-body input,
+.asistente-body select {
+    width: 100%;
+    background: var(--bg);
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    border-radius: 4px;
+    padding: 8px 10px;
+    font: inherit;
+    font-size: 13px;
+}
+.asistente-body textarea {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    resize: vertical;
+    min-height: 200px;
+}
+.asistente-controles {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-bottom: 14px;
+}

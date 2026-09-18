@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { Chat } from './components/Chat.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
 import { Acciones } from './components/Acciones.tsx';
+import { Asistentes } from './components/Asistentes.tsx';
 
-type Tab = 'chat' | 'dashboard' | 'acciones';
+type Tab = 'chat' | 'dashboard' | 'acciones' | 'asistentes';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'chat', label: 'Chat' },
     { id: 'acciones', label: 'Acciones' },
+    { id: 'asistentes', label: 'Asistentes' },
     { id: 'dashboard', label: 'Dashboard' },
 ];
 
@@ -33,6 +35,7 @@ export function App() {
             <main>
                 {tab === 'chat' && <Chat />}
                 {tab === 'acciones' && <Acciones />}
+                {tab === 'asistentes' && <Asistentes />}
                 {tab === 'dashboard' && <Dashboard />}
             </main>
         </div>

@@ -19,6 +19,10 @@ class Catalogo {
         if (error) throw error;
         if (!data) return;
 
+        // Reset — permite recargar en caliente cuando un asistente cambia.
+        this.porArea.clear();
+        this.porId.clear();
+
         const implementaciones = registrarAsistentes();
 
         for (const row of data as AsistenteConfig[]) {
