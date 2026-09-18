@@ -1,0 +1,173 @@
+:root {
+    --bg: #0f1115;
+    --panel: #1a1d24;
+    --texto: #e6e8ec;
+    --acento: #f0ad4e;
+    --borde: #2a2e37;
+    --sutil: #8a91a0;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--texto);
+    min-height: 100vh;
+}
+
+.app {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px 24px;
+}
+
+header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--borde);
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+}
+
+nav button {
+    background: transparent;
+    color: var(--sutil);
+    border: none;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 14px;
+    border-radius: 6px;
+}
+
+nav button.activo {
+    background: var(--panel);
+    color: var(--texto);
+}
+
+.chat, .dashboard {
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.chat .historial {
+    min-height: 300px;
+    max-height: 55vh;
+    overflow-y: auto;
+    margin-bottom: 16px;
+}
+
+.mensaje {
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.mensaje .rol {
+    display: block;
+    font-size: 12px;
+    color: var(--sutil);
+    margin-bottom: 4px;
+}
+
+.mensaje.usuario { border-left: 3px solid var(--acento); }
+
+.entrada {
+    display: flex;
+    gap: 8px;
+}
+
+.entrada textarea {
+    flex: 1;
+    background: var(--bg);
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+    padding: 10px;
+    min-height: 70px;
+    font: inherit;
+    resize: vertical;
+}
+
+.entrada button {
+    background: var(--acento);
+    color: #000;
+    border: none;
+    padding: 0 24px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.entrada button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.dashboard h2 {
+    margin-top: 0;
+    font-size: 15px;
+    color: var(--sutil);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.metrica-exito .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.tiles > div {
+    background: var(--bg);
+    padding: 16px;
+    border-radius: 6px;
+    border: 1px solid var(--borde);
+}
+
+.tiles .valor {
+    display: block;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--acento);
+}
+
+.tiles .etiqueta {
+    color: var(--sutil);
+    font-size: 13px;
+}
+
+.metrica-sistema table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.metrica-sistema th, .metrica-sistema td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--borde);
+}
+
+.metrica-sistema th {
+    color: var(--sutil);
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+}
+
+.vacio, .error {
+    color: var(--sutil);
+    font-style: italic;
+}
+
+.error { color: #e57373; }
