@@ -74,6 +74,147 @@ app.post('/tareas', async (req, res) => {
     return { resultado };
 });
 
+// ---------- Prospectos (mini-CRM) ----------
+
+app.get('/prospectos', async (req) => {
+    const query = req.query as { estado?: string };
+    let q = supabase
+        .from('clientes')
+        .select('id, nombre, email, whatsapp, estado, metadata, creado_en, actualizado_en')
+        .eq('origen', 'prospeccion')
+        .order('creado_en', { ascending: false });
+    if (query.estado && query.estado !== 'todos') q = q.eq('estado', query.estado);
+
+    const { data, error } = await q;
+    if (error) throw error;
+    return { prospectos: data ?? [] };
+});
+
+app.get('/clientes/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const { data: cliente, error } = await supabase.from('clientes').select('*').eq('id', id).single();
+    if (error || !cliente) return res.status(404).send({ error: 'Cliente no encontrado' });
+
+    const { data: convs } = await supabase
+        .from('conversaciones')
+        .select('id, canal, estado, asunto, creado_en')
+        .eq('cliente_id', id)
+        .order('creado_en', { ascending: false });
+
+    const { data: acciones } = await supabase
+        .from('acciones_pendientes')
+        .select('id, accion, estado, payload, creado_en, resuelto_en')
+        .in('conversacion_id', (convs ?? []).map((c) => c.id).concat(['00000000-0000-0000-0000-000000000000']))
+        .order('creado_en', { ascending: false });
+
+    return { cliente, conversaciones: convs ?? [], acciones: acciones ?? [] };
+});
+
+const ClienteUpdateSchema = z.object({
+    estado: z.enum(['lead', 'cliente', 'inactivo', 'descartado']).optional(),
+    metadata: z.record(z.unknown()).optional(),
+    nombre: z.string().optional(),
+    email: z.string().email().optional(),
+    whatsapp: z.string().optional(),
+});
+
+app.patch('/clientes/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = ClienteUpdateSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const cambios = { ...parseo.data, actualizado_en: new Date().toISOString() };
+    const { data, error } = await supabase
+        .from('clientes')
+        .update(cambios)
+        .eq('id', id)
+        .select()
+        .single();
+    if (error) return res.status(404).send({ error: 'Cliente no encontrado' });
+    return { cliente: data };
+});
+
+const ContactarSchema = z.object({
+    area: z.enum(['correo', 'whatsapp']).default('correo'),
+    contexto: z.string().optional(),
+});
+
+app.post('/clientes/:id/contactar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = ContactarSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const { data: cliente, error } = await supabase.from('clientes').select('*').eq('id', id).single();
+    if (error || !cliente) return res.status(404).send({ error: 'Cliente no encontrado' });
+
+    const asistente = catalogo.obtenerPorArea(parseo.data.area);
+    if (!asistente) return res.status(400).send({ error: `Asistente "${parseo.data.area}" no está activo` });
+
+    if (parseo.data.area === 'correo' && !cliente.email) {
+        return res.status(400).send({ error: 'Este prospecto no tiene email cargado' });
+    }
+    if (parseo.data.area === 'whatsapp' && !cliente.whatsapp) {
+        return res.status(400).send({ error: 'Este prospecto no tiene WhatsApp cargado' });
+    }
+
+    // Armar el "pedido" que ve el asistente: contexto del prospecto + hint del área.
+    const meta = cliente.metadata as Record<string, unknown> | null;
+    const ctxProspecto = [
+        `Datos del prospecto:`,
+        `- Nombre: ${cliente.nombre}`,
+        meta?.sitio_web ? `- Sitio: ${meta.sitio_web}` : null,
+        meta?.senial ? `- Señal detectada: ${meta.senial}` : null,
+        meta?.razon_prospeccion ? `- Encaje ICP: ${meta.razon_prospeccion}` : null,
+        typeof meta?.puntaje_icp === 'number' ? `- Puntaje ICP: ${meta.puntaje_icp}/10` : null,
+    ].filter(Boolean).join('\n');
+
+    const contextoExtra = parseo.data.contexto ? `\n\nContexto adicional del operador:\n${parseo.data.contexto}` : '';
+    const texto = `PROSPECCIÓN — PRIMER CONTACTO EN FRÍO\n\n${ctxProspecto}${contextoExtra}\n\nRedactá un primer contacto breve, cercano, sin sonar a spam. Presentá Bartez Tecnología, referí a la señal detectada como motivo del contacto y proponé una conversación por escrito. Firmá como Bartez Tecnología.`;
+
+    try {
+        // Invoco al asistente directamente (no vía enrutar) porque no queremos que
+        // registre el "pedido" del operador como si fuera un correo entrante del cliente.
+        const resultado = await asistente.procesar({
+            canal: parseo.data.area === 'correo' ? 'correo' : 'whatsapp',
+            clienteId: id,
+            texto,
+            metadata: {
+                emailDestino: cliente.email,
+                nombreDestino: cliente.nombre,
+                asuntoOriginal: `Bartez Tecnología — solución IT para ${cliente.nombre}`,
+                clasificacion: { categoria: 'cotizacion_vaga', prioridad: 'media', razon: 'primer contacto de prospección' },
+            },
+        });
+
+        // Log en bitácora
+        await supabase.from('logs_asistente').insert({
+            asistente_id: asistente.config.id,
+            entrada: { origen: 'contactar_prospecto', cliente_id: id, area: parseo.data.area },
+            salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
+            tokens_in: resultado.tokensIn,
+            tokens_out: resultado.tokensOut,
+            costo_usd: resultado.costoUsd,
+            duracion_ms: resultado.duracionMs,
+        });
+
+        // Si propuso una acción, va a acciones_pendientes para tu aprobación.
+        // No auto-envía primer contacto en frío — SIEMPRE requiere tu ok, más allá de autonomía.
+        if (resultado.accionPropuesta) {
+            await supabase.from('acciones_pendientes').insert({
+                asistente_id: asistente.config.id,
+                accion: resultado.accionPropuesta.tipo,
+                payload: resultado.accionPropuesta.payload,
+                estado: 'pendiente',
+                respuesta: { por: 'sistema', origen: 'contactar_prospecto', cliente_id: id },
+            });
+        }
+
+        return { resultado, mensaje: 'Contacto propuesto, va a Acciones esperando tu aprobación' };
+    } catch (err) {
+        return res.status(500).send({ error: (err as Error).message });
+    }
+});
+
 const ProspeccionSchema = z.object({ foco: z.string().optional() });
 
 app.post('/prospeccion/buscar', async (req, res) => {

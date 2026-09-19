@@ -619,6 +619,106 @@ textarea.payload.editable {
     text-align: center;
 }
 
+/* Lista de prospectos (mini-CRM) */
+.lista-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin: 14px 0;
+    flex-wrap: wrap;
+}
+.chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip {
+    padding: 5px 12px;
+    border: 1px solid var(--borde);
+    background: var(--panel);
+    color: var(--sutil);
+    border-radius: 14px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.chip:hover { border-color: var(--acento); color: var(--texto); }
+.chip.on { background: var(--acento); color: #fff; border-color: var(--acento); font-weight: 600; }
+
+.icp-slider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--sutil);
+    font-family: "SF Mono", Menlo, monospace;
+}
+.icp-slider input[type="range"] { width: 100px; }
+.icp-slider strong { color: var(--texto); min-width: 12px; text-align: right; }
+
+.prosp-item {
+    background: var(--bg);
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+.prosp-row {
+    display: grid;
+    grid-template-columns: 2fr auto 1.5fr 90px 16px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 13px;
+}
+.prosp-row:hover { background: var(--hover); }
+.prosp-name { display: flex; align-items: center; gap: 8px; }
+.estado-chip {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: var(--borde-soft);
+    color: var(--sutil);
+}
+.estado-lead { background: var(--acento-soft); color: var(--acento); }
+.estado-cliente { background: rgba(16,163,127,0.15); color: var(--ok); }
+.estado-inactivo { background: var(--borde-soft); color: var(--sutil); }
+.estado-descartado { background: rgba(239,68,68,0.12); color: var(--peligro); text-decoration: line-through; }
+.prosp-mail { color: var(--sutil); font-size: 12px; font-family: "SF Mono", Menlo, monospace; }
+.prosp-detalle {
+    padding: 14px 18px;
+    border-top: 1px solid var(--borde);
+    background: var(--panel);
+}
+.prosp-detalle p { margin: 6px 0; font-size: 13px; }
+.prosp-acciones {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+.accion-primaria {
+    background: var(--acento);
+    color: #fff;
+    border: 0;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+}
+.accion-primaria:disabled { opacity: 0.4; cursor: not-allowed; }
+.prosp-acciones select {
+    background: #fff;
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    border-radius: 4px;
+    padding: 7px 10px;
+    font-size: 13px;
+}
+.acciones-header .filtros-fecha span { cursor: pointer; }
+
 /* ========== HOME · Ops Executive ========== */
 .ops {
     display: flex;

@@ -102,6 +102,55 @@ export interface ResultadoProspeccion {
     };
 }
 
+export interface Prospecto {
+    id: string;
+    nombre: string;
+    email: string | null;
+    whatsapp: string | null;
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    metadata: {
+        sitio_web?: string;
+        senial?: string;
+        razon_prospeccion?: string;
+        puntaje_icp?: number;
+    } | null;
+    creado_en: string;
+    actualizado_en: string;
+}
+
+export async function listarProspectos(estado = 'todos'): Promise<{ prospectos: Prospecto[] }> {
+    const res = await fetch(`${BASE}/prospectos?estado=${estado}`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function actualizarCliente(id: string, cambios: Partial<Pick<Prospecto, 'estado' | 'nombre' | 'email' | 'whatsapp'>>): Promise<Prospecto> {
+    const res = await fetch(`${BASE}/clientes/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cambios),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    const d = await res.json();
+    return d.cliente;
+}
+
+export async function contactarProspecto(id: string, area: 'correo' | 'whatsapp' = 'correo', contexto?: string): Promise<{ mensaje: string }> {
+    const res = await fetch(`${BASE}/clientes/${id}/contactar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ area, contexto }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export async function buscarProspectos(foco?: string): Promise<ResultadoProspeccion> {
     const res = await fetch(`${BASE}/prospeccion/buscar`, {
         method: 'POST',
