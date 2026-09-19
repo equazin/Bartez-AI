@@ -241,18 +241,19 @@ app.post('/prospeccion/buscar', async (req, res) => {
             duracion_ms: resultado.duracionMs,
         });
 
-        // Si trajo prospectos, encola la acción como pendiente
-        // (al aprobar vas a crear clientes + acciones de primer contacto)
+        // Si trajo prospectos, los guardamos directo en la Base (clientes)
+        // sin pasar por acciones_pendientes. El operador ya disparó la búsqueda
+        // = aprobación implícita para GUARDAR. La aprobación explícita sigue
+        // existiendo pero solo para ENVIAR el primer contacto por correo.
+        let ejec: Awaited<ReturnType<typeof ejecutarAccion>> | undefined;
         if (resultado.accionPropuesta) {
-            await supabase.from('acciones_pendientes').insert({
-                asistente_id: asistente.config.id,
+            ejec = await ejecutarAccion({
                 accion: resultado.accionPropuesta.tipo,
                 payload: resultado.accionPropuesta.payload,
-                estado: 'pendiente',
             });
         }
 
-        return { resultado };
+        return { resultado, guardado: ejec?.resultado };
     } catch (err) {
         return res.status(500).send({ error: (err as Error).message });
     }

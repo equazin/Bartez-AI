@@ -60,15 +60,14 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
     const prospectos = Array.isArray(payload.prospectos) ? (payload.prospectos as ProspectoRaw[]) : [];
     if (prospectos.length === 0) return { ok: false, detalle: 'no hay prospectos en el payload' };
 
-    const asistenteProspId = await idAsistente('prospeccion');
     let creados = 0;
-    let accionesGeneradas = 0;
+    let existentes = 0;
     let saltados = 0;
 
     for (const p of prospectos) {
         if (!p.nombre) { saltados++; continue; }
 
-        // Guardar cliente (dedupe por email si viene, si no dedupe por nombre)
+        // Dedupe por email si hay, sino por nombre
         const filtro = p.email ? { email: p.email } : { nombre: p.nombre };
         const { data: existente } = await supabase
             .from('clientes')
@@ -76,58 +75,31 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
             .match(filtro)
             .maybeSingle();
 
-        let clienteId = existente?.id as string | undefined;
-        if (!clienteId) {
-            const { data: nuevo, error } = await supabase
-                .from('clientes')
-                .insert({
-                    nombre: p.nombre,
-                    email: p.email ?? null,
-                    origen: 'prospeccion',
-                    estado: 'lead',
-                    metadata: {
-                        sitio_web: p.sitio_web,
-                        senial: p.señal,
-                        razon_prospeccion: p.razon,
-                        puntaje_icp: p.puntaje_icp,
-                    },
-                })
-                .select('id')
-                .single();
-            if (error || !nuevo) { saltados++; continue; }
-            clienteId = nuevo.id as string;
-            creados++;
-        }
+        if (existente) { existentes++; continue; }
 
-        // Si hay email y propuesta_contacto, crear acción de primer contacto para aprobar
-        if (p.email && p.propuesta_contacto) {
-            await supabase.from('acciones_pendientes').insert({
-                asistente_id: asistenteProspId,
-                accion: 'enviar_correo',
-                payload: {
-                    para: p.email,
-                    asunto: `Bartez Tecnología — solución IT para ${p.nombre}`,
-                    cuerpo: p.propuesta_contacto,
-                },
-                estado: 'pendiente',
-                respuesta: {
-                    por: 'sistema',
-                    origen: 'prospeccion',
-                    cliente_id: clienteId,
+        const { error } = await supabase
+            .from('clientes')
+            .insert({
+                nombre: p.nombre,
+                email: p.email ?? null,
+                origen: 'prospeccion',
+                estado: 'lead',
+                metadata: {
+                    sitio_web: p.sitio_web,
+                    senial: p.señal,
+                    razon_prospeccion: p.razon,
                     puntaje_icp: p.puntaje_icp,
+                    propuesta_contacto: p.propuesta_contacto, // guardamos la propuesta como referencia
                 },
             });
-            accionesGeneradas++;
-        }
+        if (error) { saltados++; continue; }
+        creados++;
     }
 
+    // NOTA: ya no generamos acciones de primer contacto automáticamente.
+    // El operador revisa la Base y decide a cuáles contactar con el botón dedicado.
     return {
         ok: true,
-        resultado: { creados, accionesGeneradas, saltados, total: prospectos.length },
+        resultado: { creados, existentes, saltados, total: prospectos.length },
     };
-}
-
-async function idAsistente(area: string): Promise<string | null> {
-    const { data } = await supabase.from('asistentes').select('id').eq('area', area).maybeSingle();
-    return (data?.id as string) ?? null;
 }

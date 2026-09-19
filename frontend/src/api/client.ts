@@ -100,6 +100,12 @@ export interface ResultadoProspeccion {
         costoUsd: number;
         duracionMs: number;
     };
+    guardado?: {
+        creados?: number;
+        existentes?: number;
+        saltados?: number;
+        total?: number;
+    };
 }
 
 export interface Prospecto {

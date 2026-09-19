@@ -11,26 +11,35 @@ interface Prospecto {
     propuesta_contacto?: string;
 }
 
+interface Guardado {
+    creados?: number;
+    existentes?: number;
+    saltados?: number;
+    total?: number;
+}
+
 export function Buscar() {
     const [foco, setFoco] = useState('');
     const [cargando, setCargando] = useState(false);
     const [error, setError] = useState<string>();
     const [prospectos, setProspectos] = useState<Prospecto[]>([]);
-    const [meta, setMeta] = useState<{ costoUsd: number; tokens: number; requiereAprobacion: boolean } | null>(null);
+    const [guardado, setGuardado] = useState<Guardado | null>(null);
+    const [meta, setMeta] = useState<{ costoUsd: number; tokens: number } | null>(null);
 
     async function buscar() {
         setCargando(true);
         setError(undefined);
         setProspectos([]);
         setMeta(null);
+        setGuardado(null);
         try {
-            const { resultado } = await buscarProspectos(foco || undefined);
+            const { resultado, guardado } = await buscarProspectos(foco || undefined);
             const p = (resultado.accionPropuesta?.payload?.prospectos ?? []) as Prospecto[];
             setProspectos(p);
+            setGuardado(guardado ?? null);
             setMeta({
                 costoUsd: resultado.costoUsd,
                 tokens: resultado.tokensIn + resultado.tokensOut,
-                requiereAprobacion: resultado.requiereAprobacion,
             });
         } catch (e) {
             setError((e as Error).message);
@@ -62,8 +71,21 @@ export function Buscar() {
             {error && <p className="error">Error: {error}</p>}
             {meta && (
                 <p className="prosp-meta">
-                    {prospectos.length} prospectos encontrados · {meta.tokens.toLocaleString('es-AR')} tokens · USD {meta.costoUsd.toFixed(4)}
-                    {meta.requiereAprobacion && ' · queda en Acciones esperando tu ok para guardarlos'}
+                    {prospectos.length} prospectos encontrados
+                    {guardado && (
+                        <>
+                            {' — '}
+                            <strong>{guardado.creados ?? 0} nuevos guardados</strong>
+                            {typeof guardado.existentes === 'number' && guardado.existentes > 0 && `, ${guardado.existentes} ya estaban en base`}
+                            {typeof guardado.saltados === 'number' && guardado.saltados > 0 && `, ${guardado.saltados} descartados`}
+                        </>
+                    )}
+                    {' · '}{meta.tokens.toLocaleString('es-AR')} tokens · USD {meta.costoUsd.toFixed(4)}
+                </p>
+            )}
+            {meta && guardado && (guardado.creados ?? 0) > 0 && (
+                <p className="prosp-info">
+                    Ya podés verlos y contactarlos desde <strong>Base de prospectos</strong>.
                 </p>
             )}
 
