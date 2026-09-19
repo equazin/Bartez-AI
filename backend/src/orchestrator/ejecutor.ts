@@ -49,6 +49,7 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
 interface ProspectoRaw {
     nombre: string;
     email?: string | null;
+    telefono?: string | null;
     sitio_web?: string;
     fuente_email?: string;
     razon?: string;
@@ -71,17 +72,17 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
     for (const p of prospectos) {
         if (!p.nombre) { saltados++; continue; }
 
-        // Excluyente: sin email verificable no lo persistimos — no lo podemos contactar.
-        const email = p.email?.trim().toLowerCase();
-        if (!email || !RE_EMAIL.test(email)) {
-            sin_email++;
-            continue;
-        }
+        // Email preferencial, no excluyente: si viene, validamos formato y usamos para dedupe.
+        const emailRaw = p.email?.trim().toLowerCase();
+        const email = emailRaw && RE_EMAIL.test(emailRaw) ? emailRaw : null;
+        if (!email) sin_email++;
 
+        // Dedupe: por email si hay, sino por nombre.
+        const filtro = email ? { email } : { nombre: p.nombre };
         const { data: existente } = await supabase
             .from('clientes')
             .select('id')
-            .eq('email', email)
+            .match(filtro)
             .maybeSingle();
 
         if (existente) { existentes++; continue; }
@@ -96,6 +97,7 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
                 metadata: {
                     sitio_web: p.sitio_web,
                     fuente_email: p.fuente_email,
+                    telefono: p.telefono,
                     senial: p.señal,
                     razon_prospeccion: p.razon,
                     puntaje_icp: p.puntaje_icp,

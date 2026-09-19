@@ -79,7 +79,7 @@ export function Buscar() {
                             <strong>{guardado.creados ?? 0} nuevos guardados</strong>
                             {typeof guardado.existentes === 'number' && guardado.existentes > 0 && `, ${guardado.existentes} ya estaban en base`}
                             {typeof guardado.saltados === 'number' && guardado.saltados > 0 && `, ${guardado.saltados} descartados`}
-                            {typeof guardado.sin_email === 'number' && guardado.sin_email > 0 && `, ${guardado.sin_email} sin email (descartados)`}
+                            {typeof guardado.sin_email === 'number' && guardado.sin_email > 0 && `, ${guardado.sin_email} sin email`}
                         </>
                     )}
                     {' · '}{meta.tokens.toLocaleString('es-AR')} tokens · USD {meta.costoUsd.toFixed(4)}
