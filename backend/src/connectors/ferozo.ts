@@ -79,11 +79,17 @@ let corriendo = false;
 
 export async function iniciarListener(handler: Handler): Promise<void> {
     if (!ferozoConfigurado) {
-        console.warn('[ferozo] IMAP no configurado — listener no arranca');
+        const faltantes: string[] = [];
+        if (!email) faltantes.push('FEROZO_EMAIL');
+        if (!password) faltantes.push('FEROZO_PASSWORD');
+        if (!imapHost) faltantes.push('FEROZO_IMAP_HOST');
+        if (!smtpHost) faltantes.push('FEROZO_SMTP_HOST');
+        console.warn(`[ferozo] IMAP no configurado — listener no arranca. Faltan: ${faltantes.join(', ')}`);
         return;
     }
     if (corriendo) return;
     corriendo = true;
+    console.log(`[ferozo] intentando conectar IMAP a ${imapHost}:${imapPort} como ${email}...`);
 
     async function conectar() {
         cliente = new ImapFlow({
