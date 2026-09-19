@@ -3,7 +3,7 @@
 // Fase 1: solo correo (gratis). WhatsApp se suma cuando el volumen lo justifique.
 
 import { supabase } from '../connectors/supabase.js';
-import { enviarCorreo } from '../connectors/gmail.js';
+import { enviarCorreo } from '../connectors/ferozo.js';
 
 const emailEscalacion = process.env.ESCALACION_EMAIL ?? '';
 

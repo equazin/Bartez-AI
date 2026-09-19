@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { catalogo } from './orchestrator/catalog.js';
 import { enrutar } from './orchestrator/router.js';
 import { supabase } from './connectors/supabase.js';
+import { iniciarInboundCorreo } from './inbound/correo.js';
+import { enviarCorreo, ferozoConfigurado } from './connectors/ferozo.js';
 
 const app = Fastify({ logger: true });
 
@@ -167,11 +169,39 @@ const ResolucionSchema = z.object({
     nota: z.string().optional(),
 });
 
+async function ejecutarAccion(accion: { accion: string; payload: Record<string, unknown> }): Promise<{ ok: boolean; detalle?: string; resultado?: Record<string, unknown> }> {
+    try {
+        if (accion.accion === 'enviar_correo') {
+            const p = accion.payload;
+            const para = String(p.para ?? '');
+            const asunto = String(p.asunto ?? 'Re:');
+            const cuerpo = String(p.cuerpo ?? '');
+            if (!para || !cuerpo) return { ok: false, detalle: 'payload sin para/cuerpo' };
+            if (!ferozoConfigurado) {
+                return { ok: true, detalle: 'ferozo sin configurar — envío simulado', resultado: { simulado: true } };
+            }
+            const info = await enviarCorreo({
+                para,
+                asunto,
+                cuerpo,
+                inReplyTo: p.inReplyTo as string | undefined,
+                references: p.references as string | undefined,
+            });
+            return { ok: true, resultado: { messageId: info.messageId, para } };
+        }
+        // Otros tipos de acción (mandar_whatsapp, crear_notion, etc.) se conectan más adelante
+        return { ok: true, detalle: `tipo "${accion.accion}" sin ejecutor` };
+    } catch (err) {
+        return { ok: false, detalle: (err as Error).message };
+    }
+}
+
 app.post('/acciones/:id/aprobar', async (req, res) => {
     const { id } = req.params as { id: string };
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
+    // Marcar aprobada primero, atómicamente (evita doble ejecución si el user hace clic dos veces)
     const { data, error } = await supabase
         .from('acciones_pendientes')
         .update({
@@ -183,10 +213,16 @@ app.post('/acciones/:id/aprobar', async (req, res) => {
         .eq('estado', 'pendiente')
         .select()
         .single();
-    if (error) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
+    if (error || !data) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
 
-    // TODO: aquí disparar la ejecución real (enviar el correo por Ferozo, etc.)
-    return { accion: data };
+    const ejec = await ejecutarAccion({ accion: data.accion as string, payload: data.payload as Record<string, unknown> });
+    // Registrar el resultado de la ejecución en la misma fila
+    await supabase
+        .from('acciones_pendientes')
+        .update({ respuesta: { ...(data.respuesta ?? {}), ejecucion: ejec } })
+        .eq('id', id);
+
+    return { accion: data, ejecucion: ejec };
 });
 
 app.post('/acciones/:id/editar', async (req, res) => {
@@ -208,10 +244,15 @@ app.post('/acciones/:id/editar', async (req, res) => {
         .eq('estado', 'pendiente')
         .select()
         .single();
-    if (error) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
+    if (error || !data) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
 
-    // TODO: disparar ejecución con el payload editado
-    return { accion: data };
+    const ejec = await ejecutarAccion({ accion: data.accion as string, payload: data.payload as Record<string, unknown> });
+    await supabase
+        .from('acciones_pendientes')
+        .update({ respuesta: { ...(data.respuesta ?? {}), ejecucion: ejec } })
+        .eq('id', id);
+
+    return { accion: data, ejecucion: ejec };
 });
 
 app.post('/acciones/:id/rechazar', async (req, res) => {
@@ -349,6 +390,10 @@ async function main() {
     }
     const port = Number(process.env.PORT ?? 3000);
     await app.listen({ port, host: '0.0.0.0' });
+
+    // Listener IMAP en paralelo (no bloquea el arranque del HTTP server).
+    // Si Ferozo no está configurado, imprime un warning y no hace nada.
+    iniciarInboundCorreo().catch((err) => app.log.error({ err }, 'inbound-correo cayó'));
 }
 
 main().catch((err) => {

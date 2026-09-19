@@ -16,11 +16,15 @@
     "@supabase/supabase-js": "^2.45.0",
     "dotenv": "^16.4.5",
     "fastify": "^5.0.0",
-    "googleapis": "^144.0.0",
+    "imapflow": "^1.0.164",
+    "mailparser": "^3.7.2",
+    "nodemailer": "^6.9.15",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.4.5",
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^6.4.16",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
