@@ -27,14 +27,14 @@ export function Buscar() {
     const [guardado, setGuardado] = useState<Guardado | null>(null);
     const [meta, setMeta] = useState<{ costoUsd: number; tokens: number } | null>(null);
 
-    async function buscar() {
+    async function buscar(modo: 'focal' | 'sweep' = 'focal') {
         setCargando(true);
         setError(undefined);
         setProspectos([]);
         setMeta(null);
         setGuardado(null);
         try {
-            const { resultado, guardado } = await buscarProspectos(foco || undefined);
+            const { resultado, guardado } = await buscarProspectos(foco || undefined, modo);
             const p = (resultado.accionPropuesta?.payload?.prospectos ?? []) as Prospecto[];
             setProspectos(p);
             setGuardado(guardado ?? null);
@@ -59,14 +59,22 @@ export function Buscar() {
                     onChange={(e) => setFoco(e.target.value)}
                     disabled={cargando}
                 />
-                <button onClick={buscar} disabled={cargando}>
+                <button onClick={() => buscar('focal')} disabled={cargando}>
                     {cargando ? 'Buscando…' : 'Buscar prospectos'}
+                </button>
+                <button
+                    onClick={() => buscar('sweep')}
+                    disabled={cargando}
+                    className="prosp-sweep"
+                    title="Barrido nacional: 30-40 prospectos cubriendo todas las regiones. Tarda 3-5 min, ~USD 2."
+                >
+                    {cargando ? '…' : 'Barrido nacional (30+)'}
                 </button>
             </div>
 
             {cargando && (
                 <p className="vacio">
-                    Buscando en la web… puede tardar 30-60 s.
+                    Buscando en la web… búsqueda focal 30-60 s, barrido nacional 3-5 min.
                 </p>
             )}
             {error && <p className="error">Error: {error}</p>}

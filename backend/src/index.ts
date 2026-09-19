@@ -215,7 +215,10 @@ app.post('/clientes/:id/contactar', async (req, res) => {
     }
 });
 
-const ProspeccionSchema = z.object({ foco: z.string().optional() });
+const ProspeccionSchema = z.object({
+    foco: z.string().optional(),
+    modo: z.enum(['focal', 'sweep']).optional(),
+});
 
 app.post('/prospeccion/buscar', async (req, res) => {
     const parseo = ProspeccionSchema.safeParse(req.body ?? {});
@@ -224,16 +227,19 @@ app.post('/prospeccion/buscar', async (req, res) => {
     const asistente = catalogo.obtenerPorArea('prospeccion');
     if (!asistente) return res.status(400).send({ error: 'Asistente Prospección no está activo' });
 
-    const texto = parseo.data.foco ??
-        'Buscá 4 prospectos que encajen con el ICP en Mendoza y alrededores. Priorizá empresas con señales recientes de crecimiento.';
+    const modo = parseo.data.modo ?? 'focal';
+    const texto = parseo.data.foco ?? '';
 
     try {
-        const resultado = await asistente.procesar({ canal: 'panel', texto });
+        const resultado = await asistente.procesar({
+            canal: 'panel',
+            texto,
+            metadata: { modo },
+        });
 
-        // Loguear la corrida en la bitácora
         await supabase.from('logs_asistente').insert({
             asistente_id: asistente.config.id,
-            entrada: { canal: 'panel', foco: parseo.data.foco ?? null },
+            entrada: { canal: 'panel', foco: parseo.data.foco ?? null, modo },
             salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
             tokens_in: resultado.tokensIn,
             tokens_out: resultado.tokensOut,

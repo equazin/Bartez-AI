@@ -37,17 +37,49 @@ export class AsistenteProspeccion implements Asistente {
         const inicio = Date.now();
 
         const prompt = this.config.prompt?.trim() || PROMPT_DEFAULT;
-        const consigna = tarea.texto?.trim() ||
-            'Buscá entre 5 y 8 prospectos que encajen con el ICP. Priorizá empresas con señales recientes de crecimiento IT.';
+        const modo = (tarea.metadata?.modo as string | undefined) === 'sweep' ? 'sweep' : 'focal';
+
+        const consignaBase = tarea.texto?.trim() ||
+            (modo === 'sweep'
+                ? 'Barrido nacional: buscá prospectos IT en todas las regiones del país.'
+                : 'Buscá entre 5 y 8 prospectos que encajen con el ICP. Priorizá empresas con señales recientes de crecimiento IT.');
+
+        const consigna = modo === 'sweep'
+            ? `${consignaBase}
+
+MODO BARRIDO NACIONAL — instrucciones especiales:
+1. Primero planificá mentalmente 5-7 regiones a barrer (ej. AMBA,
+   Litoral, Córdoba/Centro, Cuyo, NOA, NEA, Patagonia) y 2-3 rubros
+   dentro de cada una del ICP.
+2. Hacé una búsqueda web específica por cada combinación región+rubro
+   (ej. "software houses en Córdoba contratando 2026", "metalúrgicas
+   medianas en Rosario expansión", "estudios contables Mendoza").
+3. De cada barrido, quedate con los 2-3 mejores prospectos que cumplan
+   ICP + señal IT clara.
+4. Apuntá a **entre 30 y 40 prospectos totales** cubriendo todo el país.
+   Es un mínimo — si no llegás a 30, hacé más búsquedas en otras
+   regiones o rubros. No devuelvas menos de 30 salvo que sea imposible.
+5. Podés usar hasta 40 búsquedas web. Usalas con criterio, no todas en
+   la misma región/rubro.
+6. NO repitas empresas ya conocidas del ICP obvio (evitá los "sospechosos
+   habituales" tipo Mercado Libre, Globant, Despegar) — apuntá a
+   empresas medianas con señales concretas.
+
+Recordá: sin fabricar emails. Mejor un prospecto real sin email que
+uno inventado. Sin sector público ni bancos.`
+            : consignaBase;
+
+        const maxUses = modo === 'sweep' ? 40 : 20;
+        const maxTokens = modo === 'sweep' ? 16384 : 8192;
 
         try {
             const respuesta = await anthropic.messages.create({
                 model: idModelo(this.config.modelo),
-                max_tokens: 8192,
+                max_tokens: maxTokens,
                 system: prompt,
                 messages: [{ role: 'user', content: consigna }],
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 20 } as any],
+                tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxUses } as any],
             });
 
             // Concatenar todos los bloques de texto de la respuesta

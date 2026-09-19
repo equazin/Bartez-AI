@@ -158,11 +158,13 @@ export async function contactarProspecto(id: string, area: 'correo' | 'whatsapp'
     return res.json();
 }
 
-export async function buscarProspectos(foco?: string): Promise<ResultadoProspeccion> {
+export async function buscarProspectos(foco?: string, modo: 'focal' | 'sweep' = 'focal'): Promise<ResultadoProspeccion> {
+    const body: Record<string, string> = { modo };
+    if (foco) body.foco = foco;
     const res = await fetch(`${BASE}/prospeccion/buscar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(foco ? { foco } : {}),
+        body: JSON.stringify(body),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));

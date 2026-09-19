@@ -551,6 +551,12 @@ textarea.payload.editable {
     cursor: pointer;
 }
 .prosp-form button:disabled { opacity: 0.5; cursor: wait; }
+.prosp-form button.prosp-sweep {
+    background: var(--panel);
+    color: var(--acento);
+    border: 1px solid var(--acento);
+}
+.prosp-form button.prosp-sweep:hover:not(:disabled) { background: var(--acento-soft); }
 .prosp-meta {
     color: var(--sutil);
     font-size: 12px;
