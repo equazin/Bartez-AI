@@ -4,6 +4,7 @@
 
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
 import { supabase } from '../connectors/supabase.js';
+import { actualizarProspectoEnNotion, crearProspectoEnNotion } from './notion_sync.js';
 
 export interface AccionAEjecutar {
     accion: string;
@@ -55,6 +56,8 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
                     .from('clientes')
                     .update({ ultimo_contacto_en: new Date().toISOString(), intentos_contacto: nuevos })
                     .eq('id', clienteId);
+                // Best-effort sync a Notion (no bloqueante).
+                actualizarProspectoEnNotion(clienteId).catch(() => {});
             }
 
             return {
@@ -116,7 +119,7 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
 
         if (existente) { existentes++; continue; }
 
-        const { error } = await supabase
+        const { data: nuevo, error } = await supabase
             .from('clientes')
             .insert({
                 nombre: p.nombre,
@@ -132,9 +135,13 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
                     puntaje_icp: p.puntaje_icp,
                     propuesta_contacto: p.propuesta_contacto,
                 },
-            });
-        if (error) { saltados++; continue; }
+            })
+            .select('id')
+            .single();
+        if (error || !nuevo) { saltados++; continue; }
         creados++;
+        // Best-effort sync a Notion (no bloqueante).
+        crearProspectoEnNotion(nuevo.id).catch(() => {});
     }
 
     return {

@@ -12,6 +12,8 @@ import { supabase } from './connectors/supabase.js';
 import { iniciarInboundCorreo } from './inbound/correo.js';
 import { ejecutarAccion } from './orchestrator/ejecutor.js';
 import { correrBarridoSeguimientos } from './orchestrator/seguimientos.js';
+import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
+import { actualizarProspectoEnNotion, backfillProspectosANotion } from './orchestrator/notion_sync.js';
 
 const app = Fastify({ logger: true });
 
@@ -30,6 +32,17 @@ app.post('/seguimientos/correr', async () => {
     // a las 9 AM AR; este endpoint sirve para testeo o para forzar una revisión.
     const resultado = await correrBarridoSeguimientos();
     return { resultado };
+});
+
+app.post('/notion/bootstrap', async () => {
+    // Crea los databases de Notion si no existen. Idempotente.
+    return await bootstrapNotion();
+});
+
+app.post('/notion/backfill', async () => {
+    // Sincroniza a Notion todos los prospectos que todavía no tienen notion_page_id.
+    // Útil después de configurar Notion por primera vez si ya había prospectos en la Base.
+    return await backfillProspectosANotion();
 });
 
 app.post('/catalogo/recargar', async () => {
@@ -148,6 +161,8 @@ app.patch('/clientes/:id', async (req, res) => {
         .select()
         .single();
     if (error) return res.status(404).send({ error: 'Cliente no encontrado' });
+    // Best-effort sync a Notion.
+    actualizarProspectoEnNotion(id).catch(() => {});
     return { cliente: data };
 });
 
@@ -596,6 +611,21 @@ async function main() {
     } catch (err) {
         app.log.warn({ err }, 'no se pudo cargar catálogo — arrancando vacío');
     }
+
+    // Bootstrap de Notion: crea los databases si no existen. Si NOTION_TOKEN o
+    // NOTION_PARENT_PAGE_ID faltan, avisa y sigue sin romper.
+    if (notionConfigurado) {
+        try {
+            const r = await bootstrapNotion();
+            if (r.ok) app.log.info({ ids: r.ids }, '[notion] listo');
+            else app.log.warn({ detalle: r.detalle }, '[notion] bootstrap falló');
+        } catch (err) {
+            app.log.warn({ err }, '[notion] bootstrap error');
+        }
+    } else {
+        app.log.info('[notion] deshabilitado (NOTION_TOKEN o NOTION_PARENT_PAGE_ID no configurados)');
+    }
+
     const port = Number(process.env.PORT ?? 3000);
     await app.listen({ port, host: '0.0.0.0' });
 
