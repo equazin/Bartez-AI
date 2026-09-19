@@ -6,6 +6,7 @@
 
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import type { Asistente, AsistenteConfig, ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
+import { contextoFecha } from './base.js';
 
 // Fallback mínimo — el prompt real vive en Supabase (asistentes.prompt).
 const PROMPT_DEFAULT = `
@@ -76,7 +77,7 @@ uno inventado. Sin sector público ni bancos.`
             const respuesta = await anthropic.messages.create({
                 model: idModelo(this.config.modelo),
                 max_tokens: maxTokens,
-                system: prompt,
+                system: `${contextoFecha()}\n\n${prompt}`,
                 messages: [{ role: 'user', content: consigna }],
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxUses } as any],

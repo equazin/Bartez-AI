@@ -5,6 +5,27 @@
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import type { Asistente, AsistenteConfig, ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 
+// Bloque de fecha que se inyecta al inicio del system prompt de todos los
+// asistentes. Sin esto, el LLM usa la fecha de su entrenamiento (2024/2025)
+// y mete referencias temporales incorrectas ("el año que viene" para 2026, etc).
+export function contextoFecha(): string {
+    const hoy = new Date();
+    const fecha = hoy.toLocaleDateString('es-AR', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+        timeZone: 'America/Argentina/Buenos_Aires',
+    });
+    const iso = hoy.toISOString().slice(0, 10);
+    return `CONTEXTO TEMPORAL — HOY ES ${fecha} (${iso}).
+Cuando escribas fechas o hagas referencias temporales, usá SIEMPRE
+esta fecha como "hoy". No confíes en tu conocimiento previo de qué año
+es — puede estar desactualizado. Ejemplos correctos si hoy es ${iso}:
+- "marzo 2026" es hace ${Math.max(0, hoy.getMonth() - 2)} meses (pasado, no futuro)
+- "el año que viene" = ${hoy.getFullYear() + 1}
+- "año pasado" = ${hoy.getFullYear() - 1}
+- "en unos meses" o "próximamente" = fechas de ${hoy.getFullYear()} o ${hoy.getFullYear() + 1}
+Verificá cada referencia temporal contra la fecha real antes de escribirla.`;
+}
+
 export abstract class AsistenteBase implements Asistente {
     constructor(public readonly config: AsistenteConfig) {}
 
@@ -39,7 +60,8 @@ export abstract class AsistenteBase implements Asistente {
     }
 
     protected construirSystem(_tarea: TareaEntrante): string {
-        return this.config.prompt || `Sos el asistente de ${this.config.area} de Bartez AI.`;
+        const promptBase = this.config.prompt || `Sos el asistente de ${this.config.area} de Bartez AI.`;
+        return `${contextoFecha()}\n\n${promptBase}`;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
