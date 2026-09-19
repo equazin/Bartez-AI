@@ -86,6 +86,38 @@ export async function actualizarProspectoEnNotion(clienteId: string): Promise<vo
     }
 }
 
+// ---------- Tareas ----------
+
+export interface TareaNueva {
+    titulo: string;
+    fecha_limite?: string | null; // ISO date (YYYY-MM-DD) o null
+    contexto?: string;
+    cliente?: string; // nombre del cliente asociado
+}
+
+export async function crearTareaEnNotion(t: TareaNueva): Promise<void> {
+    if (!notionConfigurado || !notion) return;
+    const dbId = idsNotion().tareas;
+    if (!dbId) return;
+
+    try {
+        await notion.pages.create({
+            parent: { database_id: dbId },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            properties: {
+                'Título': { title: [{ text: { content: t.titulo.slice(0, 200) } }] },
+                'Cliente': { rich_text: chunkText(t.cliente) },
+                'Fecha límite': t.fecha_limite ? { date: { start: t.fecha_limite } } : { date: null },
+                'Estado': { select: { name: 'pendiente' } },
+                'Contexto': { rich_text: chunkText(t.contexto) },
+                'Creada por': { select: { name: 'correo' } },
+            } as any,
+        });
+    } catch (err) {
+        console.warn('[notion-sync] crear tarea falló:', (err as Error).message);
+    }
+}
+
 // Bulk: sincroniza a Notion todos los clientes prospeccion que no tienen notion_page_id.
 // Útil como backfill después de configurar Notion por primera vez.
 export async function backfillProspectosANotion(): Promise<{ creados: number; errores: number }> {

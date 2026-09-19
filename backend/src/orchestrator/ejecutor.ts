@@ -4,7 +4,7 @@
 
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
 import { supabase } from '../connectors/supabase.js';
-import { actualizarProspectoEnNotion, crearProspectoEnNotion } from './notion_sync.js';
+import { actualizarProspectoEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
 
 export interface AccionAEjecutar {
     accion: string;
@@ -60,12 +60,26 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
                 actualizarProspectoEnNotion(clienteId).catch(() => {});
             }
 
+            // Tareas detectadas por el asistente en el correo: se crean en Notion Tareas
+            // best-effort. Si el modelo no detectó nada, el array está vacío.
+            const tareas = Array.isArray(p.tareas) ? (p.tareas as TareaNueva[]) : [];
+            const nombreCliente = (p.nombreCliente as string | undefined) ?? undefined;
+            for (const t of tareas) {
+                if (!t?.titulo) continue;
+                crearTareaEnNotion({
+                    titulo: t.titulo,
+                    fecha_limite: t.fecha_limite ?? null,
+                    contexto: t.contexto,
+                    cliente: nombreCliente,
+                }).catch(() => {});
+            }
+
             return {
                 ok: true,
                 detalle: !ferozoConfigurado ? 'ferozo sin configurar — envío simulado' : undefined,
                 resultado: !ferozoConfigurado
-                    ? { messageId, para, simulado: true }
-                    : { messageId, para },
+                    ? { messageId, para, simulado: true, tareasCreadas: tareas.length }
+                    : { messageId, para, tareasCreadas: tareas.length },
             };
         }
         if (a.accion === 'otra' && a.payload.subtipo === 'prospectos_propuestos') {

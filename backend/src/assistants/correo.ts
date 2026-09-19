@@ -103,6 +103,10 @@ export class AsistenteCorreo extends AsistenteBase {
         const respuesta = (match?.[1] ?? texto).trim();
         if (!respuesta) return undefined;
 
+        // Extraer compromisos: bloque opcional <tareas>[{...}, {...}]</tareas>.
+        // Se persisten después en Notion Tareas cuando se aprueba y ejecuta el correo.
+        const tareas = extraerTareas(texto);
+
         return {
             tipo: 'enviar_correo',
             payload: {
@@ -112,6 +116,8 @@ export class AsistenteCorreo extends AsistenteBase {
                 inReplyTo: tarea.metadata?.messageId as string | undefined,
                 references: tarea.metadata?.messageId as string | undefined,
                 clienteId: tarea.clienteId,
+                nombreCliente: tarea.metadata?.nombreDestino as string | undefined,
+                tareas,
             },
         };
     }
@@ -127,5 +133,33 @@ export class AsistenteCorreo extends AsistenteBase {
 
         // Cualquier otra cosa: sigue la regla estándar de autonomía.
         return this.config.autonomia < 100;
+    }
+}
+
+// Parsea bloque opcional <tareas>[{...}]</tareas> del texto del modelo.
+// Devuelve array vacío si no hay bloque o si el JSON es inválido.
+interface TareaExtractada {
+    titulo: string;
+    fecha_limite?: string | null;
+    contexto?: string;
+}
+function extraerTareas(texto: string): TareaExtractada[] {
+    const m = /<tareas>([\s\S]*?)<\/tareas>/i.exec(texto);
+    if (!m) return [];
+    try {
+        const parsed = JSON.parse(m[1].trim());
+        if (!Array.isArray(parsed)) return [];
+        return parsed
+            .filter((t): t is Record<string, unknown> => typeof t === 'object' && t !== null)
+            .map((t) => ({
+                titulo: String(t.titulo ?? '').trim(),
+                fecha_limite: typeof t.fecha_limite === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.fecha_limite)
+                    ? t.fecha_limite
+                    : null,
+                contexto: typeof t.contexto === 'string' ? t.contexto : undefined,
+            }))
+            .filter((t) => t.titulo.length > 0);
+    } catch {
+        return [];
     }
 }
