@@ -9,12 +9,14 @@ export const anthropic = new Anthropic({ apiKey });
 const MODELO_IDS: Record<ModeloClaude, string> = {
     sonnet: 'claude-sonnet-4-5-20250929',
     haiku: 'claude-haiku-4-5-20251001',
+    opus: 'claude-opus-4-5',
 };
 
 // Precios USD por millón de tokens (input / output) — actualizar cuando cambien.
 const PRECIOS: Record<ModeloClaude, { in: number; out: number }> = {
     sonnet: { in: 3, out: 15 },
     haiku: { in: 1, out: 5 },
+    opus: { in: 15, out: 75 },
 };
 
 export function idModelo(modelo: ModeloClaude): string {

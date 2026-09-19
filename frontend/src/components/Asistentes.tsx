@@ -109,6 +109,7 @@ export function Asistentes() {
                                         >
                                             <option value="sonnet">sonnet</option>
                                             <option value="haiku">haiku</option>
+                                            <option value="opus">opus (5x más caro)</option>
                                         </select>
                                     </label>
                                     <label>

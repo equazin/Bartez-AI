@@ -3,10 +3,12 @@ import {
     AccionPendiente,
     AsistenteEditable,
     LogEntry,
+    Prospecto,
     PuntoSerie,
     listarAcciones,
     listarAsistentes,
     listarLogs,
+    listarProspectos,
     metricasHoy,
     resolverAccion,
     serieMetricas,
@@ -25,7 +27,7 @@ interface MetricaSistema {
     mensajes: number;
 }
 
-type IrA = 'chat' | 'acciones' | 'asistentes' | 'dashboard' | 'bitacora';
+type IrA = 'chat' | 'acciones' | 'asistentes' | 'dashboard' | 'bitacora' | 'prospeccion';
 
 export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [acciones, setAcciones] = useState<AccionPendiente[]>([]);
@@ -34,18 +36,20 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [negocio, setNegocio] = useState<MetricaNegocio | null>(null);
     const [sistema, setSistema] = useState<MetricaSistema[]>([]);
     const [serie, setSerie] = useState<PuntoSerie[]>([]);
+    const [leadsCalientes, setLeadsCalientes] = useState<Prospecto[]>([]);
     const [error, setError] = useState<string>();
     const [resolviendo, setResolviendo] = useState<string | null>(null);
 
     const cargar = useCallback(async () => {
         try {
             setError(undefined);
-            const [ac, as, lg, m, sr] = await Promise.all([
+            const [ac, as, lg, m, sr, pr] = await Promise.all([
                 listarAcciones('pendiente'),
                 listarAsistentes(),
                 listarLogs({ limit: 40 }),
                 metricasHoy(),
                 serieMetricas(7),
+                listarProspectos('lead'),
             ]);
             setAcciones(ac.acciones);
             setAsistentes(as.asistentes);
@@ -53,6 +57,11 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
             setNegocio(m.negocio as MetricaNegocio | null);
             setSistema(m.sistema as MetricaSistema[]);
             setSerie(sr.serie);
+            // Top 5 leads por ICP descendente
+            const top = [...pr.prospectos]
+                .sort((a, b) => (b.metadata?.puntaje_icp ?? 0) - (a.metadata?.puntaje_icp ?? 0))
+                .slice(0, 5);
+            setLeadsCalientes(top);
         } catch (e) {
             setError((e as Error).message);
         }
@@ -301,6 +310,37 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                 </div>
             </div>
 
+            {/* Leads calientes: top prospectos activos por ICP */}
+            {leadsCalientes.length > 0 && (
+                <div className="ops-panel leads-panel">
+                    <div className="ph">
+                        <h4>Leads calientes</h4>
+                        <span className="sub">
+                            top {leadsCalientes.length} por ICP · click para ir a la Base
+                        </span>
+                    </div>
+                    <div className="leads-list">
+                        {leadsCalientes.map((p) => {
+                            const icp = p.metadata?.puntaje_icp ?? 0;
+                            const senial = p.metadata?.senial;
+                            return (
+                                <div key={p.id} className="lead-row" onClick={() => irA('prospeccion')}>
+                                    <div className={`lead-icp icp-${icpClass(icp)}`}>{icp}</div>
+                                    <div className="lead-body">
+                                        <div className="lead-name">{p.nombre}</div>
+                                        {senial && <div className="lead-senial">{senial.slice(0, 100)}{senial.length > 100 ? '…' : ''}</div>}
+                                    </div>
+                                    <div className="lead-mail">{p.email ?? 'sin email'}</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                    <button className="ver-todas" onClick={() => irA('prospeccion')}>
+                        Ver Base completa →
+                    </button>
+                </div>
+            )}
+
             {/* Mid: asistentes + chart */}
             <div className="ops-mid">
                 <div className="ops-panel">
@@ -478,6 +518,11 @@ function haceCuanto(iso: string): string {
     const h = Math.floor(min / 60);
     if (h < 24) return `${h} h`;
     return `${Math.floor(h / 24)} días`;
+}
+function icpClass(n: number): 'alta' | 'media' | 'baja' {
+    if (n >= 8) return 'alta';
+    if (n >= 5) return 'media';
+    return 'baja';
 }
 function slugArea(nombre: string | null): string {
     if (!nombre) return '';

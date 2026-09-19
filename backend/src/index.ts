@@ -23,6 +23,14 @@ const TareaSchema = z.object({
 
 app.get('/health', async () => ({ ok: true }));
 
+app.post('/catalogo/recargar', async () => {
+    // Fuerza recarga del catálogo desde Supabase — útil cuando se edita un prompt
+    // por SQL directo (no por PATCH /asistentes), ya que en ese caso el catálogo
+    // en memoria queda desactualizado.
+    await catalogo.cargar();
+    return { ok: true, cargados: catalogo.listarActivos().length };
+});
+
 app.get('/asistentes', async () => {
     // Lee TODOS los asistentes del catálogo (activos y dormidos) para el editor
     const { data, error } = await supabase
@@ -36,7 +44,7 @@ app.get('/asistentes', async () => {
 
 const AsistenteUpdateSchema = z.object({
     prompt: z.string().optional(),
-    modelo: z.enum(['sonnet', 'haiku']).optional(),
+    modelo: z.enum(['sonnet', 'haiku', 'opus']).optional(),
     autonomia: z.number().int().min(0).max(100).optional(),
     activo: z.boolean().optional(),
 });

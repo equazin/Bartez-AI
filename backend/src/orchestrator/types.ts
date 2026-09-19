@@ -1,6 +1,6 @@
 // Tipos compartidos del orquestador y los asistentes.
 
-export type ModeloClaude = 'sonnet' | 'haiku';
+export type ModeloClaude = 'sonnet' | 'haiku' | 'opus';
 
 export interface AsistenteConfig {
     id: string;

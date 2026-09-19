@@ -206,7 +206,7 @@ export interface AsistenteEditable {
     id: string;
     nombre: string;
     area: string;
-    modelo: 'sonnet' | 'haiku';
+    modelo: 'sonnet' | 'haiku' | 'opus';
     prompt: string;
     autonomia: number;
     activo: boolean;

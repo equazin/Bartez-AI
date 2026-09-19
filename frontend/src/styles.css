@@ -988,6 +988,37 @@ textarea.payload.editable {
 .ops-panel .ph h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--texto); }
 .ops-panel .ph .sub { color: var(--sutil); font-size: 11px; font-family: "SF Mono", Menlo, monospace; }
 
+/* Leads calientes */
+.leads-panel { margin-bottom: 14px; }
+.leads-list { display: flex; flex-direction: column; gap: 6px; }
+.lead-row {
+    display: grid;
+    grid-template-columns: 44px 1fr 200px;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 12px;
+    border: 1px solid var(--borde-soft);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+}
+.lead-row:hover { background: var(--acento-soft); border-color: var(--acento); }
+.lead-icp {
+    display: flex; align-items: center; justify-content: center;
+    width: 40px; height: 32px; border-radius: 4px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 13px; font-weight: 700;
+}
+.lead-icp.icp-alta { background: #e6f7ef; color: var(--ok); }
+.lead-icp.icp-media { background: var(--alerta-soft); color: var(--alerta); }
+.lead-icp.icp-baja { background: #f4f5f8; color: var(--sutil); }
+.lead-name { font-weight: 600; color: var(--texto); font-size: 13px; }
+.lead-senial { color: var(--sutil); font-size: 11px; margin-top: 2px; }
+.lead-mail {
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px; color: var(--sutil);
+    text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* Asistentes grid */
 .a-grid {
     display: grid;
