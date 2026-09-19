@@ -78,19 +78,25 @@ export class AsistenteCorreo extends AsistenteBase {
         // En el panel no proponemos "enviar_correo" — es una charla con el operador.
         if (tarea.canal === 'panel') return undefined;
 
-        const respuesta = /<respuesta>([\s\S]*?)<\/respuesta>/i.exec(texto)?.[1]?.trim();
-        const destinatario = /<destinatario>([\s\S]*?)<\/destinatario>/i.exec(texto)?.[1]?.trim();
+        // El destinatario NUNCA lo decide el LLM — sale del correo entrante que nos llegó por IMAP.
+        // Así evitamos alucinaciones tipo "[email del remitente]".
+        const para = (tarea.metadata?.emailDestino as string | undefined)?.trim();
+        if (!para) return undefined;
 
-        if (!respuesta || !destinatario) return undefined;
+        // Extraer respuesta del LLM: primero busca <respuesta>...</respuesta>, si no está
+        // usa todo el texto (fallback por si el asistente olvidó el tag).
+        const match = /<respuesta>([\s\S]*?)<\/respuesta>/i.exec(texto);
+        const respuesta = (match?.[1] ?? texto).trim();
+        if (!respuesta) return undefined;
 
         return {
             tipo: 'enviar_correo',
             payload: {
-                para: destinatario,
+                para,
                 asunto: (tarea.metadata?.asuntoOriginal as string) ?? 'Re:',
                 cuerpo: respuesta,
                 inReplyTo: tarea.metadata?.messageId as string | undefined,
-                threadId: tarea.metadata?.threadId as string | undefined,
+                references: tarea.metadata?.messageId as string | undefined,
             },
         };
     }

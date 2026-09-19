@@ -255,6 +255,33 @@ app.post('/acciones/:id/editar', async (req, res) => {
     return { accion: data, ejecucion: ejec };
 });
 
+app.post('/acciones/:id/reintentar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = ResolucionSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .select('id, accion, payload, respuesta')
+        .eq('id', id)
+        .in('estado', ['aprobada', 'editada'])
+        .single();
+    if (error || !data) return res.status(404).send({ error: 'Acción no aprobada o inexistente' });
+
+    // Aplicar overrides del payload editado si vinieron
+    const payload = parseo.data.payload ? { ...(data.payload as Record<string, unknown>), ...parseo.data.payload } : (data.payload as Record<string, unknown>);
+    const ejec = await ejecutarAccion({ accion: data.accion as string, payload });
+    await supabase
+        .from('acciones_pendientes')
+        .update({
+            payload,
+            respuesta: { ...(data.respuesta ?? {}), ejecucion: ejec, reintento_en: new Date().toISOString() },
+        })
+        .eq('id', id);
+
+    return { accion: data, ejecucion: ejec };
+});
+
 app.post('/acciones/:id/rechazar', async (req, res) => {
     const { id } = req.params as { id: string };
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
