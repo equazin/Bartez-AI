@@ -158,6 +158,22 @@ export async function contactarProspecto(id: string, area: 'correo' | 'whatsapp'
     return res.json();
 }
 
+export interface ResultadoBarrido {
+    revisados: number;
+    generados: number;
+    errores: string[];
+    duracion_ms: number;
+}
+
+export async function correrSeguimientos(): Promise<{ resultado: ResultadoBarrido }> {
+    const res = await fetch(`${BASE}/seguimientos/correr`, { method: 'POST' });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export async function buscarProspectos(foco?: string, modo: 'focal' | 'sweep' = 'focal'): Promise<ResultadoProspeccion> {
     const body: Record<string, string> = { modo };
     if (foco) body.foco = foco;

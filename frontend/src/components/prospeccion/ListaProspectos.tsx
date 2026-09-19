@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { actualizarCliente, contactarProspecto, listarProspectos, Prospecto } from '../../api/client.ts';
+import { actualizarCliente, contactarProspecto, correrSeguimientos, listarProspectos, Prospecto } from '../../api/client.ts';
 
 type Estado = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado';
 
@@ -82,6 +82,22 @@ export function ListaProspectos() {
                     />
                 </div>
                 <button className="secundario" onClick={cargar}>Actualizar</button>
+                <button
+                    className="secundario"
+                    disabled={ocupado === 'seguimientos'}
+                    title="Corre el barrido de seguimientos ahora. Normalmente corre solo a las 9 AM."
+                    onClick={async () => {
+                        setOcupado('seguimientos');
+                        setMensaje(null);
+                        try {
+                            const { resultado } = await correrSeguimientos();
+                            setMensaje(`✓ Barrido: ${resultado.revisados} revisados, ${resultado.generados} follow-ups generados (van a Acciones).`);
+                        } catch (e) { setError((e as Error).message); }
+                        finally { setOcupado(null); }
+                    }}
+                >
+                    {ocupado === 'seguimientos' ? 'Corriendo…' : 'Correr seguimientos'}
+                </button>
             </div>
 
             {error && <p className="error">{error}</p>}

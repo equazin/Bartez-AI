@@ -6,6 +6,7 @@ import type { Asistente, AsistenteConfig } from '../orchestrator/types.js';
 import { AsistenteCorreo } from './correo.js';
 import { AsistenteNotion } from './notion.js';
 import { AsistenteProspeccion } from './prospeccion.js';
+import { AsistenteSeguimientos } from './seguimientos.js';
 
 type Factory = (config: AsistenteConfig) => Asistente;
 
@@ -14,6 +15,7 @@ export function registrarAsistentes(): Map<string, Factory> {
     m.set('correo', (c) => new AsistenteCorreo(c));
     m.set('notion', (c) => new AsistenteNotion(c));
     m.set('prospeccion', (c) => new AsistenteProspeccion(c));
-    // seguimientos, whatsapp, analitica → se agregan cuando estén sus clases
+    m.set('seguimientos', (c) => new AsistenteSeguimientos(c));
+    // whatsapp, analitica → se agregan cuando estén sus clases
     return m;
 }

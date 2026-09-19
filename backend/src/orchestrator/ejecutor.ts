@@ -24,17 +24,46 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
             const asunto = String(p.asunto ?? 'Re:');
             const cuerpo = String(p.cuerpo ?? '');
             if (!para || !cuerpo) return { ok: false, detalle: 'payload sin para/cuerpo' };
+            const clienteId = (p.clienteId as string | undefined) ?? null;
+
+            let messageId: string | undefined;
             if (!ferozoConfigurado) {
-                return { ok: true, detalle: 'ferozo sin configurar — envío simulado', resultado: { simulado: true } };
+                messageId = 'simulado';
+            } else {
+                const info = await enviarCorreo({
+                    para,
+                    asunto,
+                    cuerpo,
+                    inReplyTo: p.inReplyTo as string | undefined,
+                    references: p.references as string | undefined,
+                });
+                messageId = info.messageId;
             }
-            const info = await enviarCorreo({
-                para,
-                asunto,
-                cuerpo,
-                inReplyTo: p.inReplyTo as string | undefined,
-                references: p.references as string | undefined,
-            });
-            return { ok: true, resultado: { messageId: info.messageId, para } };
+
+            // Trackeo de contacto: si sabemos qué cliente es (viene de Contactar o
+            // de Seguimientos), actualizamos ultimo_contacto_en y sumamos 1 al
+            // contador de intentos. Sirve para que el asistente de Seguimientos
+            // decida cuándo volver a insistir.
+            if (clienteId) {
+                const { data: actual } = await supabase
+                    .from('clientes')
+                    .select('intentos_contacto')
+                    .eq('id', clienteId)
+                    .maybeSingle();
+                const nuevos = (actual?.intentos_contacto ?? 0) + 1;
+                await supabase
+                    .from('clientes')
+                    .update({ ultimo_contacto_en: new Date().toISOString(), intentos_contacto: nuevos })
+                    .eq('id', clienteId);
+            }
+
+            return {
+                ok: true,
+                detalle: !ferozoConfigurado ? 'ferozo sin configurar — envío simulado' : undefined,
+                resultado: !ferozoConfigurado
+                    ? { messageId, para, simulado: true }
+                    : { messageId, para },
+            };
         }
         if (a.accion === 'otra' && a.payload.subtipo === 'prospectos_propuestos') {
             return await ejecutarProspectos(a.payload);

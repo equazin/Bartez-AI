@@ -111,6 +111,7 @@ export class AsistenteCorreo extends AsistenteBase {
                 cuerpo: respuesta,
                 inReplyTo: tarea.metadata?.messageId as string | undefined,
                 references: tarea.metadata?.messageId as string | undefined,
+                clienteId: tarea.clienteId,
             },
         };
     }

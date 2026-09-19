@@ -4,12 +4,14 @@
 import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cron from 'node-cron';
 import { z } from 'zod';
 import { catalogo } from './orchestrator/catalog.js';
 import { enrutar } from './orchestrator/router.js';
 import { supabase } from './connectors/supabase.js';
 import { iniciarInboundCorreo } from './inbound/correo.js';
 import { ejecutarAccion } from './orchestrator/ejecutor.js';
+import { correrBarridoSeguimientos } from './orchestrator/seguimientos.js';
 
 const app = Fastify({ logger: true });
 
@@ -22,6 +24,13 @@ const TareaSchema = z.object({
 });
 
 app.get('/health', async () => ({ ok: true }));
+
+app.post('/seguimientos/correr', async () => {
+    // Dispara el barrido a demanda. En condiciones normales corre solo por cron
+    // a las 9 AM AR; este endpoint sirve para testeo o para forzar una revisión.
+    const resultado = await correrBarridoSeguimientos();
+    return { resultado };
+});
 
 app.post('/catalogo/recargar', async () => {
     // Fuerza recarga del catálogo desde Supabase — útil cuando se edita un prompt
@@ -593,6 +602,19 @@ async function main() {
     // Listener IMAP en paralelo (no bloquea el arranque del HTTP server).
     // Si Ferozo no está configurado, imprime un warning y no hace nada.
     iniciarInboundCorreo().catch((err) => app.log.error({ err }, 'inbound-correo cayó'));
+
+    // Cron diario a las 9 AM hora Argentina (UTC-3) → barrido de seguimientos.
+    // Genera acciones pendientes para todos los leads sin respuesta hace >=7 días.
+    cron.schedule('0 9 * * *', async () => {
+        app.log.info('[cron] arrancando barrido de seguimientos');
+        try {
+            const r = await correrBarridoSeguimientos();
+            app.log.info({ r }, '[cron] barrido de seguimientos terminado');
+        } catch (err) {
+            app.log.error({ err }, '[cron] barrido de seguimientos falló');
+        }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
+    app.log.info('[cron] barrido de seguimientos programado 09:00 AR (todos los días)');
 }
 
 main().catch((err) => {
