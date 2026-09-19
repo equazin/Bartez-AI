@@ -67,11 +67,24 @@ Formato de tu respuesta (obligatorio, respetá los tags):
 <destinatario>email del cliente</destinatario>
 `.trim();
 
+// Categorías que se pueden autoresponder si la autonomía lo permite.
+// El resto (cotizacion_detalle, queja, soporte, otro) SIEMPRE requiere aprobación.
+const CATEGORIAS_AUTORESPONDIBLES = new Set(['consulta_simple', 'cotizacion_vaga']);
+
 export class AsistenteCorreo extends AsistenteBase {
     protected override construirSystem(tarea: TareaEntrante): string {
         // Desde el panel el operador está chateando con su copiloto — otro modo.
         if (tarea.canal === 'panel') return PROMPT_PANEL;
-        return this.config.prompt?.trim() || PROMPT_DEFAULT;
+
+        const base = this.config.prompt?.trim() || PROMPT_DEFAULT;
+        const clasif = (tarea.metadata?.clasificacion as { categoria?: string; razon?: string } | undefined);
+
+        // Si viene con clasificación, la inyecto como hint al asistente para que
+        // ajuste su respuesta (ej. cotizacion_vaga → foco en pedir datos).
+        if (clasif?.categoria) {
+            return `${base}\n\n---\nContexto de este correo (según clasificador previo):\n- Categoría: ${clasif.categoria}\n- Motivo: ${clasif.razon ?? '(sin motivo)'}\n\nSi la categoría es "cotizacion_vaga", tu respuesta debe centrarse en pedir los datos que faltan para armar una propuesta real (uso, cantidad, especificaciones, presupuesto, plazo).`;
+        }
+        return base;
     }
 
     protected override extraerAccion(texto: string, tarea: TareaEntrante): ResultadoAsistente['accionPropuesta'] {
@@ -99,5 +112,18 @@ export class AsistenteCorreo extends AsistenteBase {
                 references: tarea.metadata?.messageId as string | undefined,
             },
         };
+    }
+
+    protected override decidirAprobacion(_accion: NonNullable<ResultadoAsistente['accionPropuesta']>, tarea: TareaEntrante): boolean {
+        // Queja o cotización con detalle → SIEMPRE aprobación (por más autonomía que haya).
+        const clasif = tarea.metadata?.clasificacion as { categoria?: string } | undefined;
+        const cat = clasif?.categoria ?? '';
+        if (cat === 'queja' || cat === 'cotizacion_detalle') return true;
+
+        // Consulta simple o cotización vaga: si la autonomía es >= 50, autoresponde.
+        if (CATEGORIAS_AUTORESPONDIBLES.has(cat) && this.config.autonomia >= 50) return false;
+
+        // Cualquier otra cosa: sigue la regla estándar de autonomía.
+        return this.config.autonomia < 100;
     }
 }

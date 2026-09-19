@@ -7,6 +7,7 @@ import { catalogo } from './catalog.js';
 import { bitacora } from '../logging/bitacora.js';
 import { escalar } from '../escalation/humano.js';
 import { supabase } from '../connectors/supabase.js';
+import { ejecutarAccion } from './ejecutor.js';
 import type { TareaEntrante, ResultadoAsistente } from './types.js';
 
 export interface ResultadoRuteo extends ResultadoAsistente {
@@ -45,13 +46,33 @@ export async function enrutar(tarea: TareaEntrante): Promise<ResultadoRuteo> {
             duracionMs: resultado.duracionMs,
         });
 
-        if (resultado.requiereAprobacion && resultado.accionPropuesta) {
-            await escalar({
-                asistenteId: asistente.config.id,
-                conversacionId,
-                accion: resultado.accionPropuesta.tipo,
-                payload: resultado.accionPropuesta.payload,
-            });
+        if (resultado.accionPropuesta) {
+            if (resultado.requiereAprobacion) {
+                // Requiere humano: va a acciones_pendientes y avisa
+                await escalar({
+                    asistenteId: asistente.config.id,
+                    conversacionId,
+                    accion: resultado.accionPropuesta.tipo,
+                    payload: resultado.accionPropuesta.payload,
+                });
+            } else {
+                // Autonomía suficiente: ejecutar directo (correo autoresponder, etc.)
+                const ejec = await ejecutarAccion({
+                    accion: resultado.accionPropuesta.tipo,
+                    payload: resultado.accionPropuesta.payload,
+                });
+                console.log(`[router] autoejecutada acción "${resultado.accionPropuesta.tipo}" → ${ejec.ok ? 'ok' : 'error: ' + ejec.detalle}`);
+                // Registrar como "aprobada por el sistema" en acciones_pendientes para trazabilidad
+                await supabase.from('acciones_pendientes').insert({
+                    asistente_id: asistente.config.id,
+                    conversacion_id: conversacionId,
+                    accion: resultado.accionPropuesta.tipo,
+                    payload: resultado.accionPropuesta.payload,
+                    estado: ejec.ok ? 'aprobada' : 'pendiente',
+                    respuesta: { por: 'sistema', autonomia: asistente.config.autonomia, ejecucion: ejec },
+                    resuelto_en: ejec.ok ? new Date().toISOString() : null,
+                });
+            }
         }
 
         return { ...resultado, conversacionId };

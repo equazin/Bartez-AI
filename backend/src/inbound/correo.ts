@@ -6,6 +6,7 @@
 import { supabase } from '../connectors/supabase.js';
 import { CorreoEntrante, iniciarListener } from '../connectors/ferozo.js';
 import { enrutar } from '../orchestrator/router.js';
+import { clasificarCorreo } from './clasificador.js';
 
 async function buscarOCrearCliente(emailCliente: string, nombre?: string): Promise<string | null> {
     // Buscar cliente existente por email
@@ -54,6 +55,24 @@ async function buscarConversacionAbierta(clienteId: string, threadRef?: string):
 async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
     console.log(`[inbound-correo] correo de ${c.de}: "${c.asunto}"`);
 
+    // 1. Clasificar primero — filtra spam/newsletter/informativo antes de gastar en el asistente principal
+    const asistenteCorreoId = await idAsistente('correo');
+    const clasificacion = await clasificarCorreo({
+        asunto: c.asunto,
+        cuerpo: c.cuerpo,
+        de: c.de,
+        asistenteId: asistenteCorreoId ?? undefined,
+    });
+
+    console.log(`[inbound-correo] categoría: ${clasificacion.categoria} (${clasificacion.prioridad}) — ${clasificacion.razon}`);
+
+    if (clasificacion.ignorable) {
+        // Descartado: no crear cliente ni conversación. Log y listo.
+        console.log(`[inbound-correo] ignorado por categoría "${clasificacion.categoria}"`);
+        return;
+    }
+
+    // 2. Crear/reusar cliente y conversación
     const clienteId = await buscarOCrearCliente(c.de, c.deNombre);
     if (!clienteId) {
         console.warn('[inbound-correo] descartado, sin cliente');
@@ -62,7 +81,7 @@ async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
 
     const conversacionId = (await buscarConversacionAbierta(clienteId, c.inReplyTo)) ?? undefined;
 
-    // Construir el texto que ve el asistente (asunto + cuerpo, formato tipo correo)
+    // 3. Enrutar al asistente principal con la clasificación en la metadata
     const texto = `Asunto: ${c.asunto}\n\n${c.cuerpo.slice(0, 4000)}`;
 
     try {
@@ -77,11 +96,21 @@ async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
                 asuntoOriginal: c.asunto.startsWith('Re:') ? c.asunto : `Re: ${c.asunto}`,
                 emailDestino: c.de,
                 nombreDestino: c.deNombre,
+                clasificacion: {
+                    categoria: clasificacion.categoria,
+                    prioridad: clasificacion.prioridad,
+                    razon: clasificacion.razon,
+                },
             },
         });
     } catch (err) {
         console.error('[inbound-correo] error enrutando:', err);
     }
+}
+
+async function idAsistente(area: string): Promise<string | null> {
+    const { data } = await supabase.from('asistentes').select('id').eq('area', area).maybeSingle();
+    return (data?.id as string) ?? null;
 }
 
 export async function iniciarInboundCorreo(): Promise<void> {

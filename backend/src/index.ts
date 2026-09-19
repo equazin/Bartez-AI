@@ -9,7 +9,7 @@ import { catalogo } from './orchestrator/catalog.js';
 import { enrutar } from './orchestrator/router.js';
 import { supabase } from './connectors/supabase.js';
 import { iniciarInboundCorreo } from './inbound/correo.js';
-import { enviarCorreo, ferozoConfigurado } from './connectors/ferozo.js';
+import { ejecutarAccion } from './orchestrator/ejecutor.js';
 
 const app = Fastify({ logger: true });
 
@@ -168,33 +168,6 @@ const ResolucionSchema = z.object({
     payload: z.record(z.unknown()).optional(), // solo cuando estado="editada": el payload editado
     nota: z.string().optional(),
 });
-
-async function ejecutarAccion(accion: { accion: string; payload: Record<string, unknown> }): Promise<{ ok: boolean; detalle?: string; resultado?: Record<string, unknown> }> {
-    try {
-        if (accion.accion === 'enviar_correo') {
-            const p = accion.payload;
-            const para = String(p.para ?? '');
-            const asunto = String(p.asunto ?? 'Re:');
-            const cuerpo = String(p.cuerpo ?? '');
-            if (!para || !cuerpo) return { ok: false, detalle: 'payload sin para/cuerpo' };
-            if (!ferozoConfigurado) {
-                return { ok: true, detalle: 'ferozo sin configurar — envío simulado', resultado: { simulado: true } };
-            }
-            const info = await enviarCorreo({
-                para,
-                asunto,
-                cuerpo,
-                inReplyTo: p.inReplyTo as string | undefined,
-                references: p.references as string | undefined,
-            });
-            return { ok: true, resultado: { messageId: info.messageId, para } };
-        }
-        // Otros tipos de acción (mandar_whatsapp, crear_notion, etc.) se conectan más adelante
-        return { ok: true, detalle: `tipo "${accion.accion}" sin ejecutor` };
-    } catch (err) {
-        return { ok: false, detalle: (err as Error).message };
-    }
-}
 
 app.post('/acciones/:id/aprobar', async (req, res) => {
     const { id } = req.params as { id: string };
