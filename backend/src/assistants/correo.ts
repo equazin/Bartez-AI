@@ -4,6 +4,7 @@
 
 import { AsistenteBase, contextoFecha } from './base.js';
 import type { ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
+import { buscarEnCatalogo } from '../orchestrator/notion_sync.js';
 
 const PROMPT_PANEL = `
 Estás hablando con el operador de Bartez Tecnología (el dueño) desde el
@@ -72,7 +73,7 @@ Formato de tu respuesta (obligatorio, respetá los tags):
 const CATEGORIAS_AUTORESPONDIBLES = new Set(['consulta_simple', 'cotizacion_vaga']);
 
 export class AsistenteCorreo extends AsistenteBase {
-    protected override construirSystem(tarea: TareaEntrante): string {
+    protected override async construirSystem(tarea: TareaEntrante): Promise<string> {
         const fecha = contextoFecha();
         // Desde el panel el operador está chateando con su copiloto — otro modo.
         if (tarea.canal === 'panel') return `${fecha}\n\n${PROMPT_PANEL}`;
@@ -80,12 +81,34 @@ export class AsistenteCorreo extends AsistenteBase {
         const base = this.config.prompt?.trim() || PROMPT_DEFAULT;
         const clasif = (tarea.metadata?.clasificacion as { categoria?: string; razon?: string } | undefined);
 
-        // Si viene con clasificación, la inyecto como hint al asistente para que
-        // ajuste su respuesta (ej. cotizacion_vaga → foco en pedir datos).
+        // Bloque de contexto que se suma al system prompt. Empieza con la
+        // clasificación y puede incluir items del catálogo (Fase 3D).
+        const extra: string[] = [];
+
         if (clasif?.categoria) {
-            return `${fecha}\n\n${base}\n\n---\nContexto de este correo (según clasificador previo):\n- Categoría: ${clasif.categoria}\n- Motivo: ${clasif.razon ?? '(sin motivo)'}\n\nSi la categoría es "cotizacion_vaga", tu respuesta debe centrarse en pedir los datos que faltan para armar una propuesta real (uso, cantidad, especificaciones, presupuesto, plazo).`;
+            extra.push(
+                `---\nContexto de este correo (según clasificador previo):\n- Categoría: ${clasif.categoria}\n- Motivo: ${clasif.razon ?? '(sin motivo)'}\n\nSi la categoría es "cotizacion_vaga", tu respuesta debe centrarse en pedir los datos que faltan para armar una propuesta real (uso, cantidad, especificaciones, presupuesto, plazo).`,
+            );
         }
-        return `${fecha}\n\n${base}`;
+
+        // Fase 3D — catálogo bidireccional: si la categoría huele a cotización,
+        // extraer términos del correo y buscar en el catálogo de Notion. Los items
+        // matcheados se pasan como referencia al asistente (best-effort).
+        const cat = clasif?.categoria ?? '';
+        if (cat === 'cotizacion_vaga' || cat === 'cotizacion_detalle') {
+            const terminos = extraerTerminosParaCatalogo(tarea.texto);
+            if (terminos.length > 0) {
+                const items = await buscarEnCatalogo(terminos, 8);
+                if (items.length > 0) {
+                    const bloque = items.map((i) => `- ${i.nombre}${i.detalle ? ' — ' + i.detalle : ''}`).join('\n');
+                    extra.push(
+                        `---\nCATÁLOGO — items relacionados encontrados en Notion (usalos como referencia real, no inventes stock/precio):\n${bloque}\n\nSi vas a mencionar productos específicos en tu respuesta, sacalos de esta lista o pedí más precisión sobre cuál. Nunca inventes items que no aparezcan acá.`,
+                    );
+                }
+            }
+        }
+
+        return `${fecha}\n\n${base}${extra.length > 0 ? '\n\n' + extra.join('\n\n') : ''}`;
     }
 
     protected override extraerAccion(texto: string, tarea: TareaEntrante): ResultadoAsistente['accionPropuesta'] {
@@ -107,6 +130,8 @@ export class AsistenteCorreo extends AsistenteBase {
         // Se persisten después en Notion Tareas cuando se aprueba y ejecuta el correo.
         const tareas = extraerTareas(texto);
 
+        const clasif = tarea.metadata?.clasificacion as { categoria?: string; razon?: string } | undefined;
+
         return {
             tipo: 'enviar_correo',
             payload: {
@@ -118,6 +143,9 @@ export class AsistenteCorreo extends AsistenteBase {
                 clienteId: tarea.clienteId,
                 nombreCliente: tarea.metadata?.nombreDestino as string | undefined,
                 tareas,
+                categoria: clasif?.categoria,
+                motivoClasif: clasif?.razon,
+                textoEntrante: tarea.texto?.slice(0, 2000),
             },
         };
     }
@@ -143,6 +171,36 @@ interface TareaExtractada {
     fecha_limite?: string | null;
     contexto?: string;
 }
+// Extrae 3-5 términos del correo entrante que sirvan como keywords para buscar
+// en el catálogo de Notion. Simple heurística: palabras alfabéticas de 4+ chars
+// no comunes, priorizando sustantivos técnicos.
+const STOPWORDS = new Set([
+    'hola', 'gracias', 'saludos', 'para', 'sobre', 'como', 'cuando', 'donde', 'cuanto', 'cuales',
+    'necesito', 'necesitamos', 'quiero', 'queremos', 'consulta', 'pedido', 'presupuesto',
+    'informacion', 'información', 'atentamente', 'cordial', 'buenas', 'buenos', 'tardes', 'dias',
+    'días', 'noches', 'estimado', 'estimada', 'empresa', 'consulta', 'sobre', 'sobre',
+    'contacto', 'muchas', 'muchos', 'mucho', 'poder', 'podria', 'podría', 'quisiera',
+    'bartez', 'tecnología', 'tecnologia', 'ustedes', 'nosotros', 'nuestro', 'nuestra',
+]);
+function extraerTerminosParaCatalogo(texto: string): string[] {
+    if (!texto) return [];
+    const palabras = texto
+        .toLowerCase()
+        .replace(/[^\wáéíóúñü\s-]/g, ' ')
+        .split(/\s+/)
+        .filter((p) => p.length >= 4 && !STOPWORDS.has(p) && !/^\d+$/.test(p));
+    // Dedupe manteniendo orden de aparición
+    const vistos = new Set<string>();
+    const out: string[] = [];
+    for (const p of palabras) {
+        if (vistos.has(p)) continue;
+        vistos.add(p);
+        out.push(p);
+        if (out.length >= 5) break;
+    }
+    return out;
+}
+
 function extraerTareas(texto: string): TareaExtractada[] {
     const m = /<tareas>([\s\S]*?)<\/tareas>/i.exec(texto);
     if (!m) return [];

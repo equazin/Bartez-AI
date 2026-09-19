@@ -35,7 +35,7 @@ export abstract class AsistenteBase implements Asistente {
         const respuesta = await anthropic.messages.create({
             model: idModelo(this.config.modelo),
             max_tokens: 1024,
-            system: this.construirSystem(tarea),
+            system: await this.construirSystem(tarea),
             messages: [{ role: 'user', content: tarea.texto }],
         });
 
@@ -59,7 +59,7 @@ export abstract class AsistenteBase implements Asistente {
         };
     }
 
-    protected construirSystem(_tarea: TareaEntrante): string {
+    protected async construirSystem(_tarea: TareaEntrante): Promise<string> {
         const promptBase = this.config.prompt || `Sos el asistente de ${this.config.area} de Bartez AI.`;
         return `${contextoFecha()}\n\n${promptBase}`;
     }

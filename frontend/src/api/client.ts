@@ -176,6 +176,25 @@ export interface ResultadoNotionAgent {
     detalle?: string;
 }
 
+export async function registrarCatalogoNotion(databaseId: string): Promise<{ ok: boolean; catalogo_id: string }> {
+    const res = await fetch(`${BASE}/notion/catalogo/registrar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ database_id: databaseId }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
+export async function estadoCatalogoNotion(): Promise<{ registrado: boolean; id: string | null }> {
+    const res = await fetch(`${BASE}/notion/catalogo`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
 export async function organizarNotion(): Promise<{ resultado: ResultadoNotionAgent }> {
     const res = await fetch(`${BASE}/notion/organizar`, { method: 'POST' });
     if (!res.ok) {

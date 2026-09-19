@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { actualizarCliente, contactarProspecto, correrSeguimientos, listarProspectos, organizarNotion, Prospecto } from '../../api/client.ts';
+import { actualizarCliente, contactarProspecto, correrSeguimientos, listarProspectos, organizarNotion, registrarCatalogoNotion, Prospecto } from '../../api/client.ts';
 
 type Estado = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado';
 
@@ -113,6 +113,33 @@ export function ListaProspectos() {
                     }}
                 >
                     {ocupado === 'notion' ? 'Organizando…' : 'Reorganizar Notion'}
+                </button>
+                <button
+                    className="secundario"
+                    disabled={ocupado === 'catalogo'}
+                    title="Registrar el database de Notion donde tenés tu catálogo de productos. Se usa cuando el asistente Correo redacta cotizaciones."
+                    onClick={async () => {
+                        const url = window.prompt(
+                            'Pegá la URL o el ID del database "Catálogo" en Notion.\n\n' +
+                            'Requisitos: debe tener columna "Nombre" (title) y la integración Bartez AI debe estar conectada a él.',
+                        );
+                        if (!url) return;
+                        // Extraer ID hex de 32 chars de la URL o aceptar el ID directo.
+                        const match = url.match(/[0-9a-f]{32}/i);
+                        if (!match) {
+                            setError('No pude extraer un ID válido de esa URL. Pegá el ID hexadecimal de 32 caracteres.');
+                            return;
+                        }
+                        setOcupado('catalogo');
+                        setMensaje(null);
+                        try {
+                            await registrarCatalogoNotion(match[0]);
+                            setMensaje(`✓ Catálogo registrado. Desde ahora el asistente Correo lo consulta al redactar cotizaciones.`);
+                        } catch (e) { setError((e as Error).message); }
+                        finally { setOcupado(null); }
+                    }}
+                >
+                    Registrar catálogo Notion
                 </button>
             </div>
 

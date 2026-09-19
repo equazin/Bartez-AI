@@ -13,7 +13,7 @@ import { iniciarInboundCorreo } from './inbound/correo.js';
 import { ejecutarAccion } from './orchestrator/ejecutor.js';
 import { correrBarridoSeguimientos } from './orchestrator/seguimientos.js';
 import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
-import { actualizarProspectoEnNotion, backfillProspectosANotion } from './orchestrator/notion_sync.js';
+import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
 
 const app = Fastify({ logger: true });
@@ -52,6 +52,21 @@ app.post('/notion/pedir', async (req, res) => {
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
     const r = await correrNotionAgent(parseo.data.texto);
     return { resultado: r };
+});
+
+const CatalogoRegistrarSchema = z.object({ database_id: z.string().min(20) });
+app.post('/notion/catalogo/registrar', async (req, res) => {
+    const parseo = CatalogoRegistrarSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    // Normalizar: aceptar tanto UUID con guiones como sin guiones.
+    const id = parseo.data.database_id.replace(/-/g, '').trim();
+    await guardarCatalogoDbId(id);
+    return { ok: true, catalogo_id: id };
+});
+
+app.get('/notion/catalogo', async () => {
+    const id = await catalogoDbId();
+    return { registrado: Boolean(id), id };
 });
 
 app.post('/notion/organizar', async () => {

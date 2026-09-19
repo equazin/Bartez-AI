@@ -4,7 +4,9 @@
 
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
 import { supabase } from '../connectors/supabase.js';
-import { actualizarProspectoEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
+import { actualizarProspectoEnNotion, crearNotaEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
+
+const CATEGORIAS_A_NOTA = new Set(['queja', 'cotizacion_detalle', 'soporte']);
 
 export interface AccionAEjecutar {
     accion: string;
@@ -70,6 +72,24 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
                     titulo: t.titulo,
                     fecha_limite: t.fecha_limite ?? null,
                     contexto: t.contexto,
+                    cliente: nombreCliente,
+                }).catch(() => {});
+            }
+
+            // Fase 3C — nota de caso complejo: si la categoría del correo entrante
+            // fue queja / cotización con detalle / soporte, dejamos un snapshot en
+            // Notion Notas con el contexto (texto entrante recortado + qué se
+            // respondió). Sirve para tener referencia después.
+            const categoria = p.categoria as 'queja' | 'cotizacion_detalle' | 'soporte' | undefined;
+            if (categoria && CATEGORIAS_A_NOTA.has(categoria)) {
+                const asunto = String(p.asunto ?? 'Caso');
+                const textoEntrante = String(p.textoEntrante ?? '');
+                const motivo = p.motivoClasif ? `\nMotivo (clasificador): ${p.motivoClasif}\n` : '\n';
+                const contextoNota = `Correo entrante:\n${textoEntrante.slice(0, 800)}\n${motivo}\nRespuesta enviada:\n${cuerpo.slice(0, 800)}`;
+                crearNotaEnNotion({
+                    titulo: `${categoria} — ${asunto.slice(0, 100)}`,
+                    categoria,
+                    contexto: contextoNota,
                     cliente: nombreCliente,
                 }).catch(() => {});
             }
