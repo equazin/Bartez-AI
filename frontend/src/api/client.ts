@@ -90,6 +90,31 @@ export interface MetricaNegocioInput {
     notas?: string;
 }
 
+export interface ResultadoProspeccion {
+    resultado: {
+        respuesta: string;
+        requiereAprobacion: boolean;
+        accionPropuesta?: { tipo: string; payload: Record<string, unknown> };
+        tokensIn: number;
+        tokensOut: number;
+        costoUsd: number;
+        duracionMs: number;
+    };
+}
+
+export async function buscarProspectos(foco?: string): Promise<ResultadoProspeccion> {
+    const res = await fetch(`${BASE}/prospeccion/buscar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(foco ? { foco } : {}),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export async function guardarMetricasNegocio(m: MetricaNegocioInput): Promise<void> {
     const res = await fetch(`${BASE}/metricas/negocio/hoy`, {
         method: 'POST',

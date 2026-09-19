@@ -74,6 +74,49 @@ app.post('/tareas', async (req, res) => {
     return { resultado };
 });
 
+const ProspeccionSchema = z.object({ foco: z.string().optional() });
+
+app.post('/prospeccion/buscar', async (req, res) => {
+    const parseo = ProspeccionSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+
+    const asistente = catalogo.obtenerPorArea('prospeccion');
+    if (!asistente) return res.status(400).send({ error: 'Asistente Prospección no está activo' });
+
+    const texto = parseo.data.foco ??
+        'Buscá 4 prospectos que encajen con el ICP en Mendoza y alrededores. Priorizá empresas con señales recientes de crecimiento.';
+
+    try {
+        const resultado = await asistente.procesar({ canal: 'panel', texto });
+
+        // Loguear la corrida en la bitácora
+        await supabase.from('logs_asistente').insert({
+            asistente_id: asistente.config.id,
+            entrada: { canal: 'panel', foco: parseo.data.foco ?? null },
+            salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
+            tokens_in: resultado.tokensIn,
+            tokens_out: resultado.tokensOut,
+            costo_usd: resultado.costoUsd,
+            duracion_ms: resultado.duracionMs,
+        });
+
+        // Si trajo prospectos, encola la acción como pendiente
+        // (al aprobar vas a crear clientes + acciones de primer contacto)
+        if (resultado.accionPropuesta) {
+            await supabase.from('acciones_pendientes').insert({
+                asistente_id: asistente.config.id,
+                accion: resultado.accionPropuesta.tipo,
+                payload: resultado.accionPropuesta.payload,
+                estado: 'pendiente',
+            });
+        }
+
+        return { resultado };
+    } catch (err) {
+        return res.status(500).send({ error: (err as Error).message });
+    }
+});
+
 app.get('/metricas/serie', async (req) => {
     const query = req.query as { dias?: string };
     const dias = Math.min(Math.max(Number(query.dias ?? 7), 1), 90);

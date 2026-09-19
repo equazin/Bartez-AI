@@ -511,6 +511,114 @@ textarea.payload.editable {
 }
 .log-bloque-error { color: #e57373; }
 
+/* ========== Prospección ========== */
+.prospeccion {
+    background: var(--panel);
+    border: 1px solid var(--borde);
+    border-radius: 8px;
+    padding: 20px;
+}
+.prospeccion h2 {
+    margin: 0;
+    font-size: 15px;
+    color: var(--sutil);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.prosp-form {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    margin-bottom: 14px;
+}
+.prosp-form input {
+    flex: 1;
+    background: #fff;
+    color: var(--texto);
+    border: 1px solid var(--borde);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font: inherit;
+    font-size: 13px;
+}
+.prosp-form button {
+    background: var(--acento);
+    color: #fff;
+    border: 0;
+    padding: 8px 18px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.prosp-form button:disabled { opacity: 0.5; cursor: wait; }
+.prosp-meta {
+    color: var(--sutil);
+    font-size: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    padding: 8px 12px;
+    background: var(--acento-soft);
+    border-radius: 4px;
+    margin-bottom: 12px;
+}
+.prosp-card {
+    background: var(--bg);
+    border: 1px solid var(--borde);
+    border-radius: 6px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+.prosp-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+.prosp-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.prosp-web { color: var(--acento); font-size: 12px; text-decoration: none; }
+.prosp-web:hover { text-decoration: underline; }
+.icp {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.icp-alta { background: rgba(16, 163, 127, 0.15); color: var(--ok); }
+.icp-media { background: var(--acento-soft); color: var(--acento); }
+.icp-baja { background: var(--borde-soft); color: var(--sutil); }
+.prosp-senial, .prosp-razon, .prosp-email {
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 4px 0;
+}
+.prosp-email.sin { color: var(--sutil); font-style: italic; }
+.prosp-card details { margin-top: 8px; font-size: 13px; }
+.prosp-card summary { cursor: pointer; color: var(--acento); font-size: 12px; }
+.prosp-propuesta {
+    background: #fff;
+    border: 1px solid var(--borde);
+    padding: 10px 12px;
+    border-radius: 4px;
+    font-family: inherit;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-top: 8px;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.prosp-info {
+    color: var(--sutil);
+    font-size: 12px;
+    padding: 10px 12px;
+    background: var(--borde-soft);
+    border-radius: 4px;
+    margin-top: 12px;
+    text-align: center;
+}
+
 /* ========== HOME · Ops Executive ========== */
 .ops {
     display: flex;

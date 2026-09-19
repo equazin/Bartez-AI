@@ -5,13 +5,15 @@ import { Dashboard } from './components/Dashboard.tsx';
 import { Acciones } from './components/Acciones.tsx';
 import { Asistentes } from './components/Asistentes.tsx';
 import { Bitacora } from './components/Bitacora.tsx';
+import { Prospeccion } from './components/Prospeccion.tsx';
 
-type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora';
+type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'home', label: 'Inicio' },
     { id: 'chat', label: 'Chat' },
     { id: 'acciones', label: 'Acciones' },
+    { id: 'prospeccion', label: 'Prospección' },
     { id: 'asistentes', label: 'Asistentes' },
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'bitacora', label: 'Bitácora' },
@@ -40,6 +42,7 @@ export function App() {
                 {tab === 'home' && <Home irA={(t) => setTab(t as Tab)} />}
                 {tab === 'chat' && <Chat />}
                 {tab === 'acciones' && <Acciones />}
+                {tab === 'prospeccion' && <Prospeccion />}
                 {tab === 'asistentes' && <Asistentes />}
                 {tab === 'dashboard' && <Dashboard />}
                 {tab === 'bitacora' && <Bitacora />}
