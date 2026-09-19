@@ -104,6 +104,7 @@ export interface ResultadoProspeccion {
         creados?: number;
         existentes?: number;
         saltados?: number;
+        sin_email?: number;
         total?: number;
     };
 }

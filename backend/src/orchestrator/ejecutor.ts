@@ -50,11 +50,14 @@ interface ProspectoRaw {
     nombre: string;
     email?: string | null;
     sitio_web?: string;
+    fuente_email?: string;
     razon?: string;
     señal?: string;
     puntaje_icp?: number;
     propuesta_contacto?: string;
 }
+
+const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function ejecutarProspectos(payload: Record<string, unknown>): Promise<ResultadoEjecucion> {
     const prospectos = Array.isArray(payload.prospectos) ? (payload.prospectos as ProspectoRaw[]) : [];
@@ -63,16 +66,22 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
     let creados = 0;
     let existentes = 0;
     let saltados = 0;
+    let sin_email = 0;
 
     for (const p of prospectos) {
         if (!p.nombre) { saltados++; continue; }
 
-        // Dedupe por email si hay, sino por nombre
-        const filtro = p.email ? { email: p.email } : { nombre: p.nombre };
+        // Excluyente: sin email verificable no lo persistimos — no lo podemos contactar.
+        const email = p.email?.trim().toLowerCase();
+        if (!email || !RE_EMAIL.test(email)) {
+            sin_email++;
+            continue;
+        }
+
         const { data: existente } = await supabase
             .from('clientes')
             .select('id')
-            .match(filtro)
+            .eq('email', email)
             .maybeSingle();
 
         if (existente) { existentes++; continue; }
@@ -81,25 +90,24 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
             .from('clientes')
             .insert({
                 nombre: p.nombre,
-                email: p.email ?? null,
+                email,
                 origen: 'prospeccion',
                 estado: 'lead',
                 metadata: {
                     sitio_web: p.sitio_web,
+                    fuente_email: p.fuente_email,
                     senial: p.señal,
                     razon_prospeccion: p.razon,
                     puntaje_icp: p.puntaje_icp,
-                    propuesta_contacto: p.propuesta_contacto, // guardamos la propuesta como referencia
+                    propuesta_contacto: p.propuesta_contacto,
                 },
             });
         if (error) { saltados++; continue; }
         creados++;
     }
 
-    // NOTA: ya no generamos acciones de primer contacto automáticamente.
-    // El operador revisa la Base y decide a cuáles contactar con el botón dedicado.
     return {
         ok: true,
-        resultado: { creados, existentes, saltados, total: prospectos.length },
+        resultado: { creados, existentes, saltados, sin_email, total: prospectos.length },
     };
 }
