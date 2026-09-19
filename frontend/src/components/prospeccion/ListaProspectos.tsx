@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { actualizarCliente, contactarProspecto, correrSeguimientos, listarProspectos, Prospecto } from '../../api/client.ts';
+import { actualizarCliente, contactarProspecto, correrSeguimientos, listarProspectos, organizarNotion, Prospecto } from '../../api/client.ts';
 
 type Estado = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado';
 
@@ -97,6 +97,22 @@ export function ListaProspectos() {
                     }}
                 >
                     {ocupado === 'seguimientos' ? 'Corriendo…' : 'Correr seguimientos'}
+                </button>
+                <button
+                    className="secundario"
+                    disabled={ocupado === 'notion'}
+                    title="Pide al asistente Notion que revise y reorganice la página raíz con los datos actuales."
+                    onClick={async () => {
+                        setOcupado('notion');
+                        setMensaje(null);
+                        try {
+                            const { resultado } = await organizarNotion();
+                            setMensaje(`✓ Notion: ${resultado.respuesta.slice(0, 200)} (${resultado.tools_llamadas} acciones · USD ${resultado.costo_usd.toFixed(4)})`);
+                        } catch (e) { setError((e as Error).message); }
+                        finally { setOcupado(null); }
+                    }}
+                >
+                    {ocupado === 'notion' ? 'Organizando…' : 'Reorganizar Notion'}
                 </button>
             </div>
 

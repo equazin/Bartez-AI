@@ -14,6 +14,7 @@ import { ejecutarAccion } from './orchestrator/ejecutor.js';
 import { correrBarridoSeguimientos } from './orchestrator/seguimientos.js';
 import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion } from './orchestrator/notion_sync.js';
+import { correrNotionAgent } from './orchestrator/notion_agent.js';
 
 const app = Fastify({ logger: true });
 
@@ -43,6 +44,27 @@ app.post('/notion/backfill', async () => {
     // Sincroniza a Notion todos los prospectos que todavía no tienen notion_page_id.
     // Útil después de configurar Notion por primera vez si ya había prospectos en la Base.
     return await backfillProspectosANotion();
+});
+
+const NotionPedirSchema = z.object({ texto: z.string().min(1) });
+app.post('/notion/pedir', async (req, res) => {
+    const parseo = NotionPedirSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    const r = await correrNotionAgent(parseo.data.texto);
+    return { resultado: r };
+});
+
+app.post('/notion/organizar', async () => {
+    // Consigna default: que el asistente diseñe/organice la página raíz.
+    const consigna =
+        'Organizá la página raíz de Bartez AI para que sea un centro de operaciones útil. ' +
+        'Primero leé qué hay hoy. Después consultá los 3 databases para saber cuánto hay ' +
+        '(prospectos, tareas pendientes, notas). Armá una portada útil: un header, un callout ' +
+        'con qué es esto, secciones con quick access a cada database, un resumen del estado ' +
+        'actual con las stats reales, y un bloque con tips de uso del sistema. ' +
+        'Si ya hay contenido, no dupliques — actualizá o complementá lo que corresponda.';
+    const r = await correrNotionAgent(consigna, 15);
+    return { resultado: r };
 });
 
 app.post('/catalogo/recargar', async () => {
@@ -613,12 +635,38 @@ async function main() {
     }
 
     // Bootstrap de Notion: crea los databases si no existen. Si NOTION_TOKEN o
-    // NOTION_PARENT_PAGE_ID faltan, avisa y sigue sin romper.
+    // NOTION_PARENT_PAGE_ID faltan, avisa y sigue sin romper. Primera vez que
+    // termina OK, dispara el agent para que organice la página raíz por sí solo.
     if (notionConfigurado) {
         try {
             const r = await bootstrapNotion();
-            if (r.ok) app.log.info({ ids: r.ids }, '[notion] listo');
-            else app.log.warn({ detalle: r.detalle }, '[notion] bootstrap falló');
+            if (r.ok) {
+                app.log.info({ ids: r.ids }, '[notion] listo');
+                // Auto-organizar la página la primera vez (marca guardada en integraciones_config).
+                const { data: flag } = await supabase
+                    .from('integraciones_config')
+                    .select('valor')
+                    .eq('clave', 'notion_agent_primer_organizado')
+                    .maybeSingle();
+                if (!flag) {
+                    app.log.info('[notion] primer arranque — disparando agent para organizar la página raíz');
+                    correrNotionAgent(
+                        'Es tu primera vez organizando esta página. Está recién creada, solo tiene los 3 databases sin contexto. Diseñá la portada como creas mejor: header con nombre, callout de bienvenida/contexto, sección de módulos con links a los 3 databases, sección de estado actual (consultá los DBs para stats reales — hoy es normal que tareas y notas estén vacías, prospectos ya tiene algunos), y una sección de tips de uso.',
+                        15,
+                    )
+                        .then(async (res) => {
+                            app.log.info({ tools: res.tools_llamadas, costo: res.costo_usd }, '[notion] agent primer organizado terminó');
+                            await supabase.from('integraciones_config').upsert({
+                                clave: 'notion_agent_primer_organizado',
+                                valor: new Date().toISOString(),
+                                actualizado_en: new Date().toISOString(),
+                            });
+                        })
+                        .catch((err) => app.log.warn({ err }, '[notion] agent primer organizado falló'));
+                }
+            } else {
+                app.log.warn({ detalle: r.detalle }, '[notion] bootstrap falló');
+            }
         } catch (err) {
             app.log.warn({ err }, '[notion] bootstrap error');
         }

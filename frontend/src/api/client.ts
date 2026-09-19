@@ -165,6 +165,39 @@ export interface ResultadoBarrido {
     duracion_ms: number;
 }
 
+export interface ResultadoNotionAgent {
+    ok: boolean;
+    respuesta: string;
+    tools_llamadas: number;
+    tokens_in: number;
+    tokens_out: number;
+    costo_usd: number;
+    duracion_ms: number;
+    detalle?: string;
+}
+
+export async function organizarNotion(): Promise<{ resultado: ResultadoNotionAgent }> {
+    const res = await fetch(`${BASE}/notion/organizar`, { method: 'POST' });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
+export async function pedirANotion(texto: string): Promise<{ resultado: ResultadoNotionAgent }> {
+    const res = await fetch(`${BASE}/notion/pedir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export async function correrSeguimientos(): Promise<{ resultado: ResultadoBarrido }> {
     const res = await fetch(`${BASE}/seguimientos/correr`, { method: 'POST' });
     if (!res.ok) {
