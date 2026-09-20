@@ -6,8 +6,9 @@ import { Acciones } from './components/Acciones.tsx';
 import { Asistentes } from './components/Asistentes.tsx';
 import { Bitacora } from './components/Bitacora.tsx';
 import { Prospeccion } from './components/Prospeccion.tsx';
+import { Analitica } from './components/Analitica.tsx';
 
-type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion';
+type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'home', label: 'Inicio' },
@@ -16,6 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
     { id: 'prospeccion', label: 'Prospección' },
     { id: 'asistentes', label: 'Asistentes' },
     { id: 'dashboard', label: 'Dashboard' },
+    { id: 'analitica', label: 'Analítica' },
     { id: 'bitacora', label: 'Bitácora' },
 ];
 
@@ -45,6 +47,7 @@ export function App() {
                 {tab === 'prospeccion' && <Prospeccion />}
                 {tab === 'asistentes' && <Asistentes />}
                 {tab === 'dashboard' && <Dashboard />}
+                {tab === 'analitica' && <Analitica />}
                 {tab === 'bitacora' && <Bitacora />}
             </main>
         </div>

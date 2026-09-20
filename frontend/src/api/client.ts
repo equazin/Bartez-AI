@@ -217,6 +217,50 @@ export async function pedirANotion(texto: string): Promise<{ resultado: Resultad
     return res.json();
 }
 
+export interface PropuestaAnalitica {
+    tipo: 'ajuste_prompt' | 'cambio_modelo' | 'ajuste_autonomia' | 'proceso' | 'otro';
+    asistente?: string;
+    titulo: string;
+    razon: string;
+    accion_sugerida: string;
+}
+
+export interface InformeAnalitica {
+    id: string;
+    periodo_desde: string;
+    periodo_hasta: string;
+    resumen_md: string;
+    propuestas: PropuestaAnalitica[];
+    stats: Record<string, unknown>;
+    tokens_in?: number;
+    tokens_out?: number;
+    costo_usd: number;
+    notion_page_id: string | null;
+    email_enviado: boolean;
+    creado_en: string;
+}
+
+export async function listarInformesAnalitica(): Promise<{ informes: InformeAnalitica[] }> {
+    const res = await fetch(`${BASE}/analitica/informes`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function obtenerInformeAnalitica(id: string): Promise<{ informe: InformeAnalitica }> {
+    const res = await fetch(`${BASE}/analitica/informes/${id}`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function correrAnaliticaAhora(dias = 7): Promise<{ resultado: InformeAnalitica }> {
+    const res = await fetch(`${BASE}/analitica/correr?dias=${dias}`, { method: 'POST' });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export async function correrSeguimientos(): Promise<{ resultado: ResultadoBarrido }> {
     const res = await fetch(`${BASE}/seguimientos/correr`, { method: 'POST' });
     if (!res.ok) {

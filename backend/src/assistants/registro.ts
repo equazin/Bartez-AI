@@ -7,6 +7,7 @@ import { AsistenteCorreo } from './correo.js';
 import { AsistenteNotion } from './notion.js';
 import { AsistenteProspeccion } from './prospeccion.js';
 import { AsistenteSeguimientos } from './seguimientos.js';
+import { AsistenteAnalitica } from './analitica.js';
 
 type Factory = (config: AsistenteConfig) => Asistente;
 
@@ -16,6 +17,7 @@ export function registrarAsistentes(): Map<string, Factory> {
     m.set('notion', (c) => new AsistenteNotion(c));
     m.set('prospeccion', (c) => new AsistenteProspeccion(c));
     m.set('seguimientos', (c) => new AsistenteSeguimientos(c));
-    // whatsapp, analitica → se agregan cuando estén sus clases
+    m.set('analitica', (c) => new AsistenteAnalitica(c));
+    // whatsapp → se agrega cuando esté su clase
     return m;
 }

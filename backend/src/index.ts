@@ -15,6 +15,7 @@ import { correrBarridoSeguimientos } from './orchestrator/seguimientos.js';
 import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
+import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 
 const app = Fastify({ logger: true });
 
@@ -67,6 +68,26 @@ app.post('/notion/catalogo/registrar', async (req, res) => {
 app.get('/notion/catalogo', async () => {
     const id = await catalogoDbId();
     return { registrado: Boolean(id), id };
+});
+
+app.post('/analitica/correr', async (req) => {
+    // Corre el barrido de Analítica ya. En producción corre solo cada lunes 8 AM AR.
+    const q = (req.query as { dias?: string }) ?? {};
+    const dias = Math.min(Math.max(Number(q.dias ?? 7), 1), 60);
+    const r = await correrAnalitica(dias);
+    return { resultado: r };
+});
+
+app.get('/analitica/informes', async () => {
+    const informes = await listarReportes(30);
+    return { informes };
+});
+
+app.get('/analitica/informes/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const informe = await obtenerReporte(id);
+    if (!informe) return res.status(404).send({ error: 'Informe no encontrado' });
+    return { informe };
 });
 
 app.post('/notion/organizar', async () => {
@@ -708,6 +729,18 @@ async function main() {
         }
     }, { timezone: 'America/Argentina/Buenos_Aires' });
     app.log.info('[cron] barrido de seguimientos programado 09:00 AR (todos los días)');
+
+    // Cron semanal — lunes 8 AM AR — informe de Analítica.
+    cron.schedule('0 8 * * 1', async () => {
+        app.log.info('[cron] arrancando informe semanal de Analítica');
+        try {
+            const r = await correrAnalitica(7);
+            app.log.info({ costo: r.costo_usd, propuestas: r.propuestas.length, email: r.email_enviado, notion: !!r.notion_page_id }, '[cron] informe Analítica listo');
+        } catch (err) {
+            app.log.error({ err }, '[cron] informe Analítica falló');
+        }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
+    app.log.info('[cron] informe Analítica programado lunes 08:00 AR (semanal)');
 }
 
 main().catch((err) => {
