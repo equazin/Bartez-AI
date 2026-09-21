@@ -6,9 +6,10 @@ import {
     detalleEmpresaSeguimiento,
     generarInformeCliente,
     listarEmpresasSeguimiento,
+    promoverContactoDetectado,
 } from '../api/client.ts';
 
-type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos';
+type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
 
 export function Seguimientos() {
     const [empresas, setEmpresas] = useState<EmpresaSeguimiento[]>([]);
@@ -86,7 +87,7 @@ export function Seguimientos() {
                             onChange={(e) => setBusqueda(e.target.value)}
                         />
                         <div className="chips">
-                            {(['todos', 'lead', 'cliente', 'con_correos', 'inactivo', 'descartado'] as EstadoFiltro[]).map((f) => (
+                            {(['todos', 'lead', 'cliente', 'con_correos', 'detectado', 'inactivo', 'descartado'] as EstadoFiltro[]).map((f) => (
                                 <span key={f} className={filtro === f ? 'chip on' : 'chip'} onClick={() => setFiltro(f)}>
                                     {f === 'con_correos' ? 'Con correos' : f}
                                 </span>
@@ -138,9 +139,32 @@ export function Seguimientos() {
                                         )}
                                     </div>
                                 </div>
-                                <button className="primario" onClick={pedirInforme} disabled={generandoInforme}>
-                                    {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}
-                                </button>
+                                {seleccionada.cliente.estado === 'detectado' ? (
+                                    <button
+                                        className="primario"
+                                        onClick={async () => {
+                                            const dom = (seleccionada.cliente.metadata as { dominio?: string } | null)?.dominio ?? seleccionada.cliente.nombre;
+                                            const nombre = window.prompt('Nombre de la empresa para crear el prospecto:', dom);
+                                            if (!nombre) return;
+                                            const emailsDetectados = (seleccionada.cliente.metadata as { emails_detectados?: string[] } | null)?.emails_detectados ?? [];
+                                            const emailDefault = emailsDetectados[0] ?? '';
+                                            const email = window.prompt('Email principal (podés dejar vacío):', emailDefault);
+                                            try {
+                                                const r = await promoverContactoDetectado(dom, nombre, email || null);
+                                                alert(`✓ Prospecto creado (${r.vinculados} correos re-vinculados). Recargando lista.`);
+                                                await cargar();
+                                                setSeleccionadaId(null);
+                                                setSeleccionada(null);
+                                            } catch (e) { setError((e as Error).message); }
+                                        }}
+                                    >
+                                        Convertir en prospecto
+                                    </button>
+                                ) : (
+                                    <button className="primario" onClick={pedirInforme} disabled={generandoInforme}>
+                                        {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}
+                                    </button>
+                                )}
                             </div>
 
                             {seleccionada.cliente.metadata?.senial && (

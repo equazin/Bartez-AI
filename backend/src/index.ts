@@ -18,7 +18,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
-import { detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento } from './orchestrator/informe_cliente.js';
+import { detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
 const app = Fastify({ logger: true });
 
@@ -159,9 +159,32 @@ app.get('/seguimientos/empresas', async () => {
 
 app.get('/seguimientos/empresas/:id', async (req, res) => {
     const { id } = req.params as { id: string };
+    // ID sintético "det:<dominio>" para contactos detectados que aún no son clientes.
+    if (id.startsWith('det:')) {
+        const dominio = id.slice(4);
+        const detalle = await detalleContactoDetectado(dominio);
+        return detalle;
+    }
     const detalle = await detalleEmpresa(id);
     if (!detalle) return res.status(404).send({ error: 'Empresa no encontrada' });
     return detalle;
+});
+
+const PromoverSchema = z.object({
+    dominio: z.string().min(3),
+    nombre: z.string().min(1),
+    email: z.string().email().nullable().optional(),
+});
+app.post('/seguimientos/promover', async (req, res) => {
+    const parseo = PromoverSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    const r = await promoverContactoDetectado({
+        dominio: parseo.data.dominio,
+        nombre: parseo.data.nombre,
+        email: parseo.data.email ?? null,
+    });
+    if (!r.ok) return res.status(500).send({ error: r.detalle });
+    return r;
 });
 
 app.post('/seguimientos/empresas/:id/informe', async (req, res) => {

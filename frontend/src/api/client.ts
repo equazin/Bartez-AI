@@ -267,7 +267,7 @@ export interface EmpresaSeguimiento {
     id: string;
     nombre: string;
     email: string | null;
-    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'detectado';
     origen: string;
     creado_en: string;
     actualizado_en: string;
@@ -278,11 +278,15 @@ export interface EmpresaSeguimiento {
         senial?: string;
         razon_prospeccion?: string;
         puntaje_icp?: number;
+        dominio?: string;
+        emails_detectados?: string[];
     } | null;
+    tipo: 'cliente' | 'detectado';
     correos_totales: number;
     correos_entrantes: number;
     correos_salientes: number;
     ultimo_correo_en: string | null;
+    dominio?: string;
 }
 
 export interface CorreoHistorico {
@@ -329,6 +333,19 @@ export async function listarEmpresasSeguimiento(): Promise<{ empresas: EmpresaSe
 export async function detalleEmpresaSeguimiento(id: string): Promise<DetalleEmpresa> {
     const res = await fetch(`${BASE}/seguimientos/empresas/${id}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function promoverContactoDetectado(dominio: string, nombre: string, email: string | null): Promise<{ ok: boolean; cliente: { id: string; nombre: string }; vinculados: number }> {
+    const res = await fetch(`${BASE}/seguimientos/promover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dominio, nombre, email }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
     return res.json();
 }
 

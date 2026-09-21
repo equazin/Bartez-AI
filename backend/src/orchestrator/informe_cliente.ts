@@ -128,20 +128,26 @@ export async function generarInformeCliente(clienteId: string): Promise<InformeC
 
 // Lista todos los clientes con datos agregados de seguimiento (cantidad de
 // correos, última fecha, estado, ICP). Un mini índice para la vista.
+//
+// Además incluye "contactos detectados": dominios/emails que aparecen en
+// correos_historicos con cliente_id=null (no matchearon ni por email ni por
+// dominio con ningún cliente). Se muestran como items con estado 'detectado'
+// para que el operador pueda promoverlos a prospecto.
 export async function listarEmpresasParaSeguimiento() {
     const { data: clientes } = await supabase
         .from('clientes')
         .select('id, nombre, email, estado, origen, creado_en, actualizado_en, intentos_contacto, ultimo_contacto_en, metadata')
         .order('actualizado_en', { ascending: false })
-        .limit(200);
-    if (!clientes) return [];
+        .limit(300);
 
     // Sumar cantidad de correos históricos por cliente
-    const ids = clientes.map((c) => c.id);
-    const { data: correos } = await supabase
-        .from('correos_historicos')
-        .select('cliente_id, fecha, direccion')
-        .in('cliente_id', ids);
+    const ids = (clientes ?? []).map((c) => c.id);
+    const { data: correos } = ids.length > 0
+        ? await supabase
+            .from('correos_historicos')
+            .select('cliente_id, fecha, direccion')
+            .in('cliente_id', ids)
+        : { data: [] };
 
     const stats = new Map<string, { correos: number; ultimo_correo: string | null; entrantes: number; salientes: number }>();
     for (const c of correos ?? []) {
@@ -154,13 +160,145 @@ export async function listarEmpresasParaSeguimiento() {
         stats.set(cid, acc);
     }
 
-    return clientes.map((c) => ({
+    // También matchear por dominio para prospectos ya cargados: si tienen
+    // dominio, sumar los correos huérfanos que compartan dominio a sus stats.
+    const dominioACliente = new Map<string, string>();
+    for (const c of clientes ?? []) {
+        const email = (c.email as string | null)?.toLowerCase();
+        const dom = email && email.includes('@') ? email.split('@')[1] : null;
+        if (dom && !dominioACliente.has(dom)) dominioACliente.set(dom, c.id);
+    }
+    const { data: correosHuerfanos } = await supabase
+        .from('correos_historicos')
+        .select('de_email, para_email, direccion, dominio, fecha, asunto')
+        .is('cliente_id', null);
+
+    const sueltosPorDominio = new Map<string, { correos: number; ultimo: string | null; entrantes: number; salientes: number; ejemplos: Set<string> }>();
+    for (const c of correosHuerfanos ?? []) {
+        const dom = (c.dominio as string | null) || null;
+        if (!dom) continue;
+        // Si el dominio corresponde a un cliente existente, sumamos a sus stats
+        const cid = dominioACliente.get(dom);
+        if (cid) {
+            const acc = stats.get(cid) ?? { correos: 0, ultimo_correo: null, entrantes: 0, salientes: 0 };
+            acc.correos++;
+            if (c.direccion === 'entrante') acc.entrantes++;
+            else acc.salientes++;
+            const fecha = c.fecha as string;
+            if (!acc.ultimo_correo || fecha > acc.ultimo_correo) acc.ultimo_correo = fecha;
+            stats.set(cid, acc);
+            continue;
+        }
+        // Dominio sin cliente: agrupamos como "detectado"
+        const acc = sueltosPorDominio.get(dom) ?? { correos: 0, ultimo: null, entrantes: 0, salientes: 0, ejemplos: new Set<string>() };
+        acc.correos++;
+        if (c.direccion === 'entrante') acc.entrantes++;
+        else acc.salientes++;
+        const fecha = c.fecha as string;
+        if (!acc.ultimo || fecha > acc.ultimo) acc.ultimo = fecha;
+        const emailContra = c.direccion === 'entrante' ? (c.de_email as string | null) : (c.para_email as string | null);
+        if (emailContra && acc.ejemplos.size < 3) acc.ejemplos.add(emailContra);
+        sueltosPorDominio.set(dom, acc);
+    }
+
+    const empresasClientes = (clientes ?? []).map((c) => ({
         ...c,
+        tipo: 'cliente' as const,
         correos_totales: stats.get(c.id)?.correos ?? 0,
         correos_entrantes: stats.get(c.id)?.entrantes ?? 0,
         correos_salientes: stats.get(c.id)?.salientes ?? 0,
         ultimo_correo_en: stats.get(c.id)?.ultimo_correo ?? null,
     }));
+
+    // Contactos detectados: dominios sin cliente. El id es sintético "det:<dominio>".
+    const detectados = Array.from(sueltosPorDominio.entries())
+        .filter(([, v]) => v.correos > 0)
+        .sort((a, b) => b[1].correos - a[1].correos)
+        .slice(0, 200)
+        .map(([dom, v]) => ({
+            id: `det:${dom}`,
+            nombre: dom,
+            email: Array.from(v.ejemplos)[0] ?? null,
+            estado: 'detectado' as const,
+            origen: 'correo',
+            creado_en: v.ultimo ?? new Date().toISOString(),
+            actualizado_en: v.ultimo ?? new Date().toISOString(),
+            intentos_contacto: null,
+            ultimo_contacto_en: null,
+            metadata: { emails_detectados: Array.from(v.ejemplos) },
+            tipo: 'detectado' as const,
+            correos_totales: v.correos,
+            correos_entrantes: v.entrantes,
+            correos_salientes: v.salientes,
+            ultimo_correo_en: v.ultimo,
+            dominio: dom,
+        }));
+
+    return [...empresasClientes, ...detectados];
+}
+
+// Detalle para un contacto detectado (id = 'det:dominio').
+export async function detalleContactoDetectado(dominio: string) {
+    const { data: correos } = await supabase
+        .from('correos_historicos')
+        .select('direccion, de_email, para_email, asunto, cuerpo, fecha, categoria')
+        .eq('dominio', dominio)
+        .is('cliente_id', null)
+        .order('fecha', { ascending: false })
+        .limit(50);
+
+    const list = correos ?? [];
+    const emails = new Set<string>();
+    for (const c of list) {
+        const contra = c.direccion === 'entrante' ? c.de_email : c.para_email;
+        if (contra) emails.add((contra as string).toLowerCase());
+    }
+
+    return {
+        cliente: {
+            id: `det:${dominio}`,
+            nombre: dominio,
+            email: null,
+            estado: 'detectado' as const,
+            origen: 'correo',
+            creado_en: list[0]?.fecha ?? new Date().toISOString(),
+            actualizado_en: list[0]?.fecha ?? new Date().toISOString(),
+            intentos_contacto: 0,
+            ultimo_contacto_en: null,
+            metadata: { emails_detectados: Array.from(emails), dominio },
+        },
+        correos: list,
+        acciones: [],
+        es_detectado: true,
+        dominio,
+    };
+}
+
+// Promueve un contacto detectado a cliente real. Toma el dominio, crea la fila
+// en clientes, y re-vincula todos los correos_historicos huérfanos de ese dominio.
+export async function promoverContactoDetectado(params: { dominio: string; nombre: string; email: string | null }) {
+    const { data: nuevo, error } = await supabase
+        .from('clientes')
+        .insert({
+            nombre: params.nombre,
+            email: params.email,
+            origen: 'correo_historico',
+            estado: 'lead',
+            metadata: { dominio: params.dominio },
+        })
+        .select('id, nombre, email, estado')
+        .single();
+    if (error || !nuevo) return { ok: false, detalle: error?.message ?? 'no se pudo crear' };
+
+    // Re-vincular todos los correos huérfanos del dominio a este cliente nuevo.
+    const { count } = await supabase
+        .from('correos_historicos')
+        .update({ cliente_id: nuevo.id })
+        .eq('dominio', params.dominio)
+        .is('cliente_id', null)
+        .select('*', { count: 'exact', head: true });
+
+    return { ok: true, cliente: nuevo, vinculados: count ?? 0 };
 }
 
 // Detalle completo de una empresa: cliente + timeline unificado (correos + acciones).
