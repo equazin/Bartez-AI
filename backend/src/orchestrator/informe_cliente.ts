@@ -51,7 +51,10 @@ Reglas:
   primer contacto.
 - Sin frases relleno.`;
 
-export async function generarInformeCliente(clienteId: string): Promise<InformeCliente> {
+export async function generarInformeCliente(
+    clienteId: string,
+    opts: { contexto_extra?: string } = {},
+): Promise<InformeCliente> {
     const inicio = Date.now();
 
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).maybeSingle();
@@ -99,8 +102,12 @@ export async function generarInformeCliente(clienteId: string): Promise<InformeC
         })),
     };
 
+    const bloqueExtra = opts.contexto_extra?.trim()
+        ? `\n\nCONTEXTO ADICIONAL DEL OPERADOR (info que NO está en los correos — llamadas, WhatsApp, mensajes verbales, notas propias, verificados por el operador):\n${opts.contexto_extra.trim().slice(0, 1500)}\n\nTratalo como fuente de verdad. Si contradice o completa algo del snapshot de correos, priorizá el contexto del operador. Referí a esta info en el informe si corresponde.`
+        : '';
+
     const consigna =
-        `Snapshot completo del cliente:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\`\n\n` +
+        `Snapshot completo del cliente:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\`${bloqueExtra}\n\n` +
         `Redactá el informe siguiendo la estructura del prompt.`;
 
     try {

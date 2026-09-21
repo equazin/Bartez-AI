@@ -72,7 +72,7 @@ export function Seguimientos() {
         if (!seleccionadaId) return;
         setGenerandoInforme(true);
         try {
-            const { informe } = await generarInformeCliente(seleccionadaId);
+            const { informe } = await generarInformeCliente(seleccionadaId, contextoExtra.trim() || undefined);
             setInforme(informe);
         } catch (e) { setError((e as Error).message); }
         finally { setGenerandoInforme(false); }
@@ -227,7 +227,7 @@ export function Seguimientos() {
                                 <div className="contexto-extra">
                                     <label>
                                         <span className="lbl">Contexto adicional (opcional)</span>
-                                        <span className="sub">Info que el sistema no ve — llamadas, WhatsApp, mensajes verbales, notas propias. Se le pasa al asistente para esta redacción.</span>
+                                        <span className="sub">Info que el sistema no ve — llamadas, WhatsApp, mensajes verbales, notas propias. Se le pasa tanto al informe como al seguimiento cuando los pidas.</span>
                                         <textarea
                                             value={contextoExtra}
                                             onChange={(e) => setContextoExtra(e.target.value)}

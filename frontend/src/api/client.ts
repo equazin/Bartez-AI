@@ -377,8 +377,12 @@ export async function redactarSeguimiento(
     return res.json();
 }
 
-export async function generarInformeCliente(id: string): Promise<{ informe: InformeCliente }> {
-    const res = await fetch(`${BASE}/seguimientos/empresas/${id}/informe`, { method: 'POST' });
+export async function generarInformeCliente(id: string, contexto_extra?: string): Promise<{ informe: InformeCliente }> {
+    const res = await fetch(`${BASE}/seguimientos/empresas/${id}/informe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contexto_extra ? { contexto_extra } : {}),
+    });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);

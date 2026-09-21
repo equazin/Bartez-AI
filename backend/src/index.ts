@@ -219,9 +219,12 @@ app.post('/seguimientos/empresas/:id/redactar', async (req, res) => {
     return r;
 });
 
+const InformeSchema = z.object({ contexto_extra: z.string().optional() });
 app.post('/seguimientos/empresas/:id/informe', async (req, res) => {
     const { id } = req.params as { id: string };
-    const r = await generarInformeCliente(id);
+    const parseo = InformeSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    const r = await generarInformeCliente(id, { contexto_extra: parseo.data.contexto_extra });
     if (!r.ok) return res.status(500).send({ error: r.detalle ?? 'Falló la generación del informe' });
     return { informe: r };
 });
