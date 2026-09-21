@@ -38,8 +38,12 @@ export interface ResultadoBarrido {
 
 // Genera un correo de seguimiento para UN cliente específico, sin filtros de
 // días de silencio. Útil desde la pestaña Seguimientos cuando el operador quiere
-// redactar a mano. Devuelve la acción pendiente creada (o null si no hay email).
-export async function generarSeguimientoIndividual(clienteId: string): Promise<{
+// redactar a mano. Recibe opcionalmente un informe_previo (el análisis Sonnet)
+// para dar contexto extra al asistente.
+export async function generarSeguimientoIndividual(
+    clienteId: string,
+    opts: { informe_previo?: string } = {},
+): Promise<{
     ok: boolean;
     accion_id?: string;
     respuesta?: string;
@@ -56,7 +60,7 @@ export async function generarSeguimientoIndividual(clienteId: string): Promise<{
     if (!c) return { ok: false, detalle: 'Cliente no encontrado' };
     if (!c.email) return { ok: false, detalle: 'Este cliente no tiene email cargado' };
 
-    const historia = await historicoConCliente(clienteId, 5);
+    const historia = await historicoConCliente(clienteId, 10);
     const bloqueHistoria = historia.length > 0
         ? '\n\nHistorial de correos previos (cronológico):\n' +
           historia.slice().reverse().map((h) => {
@@ -72,17 +76,25 @@ export async function generarSeguimientoIndividual(clienteId: string): Promise<{
         ? Math.floor((Date.now() - new Date(c.ultimo_contacto_en).getTime()) / (24 * 3600_000))
         : 0;
 
+    const bloqueInforme = opts.informe_previo
+        ? `\n\nInforme diagnóstico previo (generado por el analista):\n${opts.informe_previo.slice(0, 2000)}\n\nUsalo como referencia para el próximo paso sugerido.`
+        : '';
+
     const contexto = [
         `Lead: ${c.nombre}`,
         c.metadata?.sitio_web ? `Sitio: ${c.metadata.sitio_web}` : null,
         c.metadata?.senial ? `Señal detectada en prospección: ${c.metadata.senial}` : null,
         c.metadata?.razon_prospeccion ? `Encaje ICP: ${c.metadata.razon_prospeccion}` : null,
         typeof c.metadata?.puntaje_icp === 'number' ? `Puntaje ICP: ${c.metadata.puntaje_icp}/10` : null,
-        `Intento actual: ${intentos + 1} (van ${intentos} previos)`,
-        c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : 'Sin contacto previo desde Bartez.',
+        intentos > 0 ? `Intentos previos desde Bartez: ${intentos}` : 'Sin contactos previos oficiales desde Bartez (pero puede haber correos históricos importados).',
+        c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : null,
         bloqueHistoria,
+        bloqueInforme,
         '',
-        'Redactá el correo de seguimiento siguiendo las reglas de tu prompt. Si en el historial hay algo puntual (una cotización, un compromiso, un pedido), retomá desde ahí.',
+        'Redactá un correo de seguimiento siguiendo las reglas de tu prompt.',
+        historia.length > 0
+            ? 'IMPORTANTE: hay correos previos con este cliente. NO hagas un primer contacto en frío ni una presentación desde cero — retomá la conversación desde donde quedó. Si hay compromisos pendientes, cotizaciones sin respuesta, o preguntas sin cerrar, respondé a eso. Si el último toque fue de Bartez y no hubo respuesta, hacé un follow-up ameno.'
+            : 'Este cliente no tiene correos previos. Presentá Bartez brevemente y abrí la puerta a una charla.',
     ].filter(Boolean).join('\n');
 
     const resultado = await asistente.procesar({

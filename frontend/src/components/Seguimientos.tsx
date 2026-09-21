@@ -53,9 +53,11 @@ export function Seguimientos() {
         setRedactando(true);
         setMensajeAccion(null);
         try {
-            const r = await redactarSeguimiento(seleccionadaId);
-            const modoTxt = r.modo === 'primer_contacto' ? 'primer contacto' : 'follow-up';
-            setMensajeAccion(`✓ Correo de ${modoTxt} redactado — va a Acciones para tu aprobación.`);
+            // Si ya generamos un informe para esta empresa, se lo pasamos al asistente
+            // como contexto para que el correo esté alineado con el próximo paso sugerido.
+            const r = await redactarSeguimiento(seleccionadaId, informe?.resumen_md);
+            const conInforme = informe ? ' (usando el informe generado como referencia)' : '';
+            setMensajeAccion(`✓ Seguimiento redactado${conInforme} — va a Acciones para tu aprobación.`);
         } catch (e) { setError((e as Error).message); }
         finally { setRedactando(false); }
     }
@@ -201,9 +203,9 @@ export function Seguimientos() {
                                             className="primario"
                                             onClick={redactarCorreo}
                                             disabled={redactando || !seleccionada.cliente.email}
-                                            title={!seleccionada.cliente.email ? 'Este cliente no tiene email cargado' : 'Genera un borrador y lo manda a Acciones para tu aprobación'}
+                                            title={!seleccionada.cliente.email ? 'Este cliente no tiene email cargado' : (informe ? 'Redacta un seguimiento usando el informe y el historial de correos' : 'Redacta un seguimiento basado en el historial de correos de este cliente')}
                                         >
-                                            {redactando ? 'Redactando…' : (seleccionada.cliente.intentos_contacto ? 'Redactar follow-up' : 'Redactar primer contacto')}
+                                            {redactando ? 'Redactando…' : (informe ? 'Redactar seguimiento (con informe)' : 'Redactar seguimiento')}
                                         </button>
                                         <button className="secundario" onClick={pedirInforme} disabled={generandoInforme}>
                                             {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}
