@@ -5,6 +5,7 @@
 import { AsistenteBase, contextoFecha } from './base.js';
 import type { ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 import { buscarEnCatalogo } from '../orchestrator/notion_sync.js';
+import { textoWebBartez } from '../connectors/bartez_web.js';
 
 const PROMPT_PANEL = `
 Estás hablando con el operador de Bartez Tecnología (el dueño) desde el
@@ -84,6 +85,16 @@ export class AsistenteCorreo extends AsistenteBase {
         // Bloque de contexto que se suma al system prompt. Empieza con la
         // clasificación y puede incluir items del catálogo (Fase 3D).
         const extra: string[] = [];
+
+        // Info de Bartez extraída de www.bartez.com.ar (cacheada). El asistente la
+        // usa como referencia real de qué vende Bartez cuando arma presentaciones
+        // o describe la oferta. Si no hay caché aún, no se agrega el bloque.
+        const web = await textoWebBartez();
+        if (web) {
+            extra.push(
+                `---\nINFORMACIÓN DE BARTEZ (extraída de www.bartez.com.ar):\n${web.slice(0, 2500)}\n\nUsá esta información como referencia real de qué vende Bartez. NUNCA inventes servicios o productos que no aparezcan acá o en el catálogo. Cuando presentes la empresa en un primer contacto, sacá lo esencial de acá — no todo lo que hay.`,
+            );
+        }
 
         if (clasif?.categoria) {
             extra.push(

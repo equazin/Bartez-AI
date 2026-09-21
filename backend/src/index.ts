@@ -16,6 +16,7 @@ import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
+import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 
 const app = Fastify({ logger: true });
 
@@ -101,6 +102,18 @@ app.post('/notion/organizar', async () => {
         'Si ya hay contenido, no dupliques — actualizá o complementá lo que corresponda.';
     const r = await correrNotionAgent(consigna, 15);
     return { resultado: r };
+});
+
+app.post('/bartez/refresh-web', async () => {
+    // Fuerza el refetch de www.bartez.com.ar. Al arrancar el backend también
+    // se dispara si el caché tiene más de 7 días o no existe.
+    const r = await refrescarWebBartez();
+    return r;
+});
+
+app.get('/bartez/web', async () => {
+    const texto = await textoWebBartez();
+    return { largo: texto.length, muestra: texto.slice(0, 500) };
 });
 
 app.post('/catalogo/recargar', async () => {
@@ -248,18 +261,25 @@ app.post('/clientes/:id/contactar', async (req, res) => {
     }
 
     // Armar el "pedido" que ve el asistente: contexto del prospecto + hint del área.
+    // Contexto mínimo del prospecto para el primer contacto. NO le pasamos
+    // señal ni razón operativa — queremos un correo presentacional breve, no
+    // uno que mencione "vi que abrieron sucursal" o "vi que contrataron gente".
     const meta = cliente.metadata as Record<string, unknown> | null;
     const ctxProspecto = [
         `Datos del prospecto:`,
         `- Nombre: ${cliente.nombre}`,
         meta?.sitio_web ? `- Sitio: ${meta.sitio_web}` : null,
-        meta?.senial ? `- Señal detectada: ${meta.senial}` : null,
-        meta?.razon_prospeccion ? `- Encaje ICP: ${meta.razon_prospeccion}` : null,
-        typeof meta?.puntaje_icp === 'number' ? `- Puntaje ICP: ${meta.puntaje_icp}/10` : null,
     ].filter(Boolean).join('\n');
 
     const contextoExtra = parseo.data.contexto ? `\n\nContexto adicional del operador:\n${parseo.data.contexto}` : '';
-    const texto = `PROSPECCIÓN — PRIMER CONTACTO EN FRÍO\n\n${ctxProspecto}${contextoExtra}\n\nRedactá un primer contacto breve, cercano, sin sonar a spam. Presentá Bartez Tecnología, referí a la señal detectada como motivo del contacto y proponé una conversación por escrito. Firmá como Bartez Tecnología.`;
+    const texto =
+        `PROSPECCIÓN — PRIMER CONTACTO EN FRÍO\n\n${ctxProspecto}${contextoExtra}\n\n` +
+        `Redactá un correo BREVE (máx 5 líneas) presentando Bartez Tecnología. ` +
+        `Contá qué hacemos (sacalo del bloque INFORMACIÓN DE BARTEZ del system prompt) en 1-2 líneas ` +
+        `e invitá a que respondan si les interesa recibir más info o hablar de algún proyecto puntual. ` +
+        `NO menciones nada operativo del prospecto (que abrió sucursal, que contrató gente, que se expandió, etc). ` +
+        `NO uses la señal detectada como gancho — es un contacto en frío neutro y presentacional. ` +
+        `Cerrá firmando "Bartez Tecnología · www.bartez.com.ar".`;
 
     try {
         // Invoco al asistente directamente (no vía enrutar) porque no queremos que
@@ -669,6 +689,15 @@ async function main() {
     } catch (err) {
         app.log.warn({ err }, 'no se pudo cargar catálogo — arrancando vacío');
     }
+
+    // Refrescar contenido de www.bartez.com.ar en background — el asistente
+    // Correo lo usa como referencia de qué vende Bartez.
+    refrescarWebBartez()
+        .then((r) => {
+            if (r.ok) app.log.info({ largo: r.texto?.length }, '[bartez-web] contenido actualizado');
+            else app.log.warn({ detalle: r.detalle }, '[bartez-web] fetch falló — se usa el caché anterior si hay');
+        })
+        .catch((err) => app.log.warn({ err }, '[bartez-web] fetch error'));
 
     // Bootstrap de Notion: crea los databases si no existen. Si NOTION_TOKEN o
     // NOTION_PARENT_PAGE_ID faltan, avisa y sigue sin romper. Primera vez que
