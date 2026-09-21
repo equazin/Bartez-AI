@@ -196,6 +196,11 @@ export async function importarHistorico(
                             }
                         }
 
+                        // Dominio de la contraparte: sirve para vincular correos a
+                        // empresas aunque el email exacto no matchee (juan@empresa
+                        // en vez de info@empresa, por ejemplo).
+                        const dominio = contraparte ? contraparte.split('@')[1] || null : null;
+
                         const { error: errIns } = await supabase.from('correos_historicos').insert({
                             cliente_id: clienteId,
                             direccion,
@@ -209,6 +214,7 @@ export async function importarHistorico(
                             carpeta,
                             categoria,
                             ignorable,
+                            dominio,
                         });
                         if (errIns) { errores++; continue; }
                         nuevos++;
@@ -248,14 +254,35 @@ export async function importarHistorico(
 }
 
 // Devuelve últimos N correos con un cliente. Por default filtra los ignorables
-// (spam, newsletter, informativos) — pasá {incluirIgnorables: true} si querés
-// ver TODO (por ejemplo para auditar qué se está descartando).
-export async function historicoConCliente(clienteId: string, limite = 10, opts: { incluirIgnorables?: boolean } = {}) {
+// (spam, newsletter, informativos) y hace matching laxo por dominio si el
+// email exacto no está en cliente_id. Pasá {soloEmailExacto: true} para
+// desactivar el fallback por dominio.
+export async function historicoConCliente(
+    clienteId: string,
+    limite = 10,
+    opts: { incluirIgnorables?: boolean; soloEmailExacto?: boolean } = {},
+) {
+    // Buscar el email del cliente para inferir su dominio.
+    let dominio: string | null = null;
+    if (!opts.soloEmailExacto) {
+        const { data: c } = await supabase.from('clientes').select('email').eq('id', clienteId).maybeSingle();
+        const email = (c?.email as string | null)?.toLowerCase();
+        if (email && email.includes('@')) dominio = email.split('@')[1] ?? null;
+    }
+
     let q = supabase
         .from('correos_historicos')
-        .select('direccion, de_email, para_email, asunto, cuerpo, fecha, categoria')
-        .eq('cliente_id', clienteId);
+        .select('direccion, de_email, para_email, asunto, cuerpo, fecha, categoria');
+
+    // OR: cliente_id exacto O (mismo dominio Y sin cliente_id vinculado, para no
+    // duplicar filas que ya tienen match directo).
+    if (dominio) {
+        q = q.or(`cliente_id.eq.${clienteId},and(dominio.eq.${dominio},cliente_id.is.null)`);
+    } else {
+        q = q.eq('cliente_id', clienteId);
+    }
     if (!opts.incluirIgnorables) q = q.or('ignorable.is.null,ignorable.eq.false');
+
     const { data } = await q.order('fecha', { ascending: false }).limit(limite);
     return data ?? [];
 }
