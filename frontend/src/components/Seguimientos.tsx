@@ -25,6 +25,7 @@ export function Seguimientos() {
     const [generandoInforme, setGenerandoInforme] = useState(false);
     const [redactando, setRedactando] = useState(false);
     const [mensajeAccion, setMensajeAccion] = useState<string | null>(null);
+    const [contextoExtra, setContextoExtra] = useState('');
 
     async function cargar() {
         try {
@@ -40,6 +41,7 @@ export function Seguimientos() {
         setCargando(true);
         setInforme(null);
         setMensajeAccion(null);
+        setContextoExtra('');
         setSeleccionadaId(id);
         try {
             const d = await detalleEmpresaSeguimiento(id);
@@ -53,11 +55,15 @@ export function Seguimientos() {
         setRedactando(true);
         setMensajeAccion(null);
         try {
-            // Si ya generamos un informe para esta empresa, se lo pasamos al asistente
-            // como contexto para que el correo esté alineado con el próximo paso sugerido.
-            const r = await redactarSeguimiento(seleccionadaId, informe?.resumen_md);
-            const conInforme = informe ? ' (usando el informe generado como referencia)' : '';
-            setMensajeAccion(`✓ Seguimiento redactado${conInforme} — va a Acciones para tu aprobación.`);
+            await redactarSeguimiento(seleccionadaId, {
+                informe_previo: informe?.resumen_md,
+                contexto_extra: contextoExtra.trim() || undefined,
+            });
+            const partes: string[] = [];
+            if (informe) partes.push('informe');
+            if (contextoExtra.trim()) partes.push('contexto extra');
+            const usa = partes.length > 0 ? ` (usando ${partes.join(' + ')})` : '';
+            setMensajeAccion(`✓ Seguimiento redactado${usa} — va a Acciones para tu aprobación.`);
         } catch (e) { setError((e as Error).message); }
         finally { setRedactando(false); }
     }
@@ -215,6 +221,21 @@ export function Seguimientos() {
                             </div>
                             {mensajeAccion && (
                                 <div className="msg-ok">{mensajeAccion}</div>
+                            )}
+
+                            {seleccionada.cliente.estado !== 'detectado' && (
+                                <div className="contexto-extra">
+                                    <label>
+                                        <span className="lbl">Contexto adicional (opcional)</span>
+                                        <span className="sub">Info que el sistema no ve — llamadas, WhatsApp, mensajes verbales, notas propias. Se le pasa al asistente para esta redacción.</span>
+                                        <textarea
+                                            value={contextoExtra}
+                                            onChange={(e) => setContextoExtra(e.target.value)}
+                                            placeholder="ej: me llamó ayer y me pidió 10 notebooks para el 15 de octubre. También le interesa cotizar un switch de 24 puertos."
+                                            rows={3}
+                                        />
+                                    </label>
+                                </div>
                             )}
 
                             {seleccionada.cliente.metadata?.senial && (

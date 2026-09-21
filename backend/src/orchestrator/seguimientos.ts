@@ -42,7 +42,7 @@ export interface ResultadoBarrido {
 // para dar contexto extra al asistente.
 export async function generarSeguimientoIndividual(
     clienteId: string,
-    opts: { informe_previo?: string } = {},
+    opts: { informe_previo?: string; contexto_extra?: string } = {},
 ): Promise<{
     ok: boolean;
     accion_id?: string;
@@ -80,6 +80,10 @@ export async function generarSeguimientoIndividual(
         ? `\n\nInforme diagnóstico previo (generado por el analista):\n${opts.informe_previo.slice(0, 2000)}\n\nUsalo como referencia para el próximo paso sugerido.`
         : '';
 
+    const bloqueExtra = opts.contexto_extra?.trim()
+        ? `\n\nCONTEXTO ADICIONAL DEL OPERADOR (info que NO está en los correos — llamadas, WhatsApp, mensajes verbales, notas propias):\n${opts.contexto_extra.trim().slice(0, 1500)}\n\nTratalo como fuente de verdad — el operador lo aporta desde canales que el sistema no ve. Referí a esta info al redactar el correo si corresponde.`
+        : '';
+
     const contexto = [
         `Lead: ${c.nombre}`,
         c.metadata?.sitio_web ? `Sitio: ${c.metadata.sitio_web}` : null,
@@ -90,6 +94,7 @@ export async function generarSeguimientoIndividual(
         c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : null,
         bloqueHistoria,
         bloqueInforme,
+        bloqueExtra,
         '',
         'Redactá un correo de seguimiento siguiendo las reglas de tu prompt.',
         historia.length > 0

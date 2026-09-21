@@ -196,11 +196,14 @@ app.post('/seguimientos/promover', async (req, res) => {
     return r;
 });
 
-const RedactarSchema = z.object({ informe_previo: z.string().optional() });
+const RedactarSchema = z.object({
+    informe_previo: z.string().optional(),
+    contexto_extra: z.string().optional(),
+});
 app.post('/seguimientos/empresas/:id/redactar', async (req, res) => {
     // Siempre usa el asistente Seguimientos. Toma como contexto los correos
-    // históricos con ese cliente + opcionalmente el informe diagnóstico que
-    // el operador generó desde la pestaña Seguimientos.
+    // históricos con ese cliente + opcionalmente el informe diagnóstico y/o
+    // contexto extra que el operador aporta (llamadas, WhatsApp, notas).
     const { id } = req.params as { id: string };
     if (id.startsWith('det:')) {
         return res.status(400).send({ error: 'Primero convertí este contacto en prospecto y después redactá' });
@@ -208,7 +211,10 @@ app.post('/seguimientos/empresas/:id/redactar', async (req, res) => {
     const parseo = RedactarSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
-    const r = await generarSeguimientoIndividual(id, { informe_previo: parseo.data.informe_previo });
+    const r = await generarSeguimientoIndividual(id, {
+        informe_previo: parseo.data.informe_previo,
+        contexto_extra: parseo.data.contexto_extra,
+    });
     if (!r.ok) return res.status(500).send({ error: r.detalle });
     return r;
 });

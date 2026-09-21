@@ -358,11 +358,17 @@ export async function promoverContactoDetectado(dominio: string, nombre: string,
     return res.json();
 }
 
-export async function redactarSeguimiento(id: string, informe_previo?: string): Promise<{ ok: boolean; accion_id?: string; respuesta?: string }> {
+export async function redactarSeguimiento(
+    id: string,
+    opts: { informe_previo?: string; contexto_extra?: string } = {},
+): Promise<{ ok: boolean; accion_id?: string; respuesta?: string }> {
+    const body: Record<string, string> = {};
+    if (opts.informe_previo) body.informe_previo = opts.informe_previo;
+    if (opts.contexto_extra) body.contexto_extra = opts.contexto_extra;
     const res = await fetch(`${BASE}/seguimientos/empresas/${id}/redactar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(informe_previo ? { informe_previo } : {}),
+        body: JSON.stringify(body),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));

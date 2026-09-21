@@ -1290,6 +1290,23 @@ textarea.payload.editable {
     margin-bottom: 12px;
     font-size: 12px;
 }
+.contexto-extra { margin-bottom: 16px; }
+.contexto-extra label { display: block; }
+.contexto-extra .lbl { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); font-weight: 600; margin-bottom: 2px; }
+.contexto-extra .sub { display: block; font-size: 11px; color: var(--sutil); font-style: italic; margin-bottom: 6px; }
+.contexto-extra textarea {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--borde);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--texto);
+    font-size: 12px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 60px;
+}
+.contexto-extra textarea:focus { outline: none; border-color: var(--acento); }
 
 .seg-detalle { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 20px 24px; min-height: 400px; }
 .det-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--borde-soft); padding-bottom: 14px; margin-bottom: 14px; gap: 16px; }
