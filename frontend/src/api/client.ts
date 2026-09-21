@@ -269,6 +269,7 @@ export interface ResultadoImportCorreos {
     total_ruido_saltado: number;
     total_ignorables_marcados: number;
     costo_clasificador_usd: number;
+    ejemplos_descartes: Array<{ de: string; asunto: string; motivo: string }>;
     detalle?: string;
     duracion_ms: number;
 }

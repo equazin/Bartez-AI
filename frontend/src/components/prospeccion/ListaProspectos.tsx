@@ -161,7 +161,11 @@ export function ListaProspectos() {
                                 setMensaje(`Importando… ${Math.floor(seg / 60)}m ${seg % 60}s transcurridos. El proceso sigue aunque cierres esta ventana.`);
                             });
                             if (!r.ok) throw new Error(r.detalle || 'Import falló');
-                            setMensaje(`✓ Importados ${r.total_nuevos} correos útiles (${r.total_vinculados} vinculados a prospectos). Descartados ${r.total_ruido_saltado} por reglas + ${r.total_ignorables_marcados} marcados como spam/newsletter/informativos por Haiku. Costo clasificador: USD ${r.costo_clasificador_usd.toFixed(4)}.`);
+                            const resumen = `✓ Importados ${r.total_nuevos} correos útiles (${r.total_vinculados} vinculados a prospectos). Descartados ${r.total_ruido_saltado} por reglas + ${r.total_ignorables_marcados} marcados como spam/newsletter/informativos por Haiku. Costo clasificador: USD ${r.costo_clasificador_usd.toFixed(4)}.`;
+                            const ejemplos = r.ejemplos_descartes?.length > 0
+                                ? '\n\nMuestra de descartes por reglas (para auditar):\n' + r.ejemplos_descartes.map((e) => `• ${e.de} — "${e.asunto}" → ${e.motivo}`).join('\n')
+                                : '';
+                            setMensaje(resumen + ejemplos);
                         } catch (e) { setError((e as Error).message); setMensaje(null); }
                         finally { setOcupado(null); }
                     }}
@@ -171,7 +175,7 @@ export function ListaProspectos() {
             </div>
 
             {error && <p className="error">{error}</p>}
-            {mensaje && <p className="prosp-meta" style={{ background: 'rgba(16,163,127,0.12)', color: 'var(--ok)' }}>{mensaje}</p>}
+            {mensaje && <pre className="prosp-meta" style={{ background: 'rgba(16,163,127,0.12)', color: 'var(--ok)', whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>{mensaje}</pre>}
 
             {filtrados.length === 0 && !error && (
                 <p className="vacio">

@@ -13,18 +13,23 @@ import { supabase } from '../connectors/supabase.js';
 import { ferozoConfigurado } from '../connectors/ferozo.js';
 import { clasificarCorreo } from './clasificador.js';
 
-// Reglas de filtro rápido (antes de gastar tokens en Haiku). Devuelven true
-// si el correo se debe skipear directamente.
-const RE_REMITENTE_BOT = /^(no[-.]?reply|noreply|mailer[-.]?daemon|postmaster|notifications?|alerts?|updates?|news|marketing|hello|info)@/i;
-const DOMINIOS_NEWSLETTER = ['mailchimp', 'sendgrid', 'sendinblue', 'brevo.com', 'activecampaign', 'mailerlite', 'campaign-archive'];
-const ASUNTOS_TRIVIALES = /\b(unsubscribe|desuscrib|newsletter|bolet(í|i)n|promoci(ó|o)n|oferta especial|black friday|cyber monday)\b/i;
+// Reglas de filtro rápido (antes de gastar tokens en Haiku). Devuelven razón
+// si el correo se debe skipear directamente, null si pasa.
+//
+// OJO: solo matcheamos remitentes CLARAMENTE automáticos. NO filtramos info@,
+// hello@, ventas@, contacto@ — esas son casillas legítimas de contacto.
+const RE_REMITENTE_BOT = /^(no[-.]?reply|noreply|mailer[-.]?daemon|postmaster|bounces?|donotreply|do-not-reply|automated?|notificaci[oó]n)@/i;
+const DOMINIOS_NEWSLETTER = ['mailchimp.com', 'sendgrid.net', 'sendinblue.com', 'brevo.com', 'mailerlite.com', 'campaign-archive.com', 'mcsv.net', 'salesloft.com'];
+const ASUNTOS_TRIVIALES = /\b(unsubscribe|desuscrib|opt.?out|newsletter mensual|bolet(í|i)n semanal|black friday|cyber monday)\b/i;
 
-function esRuidoObvio(de: string, asunto: string): boolean {
+function motivoRuido(de: string, asunto: string): string | null {
     const deLower = de.toLowerCase();
-    if (RE_REMITENTE_BOT.test(deLower)) return true;
-    if (DOMINIOS_NEWSLETTER.some((d) => deLower.includes(d))) return true;
-    if (ASUNTOS_TRIVIALES.test(asunto ?? '')) return true;
-    return false;
+    if (RE_REMITENTE_BOT.test(deLower)) return `remitente automático (${deLower.split('@')[0]}@)`;
+    for (const d of DOMINIOS_NEWSLETTER) {
+        if (deLower.endsWith('@' + d) || deLower.endsWith('.' + d)) return `dominio newsletter (${d})`;
+    }
+    if (ASUNTOS_TRIVIALES.test(asunto ?? '')) return `asunto trivial ("${asunto?.slice(0, 60)}")`;
+    return null;
 }
 
 const emailBartez = (process.env.FEROZO_EMAIL ?? '').toLowerCase();
@@ -43,6 +48,7 @@ export interface ResultadoImport {
     total_ruido_saltado: number;
     total_ignorables_marcados: number;
     costo_clasificador_usd: number;
+    ejemplos_descartes: Array<{ de: string; asunto: string; motivo: string }>;
     detalle?: string;
     duracion_ms: number;
 }
@@ -84,7 +90,7 @@ export async function importarHistorico(
 ): Promise<ResultadoImport> {
     const inicio = Date.now();
     if (!ferozoConfigurado) {
-        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, total_ruido_saltado: 0, total_ignorables_marcados: 0, costo_clasificador_usd: 0, detalle: 'Ferozo no configurado', duracion_ms: 0 };
+        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, total_ruido_saltado: 0, total_ignorables_marcados: 0, costo_clasificador_usd: 0, ejemplos_descartes: [], detalle: 'Ferozo no configurado', duracion_ms: 0 };
     }
 
     const mapa = await cargarMapaClientes();
@@ -101,7 +107,7 @@ export async function importarHistorico(
     try {
         await client.connect();
     } catch (err) {
-        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, total_ruido_saltado: 0, total_ignorables_marcados: 0, costo_clasificador_usd: 0, detalle: `IMAP connect falló: ${(err as Error).message}`, duracion_ms: Date.now() - inicio };
+        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, total_ruido_saltado: 0, total_ignorables_marcados: 0, costo_clasificador_usd: 0, ejemplos_descartes: [], detalle: `IMAP connect falló: ${(err as Error).message}`, duracion_ms: Date.now() - inicio };
     }
 
     // Detectar carpeta de enviados si no la especificaron
@@ -119,6 +125,7 @@ export async function importarHistorico(
     }
 
     const salida: ResultadoImport['carpetas_procesadas'] = [];
+    const ejemplosDescartes: ResultadoImport['ejemplos_descartes'] = [];
     let totalNuevos = 0;
     let totalVinculados = 0;
     let totalRuido = 0;
@@ -161,9 +168,15 @@ export async function importarHistorico(
 
                         // Filtro 1 — ruido obvio por reglas (baratísimo).
                         // Solo aplica a entrantes; los salientes son de Bartez y siempre valen.
-                        if (direccion === 'entrante' && esRuidoObvio(deEmail, asunto)) {
-                            ruidoSaltado++;
-                            continue;
+                        if (direccion === 'entrante') {
+                            const motivo = motivoRuido(deEmail, asunto);
+                            if (motivo) {
+                                ruidoSaltado++;
+                                if (ejemplosDescartes.length < 15) {
+                                    ejemplosDescartes.push({ de: deEmail, asunto: asunto.slice(0, 80), motivo });
+                                }
+                                continue;
+                            }
                         }
 
                         // Filtro 2 — clasificación Haiku para entrantes que pasaron el filtro rápido.
@@ -229,6 +242,7 @@ export async function importarHistorico(
         total_ruido_saltado: totalRuido,
         total_ignorables_marcados: totalIgnorables,
         costo_clasificador_usd: Number(costoClasificador.toFixed(4)),
+        ejemplos_descartes: ejemplosDescartes,
         duracion_ms: Date.now() - inicio,
     };
 }
