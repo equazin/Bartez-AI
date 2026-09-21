@@ -158,7 +158,7 @@ export function ListaProspectos() {
                         try {
                             const r = await importarCorreosHistoricos(n);
                             if (!r.ok) throw new Error(r.detalle || 'Import falló');
-                            setMensaje(`✓ Importados ${r.total_nuevos} correos (${r.total_vinculados} vinculados a prospectos existentes). ${r.carpetas_procesadas.map((c) => `${c.carpeta}: ${c.nuevos}`).join(' · ')}`);
+                            setMensaje(`✓ Importados ${r.total_nuevos} correos útiles (${r.total_vinculados} vinculados a prospectos). Descartados ${r.total_ruido_saltado} por reglas + ${r.total_ignorables_marcados} marcados como spam/newsletter/informativos por Haiku. Costo clasificador: USD ${r.costo_clasificador_usd.toFixed(4)}.`);
                         } catch (e) { setError((e as Error).message); }
                         finally { setOcupado(null); }
                     }}

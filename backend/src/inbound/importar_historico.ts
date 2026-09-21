@@ -11,6 +11,21 @@ import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import { supabase } from '../connectors/supabase.js';
 import { ferozoConfigurado } from '../connectors/ferozo.js';
+import { clasificarCorreo } from './clasificador.js';
+
+// Reglas de filtro rápido (antes de gastar tokens en Haiku). Devuelven true
+// si el correo se debe skipear directamente.
+const RE_REMITENTE_BOT = /^(no[-.]?reply|noreply|mailer[-.]?daemon|postmaster|notifications?|alerts?|updates?|news|marketing|hello|info)@/i;
+const DOMINIOS_NEWSLETTER = ['mailchimp', 'sendgrid', 'sendinblue', 'brevo.com', 'activecampaign', 'mailerlite', 'campaign-archive'];
+const ASUNTOS_TRIVIALES = /\b(unsubscribe|desuscrib|newsletter|bolet(í|i)n|promoci(ó|o)n|oferta especial|black friday|cyber monday)\b/i;
+
+function esRuidoObvio(de: string, asunto: string): boolean {
+    const deLower = de.toLowerCase();
+    if (RE_REMITENTE_BOT.test(deLower)) return true;
+    if (DOMINIOS_NEWSLETTER.some((d) => deLower.includes(d))) return true;
+    if (ASUNTOS_TRIVIALES.test(asunto ?? '')) return true;
+    return false;
+}
 
 const emailBartez = (process.env.FEROZO_EMAIL ?? '').toLowerCase();
 const password = process.env.FEROZO_PASSWORD ?? '';
@@ -22,9 +37,12 @@ const CANDIDATOS_ENVIADOS = ['Sent', 'INBOX.Sent', 'Enviados', 'INBOX.Enviados',
 
 export interface ResultadoImport {
     ok: boolean;
-    carpetas_procesadas: Array<{ carpeta: string; leidos: number; nuevos: number; vinculados: number; errores: number }>;
+    carpetas_procesadas: Array<{ carpeta: string; leidos: number; nuevos: number; vinculados: number; ruido_saltado: number; ignorables_marcados: number; errores: number }>;
     total_nuevos: number;
     total_vinculados: number;
+    total_ruido_saltado: number;
+    total_ignorables_marcados: number;
+    costo_clasificador_usd: number;
     detalle?: string;
     duracion_ms: number;
 }
@@ -66,7 +84,7 @@ export async function importarHistorico(
 ): Promise<ResultadoImport> {
     const inicio = Date.now();
     if (!ferozoConfigurado) {
-        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, detalle: 'Ferozo no configurado', duracion_ms: 0 };
+        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, total_ruido_saltado: 0, total_ignorables_marcados: 0, costo_clasificador_usd: 0, detalle: 'Ferozo no configurado', duracion_ms: 0 };
     }
 
     const mapa = await cargarMapaClientes();
@@ -83,7 +101,7 @@ export async function importarHistorico(
     try {
         await client.connect();
     } catch (err) {
-        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, detalle: `IMAP connect falló: ${(err as Error).message}`, duracion_ms: Date.now() - inicio };
+        return { ok: false, carpetas_procesadas: [], total_nuevos: 0, total_vinculados: 0, total_ruido_saltado: 0, total_ignorables_marcados: 0, costo_clasificador_usd: 0, detalle: `IMAP connect falló: ${(err as Error).message}`, duracion_ms: Date.now() - inicio };
     }
 
     // Detectar carpeta de enviados si no la especificaron
@@ -103,10 +121,13 @@ export async function importarHistorico(
     const salida: ResultadoImport['carpetas_procesadas'] = [];
     let totalNuevos = 0;
     let totalVinculados = 0;
+    let totalRuido = 0;
+    let totalIgnorables = 0;
+    let costoClasificador = 0;
 
     for (const carpeta of carpetas) {
         const esEnviados = /sent|enviad/i.test(carpeta);
-        let leidos = 0, nuevos = 0, vinculados = 0, errores = 0;
+        let leidos = 0, nuevos = 0, vinculados = 0, ruidoSaltado = 0, ignorablesMarcados = 0, errores = 0;
 
         try {
             const lock = await client.getMailboxLock(carpeta);
@@ -135,18 +156,46 @@ export async function importarHistorico(
 
                         const toStr = parsed.to && !Array.isArray(parsed.to) ? (parsed.to.value?.[0]?.address ?? null) : null;
                         const cuerpo = (parsed.text ?? '').slice(0, 15000);
+                        const asunto = parsed.subject ?? '';
+                        const deEmail = (parsed.from?.value?.[0]?.address ?? '').toLowerCase();
+
+                        // Filtro 1 — ruido obvio por reglas (baratísimo).
+                        // Solo aplica a entrantes; los salientes son de Bartez y siempre valen.
+                        if (direccion === 'entrante' && esRuidoObvio(deEmail, asunto)) {
+                            ruidoSaltado++;
+                            continue;
+                        }
+
+                        // Filtro 2 — clasificación Haiku para entrantes que pasaron el filtro rápido.
+                        // Los ignorables (spam/newsletter/informativo) se guardan igual pero
+                        // marcados, así podés auditar qué llegó y por qué no se usa.
+                        let categoria: string | null = null;
+                        let ignorable = false;
+                        if (direccion === 'entrante' && cuerpo.length > 30) {
+                            try {
+                                const clasif = await clasificarCorreo({ asunto, cuerpo, de: deEmail });
+                                categoria = clasif.categoria;
+                                ignorable = clasif.ignorable;
+                                costoClasificador += clasif.costoUsd;
+                                if (ignorable) ignorablesMarcados++;
+                            } catch {
+                                // Si el clasificador falla, guardamos sin categoría (nunca perder mails).
+                            }
+                        }
 
                         const { error: errIns } = await supabase.from('correos_historicos').insert({
                             cliente_id: clienteId,
                             direccion,
-                            de_email: (parsed.from?.value?.[0]?.address ?? '').toLowerCase() || null,
+                            de_email: deEmail || null,
                             de_nombre: parsed.from?.value?.[0]?.name ?? null,
                             para_email: toStr?.toLowerCase() ?? null,
-                            asunto: parsed.subject ?? null,
+                            asunto: asunto || null,
                             cuerpo,
                             fecha: parsed.date?.toISOString() ?? new Date().toISOString(),
                             message_id: messageId,
                             carpeta,
+                            categoria,
+                            ignorable,
                         });
                         if (errIns) { errores++; continue; }
                         nuevos++;
@@ -163,9 +212,11 @@ export async function importarHistorico(
             console.warn(`[import-historico] carpeta ${carpeta} falló:`, (err as Error).message);
         }
 
-        salida.push({ carpeta, leidos, nuevos, vinculados, errores });
+        salida.push({ carpeta, leidos, nuevos, vinculados, ruido_saltado: ruidoSaltado, ignorables_marcados: ignorablesMarcados, errores });
         totalNuevos += nuevos;
         totalVinculados += vinculados;
+        totalRuido += ruidoSaltado;
+        totalIgnorables += ignorablesMarcados;
     }
 
     try { await client.logout(); } catch { /* ignore */ }
@@ -175,30 +226,33 @@ export async function importarHistorico(
         carpetas_procesadas: salida,
         total_nuevos: totalNuevos,
         total_vinculados: totalVinculados,
+        total_ruido_saltado: totalRuido,
+        total_ignorables_marcados: totalIgnorables,
+        costo_clasificador_usd: Number(costoClasificador.toFixed(4)),
         duracion_ms: Date.now() - inicio,
     };
 }
 
-// Devuelve últimos N correos con un cliente, ordenados del más nuevo al más viejo.
-export async function historicoConCliente(clienteId: string, limite = 10) {
-    const { data } = await supabase
+// Devuelve últimos N correos con un cliente. Por default filtra los ignorables
+// (spam, newsletter, informativos) — pasá {incluirIgnorables: true} si querés
+// ver TODO (por ejemplo para auditar qué se está descartando).
+export async function historicoConCliente(clienteId: string, limite = 10, opts: { incluirIgnorables?: boolean } = {}) {
+    let q = supabase
         .from('correos_historicos')
-        .select('direccion, de_email, para_email, asunto, cuerpo, fecha')
-        .eq('cliente_id', clienteId)
-        .order('fecha', { ascending: false })
-        .limit(limite);
+        .select('direccion, de_email, para_email, asunto, cuerpo, fecha, categoria')
+        .eq('cliente_id', clienteId);
+    if (!opts.incluirIgnorables) q = q.or('ignorable.is.null,ignorable.eq.false');
+    const { data } = await q.order('fecha', { ascending: false }).limit(limite);
     return data ?? [];
 }
 
-// Idem pero por email de contraparte (útil cuando el cliente todavía no está
-// vinculado o cuando querés buscar por dirección directa).
-export async function historicoConEmail(email: string, limite = 10) {
+export async function historicoConEmail(email: string, limite = 10, opts: { incluirIgnorables?: boolean } = {}) {
     const e = email.toLowerCase();
-    const { data } = await supabase
+    let q = supabase
         .from('correos_historicos')
-        .select('direccion, de_email, para_email, asunto, cuerpo, fecha')
-        .or(`de_email.eq.${e},para_email.eq.${e}`)
-        .order('fecha', { ascending: false })
-        .limit(limite);
+        .select('direccion, de_email, para_email, asunto, cuerpo, fecha, categoria')
+        .or(`de_email.eq.${e},para_email.eq.${e}`);
+    if (!opts.incluirIgnorables) q = q.or('ignorable.is.null,ignorable.eq.false');
+    const { data } = await q.order('fecha', { ascending: false }).limit(limite);
     return data ?? [];
 }

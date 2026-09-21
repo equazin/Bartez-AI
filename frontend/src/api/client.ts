@@ -263,9 +263,12 @@ export async function correrAnaliticaAhora(dias = 7): Promise<{ resultado: Infor
 
 export interface ResultadoImportCorreos {
     ok: boolean;
-    carpetas_procesadas: Array<{ carpeta: string; leidos: number; nuevos: number; vinculados: number; errores: number }>;
+    carpetas_procesadas: Array<{ carpeta: string; leidos: number; nuevos: number; vinculados: number; ruido_saltado: number; ignorables_marcados: number; errores: number }>;
     total_nuevos: number;
     total_vinculados: number;
+    total_ruido_saltado: number;
+    total_ignorables_marcados: number;
+    costo_clasificador_usd: number;
     detalle?: string;
     duracion_ms: number;
 }
