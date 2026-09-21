@@ -154,16 +154,19 @@ export function ListaProspectos() {
                             return;
                         }
                         setOcupado('import');
-                        setMensaje(null);
+                        setMensaje('Import arrancado en background. Va a tardar 1-5 min según cantidad de correos y clasificación Haiku…');
                         try {
-                            const r = await importarCorreosHistoricos(n);
+                            const r = await importarCorreosHistoricos(n, (_estado, elapsed) => {
+                                const seg = Math.floor(elapsed / 1000);
+                                setMensaje(`Importando… ${Math.floor(seg / 60)}m ${seg % 60}s transcurridos. El proceso sigue aunque cierres esta ventana.`);
+                            });
                             if (!r.ok) throw new Error(r.detalle || 'Import falló');
                             setMensaje(`✓ Importados ${r.total_nuevos} correos útiles (${r.total_vinculados} vinculados a prospectos). Descartados ${r.total_ruido_saltado} por reglas + ${r.total_ignorables_marcados} marcados como spam/newsletter/informativos por Haiku. Costo clasificador: USD ${r.costo_clasificador_usd.toFixed(4)}.`);
-                        } catch (e) { setError((e as Error).message); }
+                        } catch (e) { setError((e as Error).message); setMensaje(null); }
                         finally { setOcupado(null); }
                     }}
                 >
-                    {ocupado === 'import' ? 'Importando (puede tardar)…' : 'Importar histórico correos'}
+                    {ocupado === 'import' ? 'Importando (mirá el mensaje)…' : 'Importar histórico correos'}
                 </button>
             </div>
 

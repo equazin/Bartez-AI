@@ -273,13 +273,52 @@ export interface ResultadoImportCorreos {
     duracion_ms: number;
 }
 
-export async function importarCorreosHistoricos(dias = 90): Promise<ResultadoImportCorreos> {
+export interface JobImportCorreos {
+    id: string;
+    estado: 'en_curso' | 'completado' | 'error';
+    dias: number;
+    resultado: ResultadoImportCorreos | null;
+    error: string | null;
+    creado_en: string;
+    terminado_en: string | null;
+}
+
+// Arranca el job. Devuelve el jobId; el import corre en background.
+export async function arrancarImportCorreos(dias = 90): Promise<{ ok: boolean; jobId: string; mensaje?: string; detalle?: string }> {
     const res = await fetch(`${BASE}/correos/importar?dias=${dias}`, { method: 'POST' });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
     }
     return res.json();
+}
+
+export async function estadoImportCorreos(jobId: string): Promise<JobImportCorreos> {
+    const res = await fetch(`${BASE}/correos/importar/${jobId}`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+// Wrapper que arranca + polea + resuelve cuando termina.
+export async function importarCorreosHistoricos(
+    dias = 90,
+    onTick?: (estado: string, elapsedMs: number) => void,
+): Promise<ResultadoImportCorreos> {
+    const inicio = Date.now();
+    const { jobId } = await arrancarImportCorreos(dias);
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const job = await estadoImportCorreos(jobId);
+        onTick?.(job.estado, Date.now() - inicio);
+        if (job.estado === 'completado') {
+            if (!job.resultado) throw new Error('Job terminó sin resultado');
+            return job.resultado;
+        }
+        if (job.estado === 'error') {
+            throw new Error(job.error ?? 'Import falló sin detalle');
+        }
+    }
 }
 
 export async function correrSeguimientos(): Promise<{ resultado: ResultadoBarrido }> {

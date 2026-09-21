@@ -106,15 +106,41 @@ app.post('/notion/organizar', async () => {
 });
 
 app.post('/correos/importar', async (req) => {
-    // Trae correos históricos de IMAP (INBOX + carpeta de enviados detectada
-    // automáticamente) y los guarda en correos_historicos. Idempotente por
-    // message_id. Usalo la primera vez que arrancás el sistema para tener
-    // contexto de conversaciones previas al día 0.
+    // Import ASYNC: arranca el job en background, devuelve jobId inmediatamente.
+    // Para 90+ días el import puede tardar varios minutos (IMAP fetch + Haiku
+    // por cada entrante) y superar timeouts del navegador. Se poletea con GET.
     const q = (req.query as { dias?: string; carpetas?: string }) ?? {};
     const dias = Math.min(Math.max(Number(q.dias ?? 90), 1), 365);
     const carpetas = q.carpetas ? q.carpetas.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
-    const r = await importarHistorico(dias, carpetas);
-    return r;
+
+    const { data: job, error: errIns } = await supabase
+        .from('jobs_import_correos')
+        .insert({ estado: 'en_curso', dias })
+        .select('id')
+        .single();
+    if (errIns || !job) return { ok: false, detalle: 'No se pudo crear el job' };
+
+    // Fire-and-forget — no bloqueamos la respuesta HTTP.
+    importarHistorico(dias, carpetas)
+        .then(async (r) => {
+            await supabase.from('jobs_import_correos')
+                .update({ estado: r.ok ? 'completado' : 'error', resultado: r as unknown as Record<string, unknown>, error: r.ok ? null : r.detalle, terminado_en: new Date().toISOString() })
+                .eq('id', job.id);
+        })
+        .catch(async (err) => {
+            await supabase.from('jobs_import_correos')
+                .update({ estado: 'error', error: (err as Error).message, terminado_en: new Date().toISOString() })
+                .eq('id', job.id);
+        });
+
+    return { ok: true, jobId: job.id, mensaje: 'Import arrancado — usá GET /correos/importar/:jobId para ver el progreso' };
+});
+
+app.get('/correos/importar/:jobId', async (req, res) => {
+    const { jobId } = req.params as { jobId: string };
+    const { data: job } = await supabase.from('jobs_import_correos').select('*').eq('id', jobId).maybeSingle();
+    if (!job) return res.status(404).send({ error: 'Job no encontrado' });
+    return job;
 });
 
 app.get('/clientes/:id/historico-correos', async (req) => {
