@@ -1,6 +1,64 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccionPendiente, listarAcciones, resolverAccion } from '../api/client.ts';
 
+function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
+    const [verCrudo, setVerCrudo] = useState(false);
+    const para = String(payload.para ?? '');
+    const asunto = String(payload.asunto ?? '(sin asunto)');
+    const cuerpo = String(payload.cuerpo ?? '');
+    const nombreCliente = payload.nombreCliente as string | undefined;
+    const categoria = payload.categoria as string | undefined;
+    const motivo = payload.motivoClasif as string | undefined;
+    const tareas = Array.isArray(payload.tareas) ? (payload.tareas as Array<{ titulo: string; fecha_limite?: string | null; contexto?: string }>) : [];
+    const textoEntrante = payload.textoEntrante as string | undefined;
+
+    return (
+        <div className="correo-preview">
+            <div className="correo-cabecera">
+                <div className="fila"><span className="etiq">Para</span><span className="valor">{para}</span></div>
+                <div className="fila"><span className="etiq">Asunto</span><span className="valor bold">{asunto}</span></div>
+                {nombreCliente && (
+                    <div className="fila"><span className="etiq">Cliente</span><span className="valor">{nombreCliente}</span></div>
+                )}
+                {categoria && (
+                    <div className="fila"><span className="etiq">Categoría</span><span className="valor mono">{categoria}{motivo ? ` — ${motivo}` : ''}</span></div>
+                )}
+            </div>
+
+            <div className="correo-cuerpo">
+                {cuerpo.split('\n').map((linea, i) => (
+                    <p key={i}>{linea || ' '}</p>
+                ))}
+            </div>
+
+            {tareas.length > 0 && (
+                <div className="correo-tareas">
+                    <div className="titulo">Tareas que se van a crear en Notion ({tareas.length})</div>
+                    {tareas.map((t, i) => (
+                        <div key={i} className="tarea-linea">
+                            <span className="tit">{t.titulo}</span>
+                            {t.fecha_limite && <span className="fecha">📅 {t.fecha_limite}</span>}
+                            {t.contexto && <div className="ctx">{t.contexto}</div>}
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {textoEntrante && (
+                <details className="correo-entrante">
+                    <summary>Ver el correo entrante que originó esta respuesta</summary>
+                    <pre>{textoEntrante}</pre>
+                </details>
+            )}
+
+            <details className="correo-crudo" open={verCrudo} onToggle={(e) => setVerCrudo((e.target as HTMLDetailsElement).open)}>
+                <summary>Ver payload JSON completo</summary>
+                <pre className="payload">{JSON.stringify(payload, null, 2)}</pre>
+            </details>
+        </div>
+    );
+}
+
 type Editando = { id: string; payloadTexto: string } | null;
 
 export function Acciones() {
@@ -78,7 +136,9 @@ export function Acciones() {
                         </div>
 
                         {!esEditar ? (
-                            <pre className="payload">{JSON.stringify(a.payload, null, 2)}</pre>
+                            a.accion === 'enviar_correo'
+                                ? <VistaCorreo payload={a.payload} />
+                                : <pre className="payload">{JSON.stringify(a.payload, null, 2)}</pre>
                         ) : (
                             <textarea
                                 className="payload editable"
