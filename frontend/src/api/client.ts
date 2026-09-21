@@ -261,6 +261,86 @@ export async function correrAnaliticaAhora(dias = 7): Promise<{ resultado: Infor
     return res.json();
 }
 
+// ---------- Seguimientos ----------
+
+export interface EmpresaSeguimiento {
+    id: string;
+    nombre: string;
+    email: string | null;
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    origen: string;
+    creado_en: string;
+    actualizado_en: string;
+    intentos_contacto: number | null;
+    ultimo_contacto_en: string | null;
+    metadata: {
+        sitio_web?: string;
+        senial?: string;
+        razon_prospeccion?: string;
+        puntaje_icp?: number;
+    } | null;
+    correos_totales: number;
+    correos_entrantes: number;
+    correos_salientes: number;
+    ultimo_correo_en: string | null;
+}
+
+export interface CorreoHistorico {
+    direccion: 'entrante' | 'saliente';
+    de_email: string | null;
+    para_email: string | null;
+    asunto: string | null;
+    cuerpo: string;
+    fecha: string;
+    categoria: string | null;
+}
+
+export interface DetalleEmpresa {
+    cliente: Prospecto & {
+        intentos_contacto: number | null;
+        ultimo_contacto_en: string | null;
+    };
+    correos: CorreoHistorico[];
+    acciones: Array<{
+        id: string;
+        accion: string;
+        payload: Record<string, unknown>;
+        estado: string;
+        respuesta: Record<string, unknown> | null;
+        creado_en: string;
+    }>;
+}
+
+export interface InformeCliente {
+    ok: boolean;
+    resumen_md: string;
+    tokens_in: number;
+    tokens_out: number;
+    costo_usd: number;
+    duracion_ms: number;
+}
+
+export async function listarEmpresasSeguimiento(): Promise<{ empresas: EmpresaSeguimiento[] }> {
+    const res = await fetch(`${BASE}/seguimientos/empresas`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function detalleEmpresaSeguimiento(id: string): Promise<DetalleEmpresa> {
+    const res = await fetch(`${BASE}/seguimientos/empresas/${id}`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function generarInformeCliente(id: string): Promise<{ informe: InformeCliente }> {
+    const res = await fetch(`${BASE}/seguimientos/empresas/${id}/informe`, { method: 'POST' });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export interface ResultadoImportCorreos {
     ok: boolean;
     carpetas_procesadas: Array<{ carpeta: string; leidos: number; nuevos: number; vinculados: number; ruido_saltado: number; ignorables_marcados: number; errores: number }>;

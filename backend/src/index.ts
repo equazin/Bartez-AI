@@ -18,6 +18,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
+import { detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento } from './orchestrator/informe_cliente.js';
 
 const app = Fastify({ logger: true });
 
@@ -147,6 +148,27 @@ app.get('/clientes/:id/historico-correos', async (req) => {
     const { id } = req.params as { id: string };
     const historia = await historicoConCliente(id, 20);
     return { historico: historia };
+});
+
+app.get('/seguimientos/empresas', async () => {
+    // Lista todas las empresas con datos agregados (correos, último toque, estado)
+    // para el índice de la pestaña Seguimientos.
+    const empresas = await listarEmpresasParaSeguimiento();
+    return { empresas };
+});
+
+app.get('/seguimientos/empresas/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const detalle = await detalleEmpresa(id);
+    if (!detalle) return res.status(404).send({ error: 'Empresa no encontrada' });
+    return detalle;
+});
+
+app.post('/seguimientos/empresas/:id/informe', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const r = await generarInformeCliente(id);
+    if (!r.ok) return res.status(500).send({ error: r.detalle ?? 'Falló la generación del informe' });
+    return { informe: r };
 });
 
 app.post('/bartez/refresh-web', async () => {
