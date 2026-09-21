@@ -1257,6 +1257,18 @@ textarea.payload.editable {
 .badge-estado.est-inactivo { background: var(--borde-soft); color: var(--sutil); }
 .badge-estado.est-descartado { background: rgba(239,68,68,0.12); color: var(--peligro); }
 .badge-estado.est-detectado { background: rgba(217,119,6,0.12); color: var(--alerta); border: 1px dashed var(--alerta); }
+.det-head button.peligro {
+    background: #fff;
+    color: var(--peligro);
+    border: 1px solid var(--peligro);
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.det-head button.peligro:hover { background: rgba(239,68,68,0.08); }
 
 .seg-detalle { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 20px 24px; min-height: 400px; }
 .det-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--borde-soft); padding-bottom: 14px; margin-bottom: 14px; gap: 16px; }

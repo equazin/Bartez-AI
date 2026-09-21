@@ -336,6 +336,15 @@ export async function detalleEmpresaSeguimiento(id: string): Promise<DetalleEmpr
     return res.json();
 }
 
+export async function descartarContactoDetectado(dominio: string): Promise<{ ok: boolean; borrados: number }> {
+    const res = await fetch(`${BASE}/seguimientos/detectado/${encodeURIComponent(dominio)}`, { method: 'DELETE' });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
 export async function promoverContactoDetectado(dominio: string, nombre: string, email: string | null): Promise<{ ok: boolean; cliente: { id: string; nombre: string }; vinculados: number }> {
     const res = await fetch(`${BASE}/seguimientos/promover`, {
         method: 'POST',

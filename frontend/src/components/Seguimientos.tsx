@@ -3,6 +3,7 @@ import {
     DetalleEmpresa,
     EmpresaSeguimiento,
     InformeCliente,
+    descartarContactoDetectado,
     detalleEmpresaSeguimiento,
     generarInformeCliente,
     listarEmpresasSeguimiento,
@@ -140,26 +141,44 @@ export function Seguimientos() {
                                     </div>
                                 </div>
                                 {seleccionada.cliente.estado === 'detectado' ? (
-                                    <button
-                                        className="primario"
-                                        onClick={async () => {
-                                            const dom = (seleccionada.cliente.metadata as { dominio?: string } | null)?.dominio ?? seleccionada.cliente.nombre;
-                                            const nombre = window.prompt('Nombre de la empresa para crear el prospecto:', dom);
-                                            if (!nombre) return;
-                                            const emailsDetectados = (seleccionada.cliente.metadata as { emails_detectados?: string[] } | null)?.emails_detectados ?? [];
-                                            const emailDefault = emailsDetectados[0] ?? '';
-                                            const email = window.prompt('Email principal (podés dejar vacío):', emailDefault);
-                                            try {
-                                                const r = await promoverContactoDetectado(dom, nombre, email || null);
-                                                alert(`✓ Prospecto creado (${r.vinculados} correos re-vinculados). Recargando lista.`);
-                                                await cargar();
-                                                setSeleccionadaId(null);
-                                                setSeleccionada(null);
-                                            } catch (e) { setError((e as Error).message); }
-                                        }}
-                                    >
-                                        Convertir en prospecto
-                                    </button>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            className="primario"
+                                            onClick={async () => {
+                                                const dom = (seleccionada.cliente.metadata as { dominio?: string } | null)?.dominio ?? seleccionada.cliente.nombre;
+                                                const nombre = window.prompt('Nombre de la empresa para crear el prospecto:', dom);
+                                                if (!nombre) return;
+                                                const emailsDetectados = (seleccionada.cliente.metadata as { emails_detectados?: string[] } | null)?.emails_detectados ?? [];
+                                                const emailDefault = emailsDetectados[0] ?? '';
+                                                const email = window.prompt('Email principal (podés dejar vacío):', emailDefault);
+                                                try {
+                                                    const r = await promoverContactoDetectado(dom, nombre, email || null);
+                                                    alert(`✓ Prospecto creado (${r.vinculados} correos re-vinculados). Recargando lista.`);
+                                                    await cargar();
+                                                    setSeleccionadaId(null);
+                                                    setSeleccionada(null);
+                                                } catch (e) { setError((e as Error).message); }
+                                            }}
+                                        >
+                                            Convertir en prospecto
+                                        </button>
+                                        <button
+                                            className="peligro"
+                                            onClick={async () => {
+                                                const dom = (seleccionada.cliente.metadata as { dominio?: string } | null)?.dominio ?? seleccionada.cliente.nombre;
+                                                if (!window.confirm(`¿Descartar todos los correos de ${dom}?\n\nEsto BORRA definitivamente los correos huérfanos de ese dominio (los que no están vinculados a un cliente). No se puede deshacer.`)) return;
+                                                try {
+                                                    const r = await descartarContactoDetectado(dom);
+                                                    alert(`✓ Descartado. Se borraron ${r.borrados} correos.`);
+                                                    await cargar();
+                                                    setSeleccionadaId(null);
+                                                    setSeleccionada(null);
+                                                } catch (e) { setError((e as Error).message); }
+                                            }}
+                                        >
+                                            Descartar
+                                        </button>
+                                    </div>
                                 ) : (
                                     <button className="primario" onClick={pedirInforme} disabled={generandoInforme}>
                                         {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}

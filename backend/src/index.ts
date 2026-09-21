@@ -18,7 +18,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
-import { detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
+import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
 const app = Fastify({ logger: true });
 
@@ -175,6 +175,15 @@ const PromoverSchema = z.object({
     nombre: z.string().min(1),
     email: z.string().email().nullable().optional(),
 });
+app.delete('/seguimientos/detectado/:dominio', async (req, res) => {
+    // Elimina todos los correos huérfanos de ese dominio. Los que ya están
+    // vinculados a un cliente no se tocan.
+    const { dominio } = req.params as { dominio: string };
+    const r = await descartarContactoDetectado(dominio);
+    if (!r.ok) return res.status(500).send({ error: r.detalle });
+    return r;
+});
+
 app.post('/seguimientos/promover', async (req, res) => {
     const parseo = PromoverSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });

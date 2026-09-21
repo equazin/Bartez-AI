@@ -274,6 +274,19 @@ export async function detalleContactoDetectado(dominio: string) {
     };
 }
 
+// Descarta un contacto detectado: borra todos los correos_historicos con ese
+// dominio que no estén vinculados a ningún cliente. Los que sí tienen cliente_id
+// no se tocan (siguen en el timeline de ese cliente).
+export async function descartarContactoDetectado(dominio: string) {
+    const { count, error } = await supabase
+        .from('correos_historicos')
+        .delete({ count: 'exact' })
+        .eq('dominio', dominio)
+        .is('cliente_id', null);
+    if (error) return { ok: false, detalle: error.message };
+    return { ok: true, borrados: count ?? 0 };
+}
+
 // Promueve un contacto detectado a cliente real. Toma el dominio, crea la fila
 // en clientes, y re-vincula todos los correos_historicos huérfanos de ese dominio.
 export async function promoverContactoDetectado(params: { dominio: string; nombre: string; email: string | null }) {
