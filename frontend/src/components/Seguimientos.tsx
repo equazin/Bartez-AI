@@ -8,6 +8,7 @@ import {
     generarInformeCliente,
     listarEmpresasSeguimiento,
     promoverContactoDetectado,
+    redactarSeguimiento,
 } from '../api/client.ts';
 
 type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
@@ -22,6 +23,8 @@ export function Seguimientos() {
     const [cargando, setCargando] = useState(false);
     const [informe, setInforme] = useState<InformeCliente | null>(null);
     const [generandoInforme, setGenerandoInforme] = useState(false);
+    const [redactando, setRedactando] = useState(false);
+    const [mensajeAccion, setMensajeAccion] = useState<string | null>(null);
 
     async function cargar() {
         try {
@@ -36,12 +39,25 @@ export function Seguimientos() {
     async function abrir(id: string) {
         setCargando(true);
         setInforme(null);
+        setMensajeAccion(null);
         setSeleccionadaId(id);
         try {
             const d = await detalleEmpresaSeguimiento(id);
             setSeleccionada(d);
         } catch (e) { setError((e as Error).message); }
         finally { setCargando(false); }
+    }
+
+    async function redactarCorreo() {
+        if (!seleccionadaId) return;
+        setRedactando(true);
+        setMensajeAccion(null);
+        try {
+            const r = await redactarSeguimiento(seleccionadaId);
+            const modoTxt = r.modo === 'primer_contacto' ? 'primer contacto' : 'follow-up';
+            setMensajeAccion(`✓ Correo de ${modoTxt} redactado — va a Acciones para tu aprobación.`);
+        } catch (e) { setError((e as Error).message); }
+        finally { setRedactando(false); }
     }
 
     async function pedirInforme() {
@@ -180,11 +196,24 @@ export function Seguimientos() {
                                         </button>
                                     </div>
                                 ) : (
-                                    <button className="primario" onClick={pedirInforme} disabled={generandoInforme}>
-                                        {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}
-                                    </button>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <button
+                                            className="primario"
+                                            onClick={redactarCorreo}
+                                            disabled={redactando || !seleccionada.cliente.email}
+                                            title={!seleccionada.cliente.email ? 'Este cliente no tiene email cargado' : 'Genera un borrador y lo manda a Acciones para tu aprobación'}
+                                        >
+                                            {redactando ? 'Redactando…' : (seleccionada.cliente.intentos_contacto ? 'Redactar follow-up' : 'Redactar primer contacto')}
+                                        </button>
+                                        <button className="secundario" onClick={pedirInforme} disabled={generandoInforme}>
+                                            {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}
+                                        </button>
+                                    </div>
                                 )}
                             </div>
+                            {mensajeAccion && (
+                                <div className="msg-ok">{mensajeAccion}</div>
+                            )}
 
                             {seleccionada.cliente.metadata?.senial && (
                                 <div className="det-signal">

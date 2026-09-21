@@ -36,6 +36,93 @@ export interface ResultadoBarrido {
     duracion_ms: number;
 }
 
+// Genera un correo de seguimiento para UN cliente específico, sin filtros de
+// días de silencio. Útil desde la pestaña Seguimientos cuando el operador quiere
+// redactar a mano. Devuelve la acción pendiente creada (o null si no hay email).
+export async function generarSeguimientoIndividual(clienteId: string): Promise<{
+    ok: boolean;
+    accion_id?: string;
+    respuesta?: string;
+    detalle?: string;
+}> {
+    const asistente = catalogo.obtenerPorArea('seguimientos');
+    if (!asistente) return { ok: false, detalle: 'Asistente Seguimientos no está activo' };
+
+    const { data: c } = await supabase
+        .from('clientes')
+        .select('id, nombre, email, intentos_contacto, ultimo_contacto_en, metadata')
+        .eq('id', clienteId)
+        .maybeSingle();
+    if (!c) return { ok: false, detalle: 'Cliente no encontrado' };
+    if (!c.email) return { ok: false, detalle: 'Este cliente no tiene email cargado' };
+
+    const historia = await historicoConCliente(clienteId, 5);
+    const bloqueHistoria = historia.length > 0
+        ? '\n\nHistorial de correos previos (cronológico):\n' +
+          historia.slice().reverse().map((h) => {
+              const quien = h.direccion === 'saliente' ? 'BARTEZ →' : 'CLIENTE →';
+              const fecha = new Date(h.fecha).toISOString().slice(0, 10);
+              const cuerpo = (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 400);
+              return `[${fecha}] ${quien} ${h.asunto ?? '(sin asunto)'}\n${cuerpo}`;
+          }).join('\n\n')
+        : '';
+
+    const intentos = c.intentos_contacto ?? 0;
+    const diasSilencio = c.ultimo_contacto_en
+        ? Math.floor((Date.now() - new Date(c.ultimo_contacto_en).getTime()) / (24 * 3600_000))
+        : 0;
+
+    const contexto = [
+        `Lead: ${c.nombre}`,
+        c.metadata?.sitio_web ? `Sitio: ${c.metadata.sitio_web}` : null,
+        c.metadata?.senial ? `Señal detectada en prospección: ${c.metadata.senial}` : null,
+        c.metadata?.razon_prospeccion ? `Encaje ICP: ${c.metadata.razon_prospeccion}` : null,
+        typeof c.metadata?.puntaje_icp === 'number' ? `Puntaje ICP: ${c.metadata.puntaje_icp}/10` : null,
+        `Intento actual: ${intentos + 1} (van ${intentos} previos)`,
+        c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : 'Sin contacto previo desde Bartez.',
+        bloqueHistoria,
+        '',
+        'Redactá el correo de seguimiento siguiendo las reglas de tu prompt. Si en el historial hay algo puntual (una cotización, un compromiso, un pedido), retomá desde ahí.',
+    ].filter(Boolean).join('\n');
+
+    const resultado = await asistente.procesar({
+        canal: 'correo',
+        clienteId: c.id,
+        texto: contexto,
+        metadata: {
+            emailDestino: c.email,
+            nombreDestino: c.nombre,
+            asuntoOriginal: `Retomando contacto — Bartez Tecnología`,
+            origen: 'seguimiento_individual',
+            intento: intentos + 1,
+        },
+    });
+
+    await supabase.from('logs_asistente').insert({
+        asistente_id: asistente.config.id,
+        entrada: { origen: 'seguimiento_individual', cliente_id: c.id, intento: intentos + 1 },
+        salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
+        tokens_in: resultado.tokensIn,
+        tokens_out: resultado.tokensOut,
+        costo_usd: resultado.costoUsd,
+        duracion_ms: resultado.duracionMs,
+    });
+
+    if (!resultado.accionPropuesta) {
+        return { ok: false, detalle: 'El asistente no propuso ninguna acción — probablemente el prompt necesita ajuste' };
+    }
+
+    const { data: nuevaAccion } = await supabase.from('acciones_pendientes').insert({
+        asistente_id: asistente.config.id,
+        accion: resultado.accionPropuesta.tipo,
+        payload: resultado.accionPropuesta.payload,
+        estado: 'pendiente',
+        respuesta: { por: 'sistema', origen: 'seguimiento_individual', cliente_id: c.id },
+    }).select('id').single();
+
+    return { ok: true, accion_id: nuevaAccion?.id, respuesta: resultado.respuesta };
+}
+
 export async function correrBarridoSeguimientos(): Promise<ResultadoBarrido> {
     const inicio = Date.now();
     const asistente = catalogo.obtenerPorArea('seguimientos');

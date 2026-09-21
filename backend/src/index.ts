@@ -11,7 +11,7 @@ import { enrutar } from './orchestrator/router.js';
 import { supabase } from './connectors/supabase.js';
 import { iniciarInboundCorreo } from './inbound/correo.js';
 import { ejecutarAccion } from './orchestrator/ejecutor.js';
-import { correrBarridoSeguimientos } from './orchestrator/seguimientos.js';
+import { correrBarridoSeguimientos, generarSeguimientoIndividual } from './orchestrator/seguimientos.js';
 import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
@@ -194,6 +194,81 @@ app.post('/seguimientos/promover', async (req, res) => {
     });
     if (!r.ok) return res.status(500).send({ error: r.detalle });
     return r;
+});
+
+app.post('/seguimientos/empresas/:id/redactar', async (req, res) => {
+    // Redacta un correo para esta empresa. Rutea automáticamente:
+    //  - Si intentos_contacto == 0 → asistente Correo (primer contacto neutro)
+    //  - Si intentos_contacto >= 1 → asistente Seguimientos (follow-up con historia)
+    // La acción resultante va a acciones_pendientes para tu aprobación.
+    const { id } = req.params as { id: string };
+    if (id.startsWith('det:')) {
+        return res.status(400).send({ error: 'Primero convertí este contacto en prospecto y después redactá' });
+    }
+
+    const { data: cliente } = await supabase.from('clientes').select('*').eq('id', id).maybeSingle();
+    if (!cliente) return res.status(404).send({ error: 'Cliente no encontrado' });
+    if (!cliente.email) return res.status(400).send({ error: 'Este cliente no tiene email cargado' });
+
+    const intentos = cliente.intentos_contacto ?? 0;
+
+    // Follow-up: usar asistente Seguimientos
+    if (intentos >= 1) {
+        const r = await generarSeguimientoIndividual(id);
+        if (!r.ok) return res.status(500).send({ error: r.detalle });
+        return { modo: 'seguimiento', ...r };
+    }
+
+    // Primer contacto: reusar el asistente Correo (mismo flow que /clientes/:id/contactar)
+    const asistente = catalogo.obtenerPorArea('correo');
+    if (!asistente) return res.status(500).send({ error: 'Asistente Correo no está activo' });
+
+    const meta = cliente.metadata as Record<string, unknown> | null;
+    const ctxProspecto = [
+        `Datos del prospecto:`,
+        `- Nombre: ${cliente.nombre}`,
+        meta?.sitio_web ? `- Sitio: ${meta.sitio_web}` : null,
+    ].filter(Boolean).join('\n');
+    const texto =
+        `PROSPECCIÓN — PRIMER CONTACTO EN FRÍO\n\n${ctxProspecto}\n\n` +
+        `Redactá un correo BREVE (máx 5 líneas) presentando Bartez Tecnología. Sacá qué hacemos del bloque INFORMACIÓN DE BARTEZ del system prompt. ` +
+        `NO menciones detalles operativos del prospecto ni la señal detectada. Firmá "Bartez Tecnología · www.bartez.com.ar".`;
+
+    const resultado = await asistente.procesar({
+        canal: 'correo',
+        clienteId: id,
+        texto,
+        metadata: {
+            emailDestino: cliente.email,
+            nombreDestino: cliente.nombre,
+            asuntoOriginal: `Bartez Tecnología — solución IT para ${cliente.nombre}`,
+            clasificacion: { categoria: 'cotizacion_vaga', prioridad: 'media', razon: 'primer contacto de prospección' },
+        },
+    });
+
+    await supabase.from('logs_asistente').insert({
+        asistente_id: asistente.config.id,
+        entrada: { origen: 'redactar_seguimientos', cliente_id: id },
+        salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
+        tokens_in: resultado.tokensIn,
+        tokens_out: resultado.tokensOut,
+        costo_usd: resultado.costoUsd,
+        duracion_ms: resultado.duracionMs,
+    });
+
+    let accionId: string | undefined;
+    if (resultado.accionPropuesta) {
+        const { data: a } = await supabase.from('acciones_pendientes').insert({
+            asistente_id: asistente.config.id,
+            accion: resultado.accionPropuesta.tipo,
+            payload: resultado.accionPropuesta.payload,
+            estado: 'pendiente',
+            respuesta: { por: 'sistema', origen: 'redactar_seguimientos', cliente_id: id },
+        }).select('id').single();
+        accionId = a?.id;
+    }
+
+    return { modo: 'primer_contacto', ok: true, accion_id: accionId, respuesta: resultado.respuesta };
 });
 
 app.post('/seguimientos/empresas/:id/informe', async (req, res) => {

@@ -1269,6 +1269,27 @@ textarea.payload.editable {
     white-space: nowrap;
 }
 .det-head button.peligro:hover { background: rgba(239,68,68,0.08); }
+.det-head button.secundario {
+    background: var(--panel);
+    color: var(--acento);
+    border: 1px solid var(--acento);
+    padding: 8px 14px;
+    border-radius: 4px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.det-head button.secundario:hover:not(:disabled) { background: var(--acento-soft); }
+.det-head button.secundario:disabled { opacity: 0.5; cursor: wait; }
+.msg-ok {
+    background: rgba(16,163,127,0.12);
+    color: var(--ok);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+}
 
 .seg-detalle { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 20px 24px; min-height: 400px; }
 .det-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--borde-soft); padding-bottom: 14px; margin-bottom: 14px; gap: 16px; }
