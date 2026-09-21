@@ -9,6 +9,7 @@
 
 import { supabase } from '../connectors/supabase.js';
 import { catalogo } from './catalog.js';
+import { historicoConCliente } from '../inbound/importar_historico.js';
 
 const DIAS_SILENCIO = 7;
 const MAX_INTENTOS = 4;
@@ -96,6 +97,19 @@ export async function correrBarridoSeguimientos(): Promise<ResultadoBarrido> {
             const diasSilencio = Math.floor(
                 (Date.now() - new Date(c.ultimo_contacto_en).getTime()) / (24 * 3600_000),
             );
+            // Traer histórico de correos previos con este cliente para no repetir
+            // cosas ni contradecir compromisos. Se pasan hasta 5 correos.
+            const historia = await historicoConCliente(c.id, 5);
+            const bloqueHistoria = historia.length > 0
+                ? '\n\nHistorial de correos previos (cronológico):\n' +
+                  historia.slice().reverse().map((h) => {
+                      const quien = h.direccion === 'saliente' ? 'BARTEZ →' : 'CLIENTE →';
+                      const fecha = new Date(h.fecha).toISOString().slice(0, 10);
+                      const cuerpo = (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 400);
+                      return `[${fecha}] ${quien} ${h.asunto ?? '(sin asunto)'}\n${cuerpo}`;
+                  }).join('\n\n')
+                : '';
+
             const contexto = [
                 `Lead: ${c.nombre}`,
                 c.metadata?.sitio_web ? `Sitio: ${c.metadata.sitio_web}` : null,
@@ -104,8 +118,9 @@ export async function correrBarridoSeguimientos(): Promise<ResultadoBarrido> {
                 typeof c.metadata?.puntaje_icp === 'number' ? `Puntaje ICP: ${c.metadata.puntaje_icp}/10` : null,
                 `Intento actual: ${c.intentos_contacto + 1} (van ${c.intentos_contacto} previos sin respuesta)`,
                 `Días desde último contacto: ${diasSilencio}`,
+                bloqueHistoria,
                 '',
-                'Redactá el correo de follow-up siguiendo las reglas de tu prompt.',
+                'Redactá el correo de follow-up siguiendo las reglas de tu prompt. Si en el historial hay algo puntual (una cotización, un compromiso, un pedido), retomá desde ahí.',
             ].filter(Boolean).join('\n');
 
             const resultado = await asistente.procesar({

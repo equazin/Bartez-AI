@@ -17,6 +17,7 @@ import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, g
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
+import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 
 const app = Fastify({ logger: true });
 
@@ -102,6 +103,24 @@ app.post('/notion/organizar', async () => {
         'Si ya hay contenido, no dupliques — actualizá o complementá lo que corresponda.';
     const r = await correrNotionAgent(consigna, 15);
     return { resultado: r };
+});
+
+app.post('/correos/importar', async (req) => {
+    // Trae correos históricos de IMAP (INBOX + carpeta de enviados detectada
+    // automáticamente) y los guarda en correos_historicos. Idempotente por
+    // message_id. Usalo la primera vez que arrancás el sistema para tener
+    // contexto de conversaciones previas al día 0.
+    const q = (req.query as { dias?: string; carpetas?: string }) ?? {};
+    const dias = Math.min(Math.max(Number(q.dias ?? 90), 1), 365);
+    const carpetas = q.carpetas ? q.carpetas.split(',').map((s) => s.trim()).filter(Boolean) : undefined;
+    const r = await importarHistorico(dias, carpetas);
+    return r;
+});
+
+app.get('/clientes/:id/historico-correos', async (req) => {
+    const { id } = req.params as { id: string };
+    const historia = await historicoConCliente(id, 20);
+    return { historico: historia };
 });
 
 app.post('/bartez/refresh-web', async () => {

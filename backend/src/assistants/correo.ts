@@ -6,6 +6,7 @@ import { AsistenteBase, contextoFecha } from './base.js';
 import type { ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 import { buscarEnCatalogo } from '../orchestrator/notion_sync.js';
 import { textoWebBartez } from '../connectors/bartez_web.js';
+import { historicoConCliente, historicoConEmail } from '../inbound/importar_historico.js';
 
 const PROMPT_PANEL = `
 Estás hablando con el operador de Bartez Tecnología (el dueño) desde el
@@ -93,6 +94,30 @@ export class AsistenteCorreo extends AsistenteBase {
         if (web) {
             extra.push(
                 `---\nINFORMACIÓN DE BARTEZ (extraída de www.bartez.com.ar):\n${web.slice(0, 2500)}\n\nUsá esta información como referencia real de qué vende Bartez. NUNCA inventes servicios o productos que no aparezcan acá o en el catálogo. Cuando presentes la empresa en un primer contacto, sacá lo esencial de acá — no todo lo que hay.`,
+            );
+        }
+
+        // Historial de correos previos con este cliente (importado de IMAP o generado
+        // por la app). Le da continuidad al asistente para no repetir cosas ya dichas
+        // ni contradecir cotizaciones anteriores. Se limita a 5 correos + 500 chars
+        // por cuerpo para no explotar el contexto.
+        const emailContraparte = tarea.metadata?.emailDestino as string | undefined;
+        const historia = tarea.clienteId
+            ? await historicoConCliente(tarea.clienteId, 5)
+            : emailContraparte ? await historicoConEmail(emailContraparte, 5) : [];
+        if (historia.length > 0) {
+            const bloque = historia
+                .slice()
+                .reverse() // orden cronológico: viejo primero, actual último
+                .map((h) => {
+                    const quien = h.direccion === 'saliente' ? 'BARTEZ →' : 'CLIENTE →';
+                    const fecha = new Date(h.fecha).toISOString().slice(0, 10);
+                    const cuerpo = (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 500);
+                    return `[${fecha}] ${quien} ${h.asunto ?? '(sin asunto)'}\n${cuerpo}${(h.cuerpo?.length ?? 0) > 500 ? '…' : ''}`;
+                })
+                .join('\n\n');
+            extra.push(
+                `---\nHISTORIAL DE CORREOS CON ESTE CLIENTE (últimos ${historia.length}, cronológico):\n${bloque}\n\nUsalo para dar continuidad: no repitas presentaciones ni preguntas ya hechas, referí a lo que ya se habló si aplica, y respetá cotizaciones o compromisos previos.`,
             );
         }
 

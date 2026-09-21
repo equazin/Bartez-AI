@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { actualizarCliente, contactarProspecto, correrSeguimientos, listarProspectos, organizarNotion, registrarCatalogoNotion, Prospecto } from '../../api/client.ts';
+import { actualizarCliente, contactarProspecto, correrSeguimientos, importarCorreosHistoricos, listarProspectos, organizarNotion, registrarCatalogoNotion, Prospecto } from '../../api/client.ts';
 
 type Estado = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado';
 
@@ -140,6 +140,30 @@ export function ListaProspectos() {
                     }}
                 >
                     Registrar catálogo Notion
+                </button>
+                <button
+                    className="secundario"
+                    disabled={ocupado === 'import'}
+                    title="Trae correos históricos de la casilla Ferozo (INBOX + Enviados) y los vincula por email a los prospectos existentes. Los asistentes usan ese historial como contexto para no repetir cosas ni contradecir cotizaciones anteriores."
+                    onClick={async () => {
+                        const dias = window.prompt('¿Cuántos días hacia atrás querés importar? (entre 1 y 365)', '90');
+                        if (!dias) return;
+                        const n = Number(dias);
+                        if (!Number.isFinite(n) || n < 1 || n > 365) {
+                            setError('Días inválido — usá un número entre 1 y 365.');
+                            return;
+                        }
+                        setOcupado('import');
+                        setMensaje(null);
+                        try {
+                            const r = await importarCorreosHistoricos(n);
+                            if (!r.ok) throw new Error(r.detalle || 'Import falló');
+                            setMensaje(`✓ Importados ${r.total_nuevos} correos (${r.total_vinculados} vinculados a prospectos existentes). ${r.carpetas_procesadas.map((c) => `${c.carpeta}: ${c.nuevos}`).join(' · ')}`);
+                        } catch (e) { setError((e as Error).message); }
+                        finally { setOcupado(null); }
+                    }}
+                >
+                    {ocupado === 'import' ? 'Importando (puede tardar)…' : 'Importar histórico correos'}
                 </button>
             </div>
 
