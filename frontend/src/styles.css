@@ -1343,3 +1343,44 @@ textarea.payload.editable {
 .timeline-item details summary { cursor: pointer; color: var(--sutil); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
 .timeline-item details summary:hover { color: var(--acento); }
 .tl-cuerpo { margin-top: 8px; padding: 10px; background: #fff; border: 1px solid var(--borde); border-radius: 4px; font-size: 12px; white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow: auto; color: var(--texto); font-family: inherit; }
+
+/* Cotizador */
+.cot-pedido { display: flex; gap: 10px; align-items: stretch; margin-bottom: 16px; }
+.cot-pedido textarea { flex: 1; padding: 10px 12px; border: 1px solid var(--borde); border-radius: 6px; background: #fff; color: var(--texto); font-family: inherit; font-size: 13px; resize: vertical; }
+.cot-pedido textarea:focus { outline: none; border-color: var(--acento); }
+.cot-pedido button.primario { background: var(--acento); color: #fff; border: 0; padding: 0 20px; border-radius: 6px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.cot-pedido button.primario:disabled { opacity: 0.5; cursor: wait; }
+.cot-resultado { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 16px 18px; margin-bottom: 20px; }
+.cot-tabla { width: 100%; border-collapse: collapse; font-size: 12px; }
+.cot-tabla th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); border-bottom: 1px solid var(--borde); padding: 6px 8px; }
+.cot-tabla td { border-bottom: 1px solid var(--borde-soft); padding: 8px; vertical-align: top; }
+.cot-tabla .num { text-align: right; white-space: nowrap; font-family: "SF Mono", Menlo, monospace; }
+.cot-tabla .ped { max-width: 200px; }
+.cot-tabla .nota { color: var(--alerta); font-size: 11px; margin-top: 3px; font-style: italic; }
+.cot-tabla .desc { font-weight: 600; color: var(--texto); }
+.cot-tabla .meta { color: var(--sutil); font-size: 11px; margin-top: 2px; }
+.cot-tabla details summary { cursor: pointer; color: var(--acento); font-size: 11px; margin-top: 4px; }
+.cot-tabla .alt { font-size: 11px; color: var(--sutil); padding: 3px 0 3px 10px; border-left: 2px solid var(--borde); margin-top: 3px; }
+.cot-tabla .sin { color: var(--peligro); font-style: italic; }
+.cot-totales { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-top: 12px; font-size: 13px; }
+.cot-totales div { display: flex; gap: 16px; min-width: 280px; justify-content: space-between; }
+.cot-totales span { color: var(--sutil); }
+.cot-totales .total { font-size: 15px; border-top: 1px solid var(--borde); padding-top: 4px; }
+.cot-totales .ars strong { color: var(--ok); }
+.cot-pie { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.cot-pie .mono { font-family: "SF Mono", Menlo, monospace; font-size: 11px; color: var(--sutil); }
+.cot-pie button.secundario, .prov-btns .secundario { background: var(--panel); color: var(--acento); border: 1px solid var(--acento); padding: 6px 12px; border-radius: 4px; font-weight: 600; font-size: 12px; cursor: pointer; }
+.prov-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.prov-card { background: var(--panel); border: 1px solid var(--borde); border-left: 3px solid var(--borde); border-radius: 6px; padding: 12px 14px; }
+.prov-card.est-ok { border-left-color: var(--ok); }
+.prov-card.est-error { border-left-color: var(--peligro); }
+.prov-card.est-sin_configurar { border-left-color: var(--alerta); }
+.prov-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.prov-estado { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); font-family: "SF Mono", Menlo, monospace; }
+.prov-meta { font-size: 11px; color: var(--sutil); }
+.prov-meta a { color: var(--acento); cursor: pointer; text-decoration: underline; }
+.prov-detalle { font-size: 11px; color: var(--alerta); margin-top: 6px; }
+.prov-btns { display: flex; gap: 6px; margin-top: 10px; }
+.prov-btns .file { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
+.prov-btns .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+@media (max-width: 700px) { .cot-pedido { flex-direction: column; } .cot-pedido button.primario { padding: 10px; } }

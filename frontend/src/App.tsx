@@ -8,8 +8,9 @@ import { Bitacora } from './components/Bitacora.tsx';
 import { Prospeccion } from './components/Prospeccion.tsx';
 import { Analitica } from './components/Analitica.tsx';
 import { Seguimientos } from './components/Seguimientos.tsx';
+import { Cotizador } from './components/Cotizador.tsx';
 
-type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos';
+type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'home', label: 'Inicio' },
@@ -17,6 +18,7 @@ const TABS: { id: Tab; label: string }[] = [
     { id: 'acciones', label: 'Acciones' },
     { id: 'prospeccion', label: 'Prospección' },
     { id: 'seguimientos', label: 'Seguimientos' },
+    { id: 'cotizador', label: 'Cotizador' },
     { id: 'asistentes', label: 'Asistentes' },
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'analitica', label: 'Analítica' },
@@ -51,6 +53,7 @@ export function App() {
                 {tab === 'dashboard' && <Dashboard />}
                 {tab === 'analitica' && <Analitica />}
                 {tab === 'seguimientos' && <Seguimientos />}
+                {tab === 'cotizador' && <Cotizador />}
                 {tab === 'bitacora' && <Bitacora />}
             </main>
         </div>

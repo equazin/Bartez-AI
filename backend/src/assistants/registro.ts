@@ -8,6 +8,7 @@ import { AsistenteNotion } from './notion.js';
 import { AsistenteProspeccion } from './prospeccion.js';
 import { AsistenteSeguimientos } from './seguimientos.js';
 import { AsistenteAnalitica } from './analitica.js';
+import { AsistenteCotizador } from './cotizador.js';
 
 type Factory = (config: AsistenteConfig) => Asistente;
 
@@ -18,6 +19,7 @@ export function registrarAsistentes(): Map<string, Factory> {
     m.set('prospeccion', (c) => new AsistenteProspeccion(c));
     m.set('seguimientos', (c) => new AsistenteSeguimientos(c));
     m.set('analitica', (c) => new AsistenteAnalitica(c));
+    m.set('cotizador', (c) => new AsistenteCotizador(c));
     // whatsapp → se agrega cuando esté su clase
     return m;
 }

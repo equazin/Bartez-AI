@@ -313,10 +313,9 @@ export async function promoverContactoDetectado(params: { dominio: string; nombr
     // Re-vincular todos los correos huérfanos del dominio a este cliente nuevo.
     const { count } = await supabase
         .from('correos_historicos')
-        .update({ cliente_id: nuevo.id })
+        .update({ cliente_id: nuevo.id }, { count: 'exact' })
         .eq('dominio', params.dominio)
-        .is('cliente_id', null)
-        .select('*', { count: 'exact', head: true });
+        .is('cliente_id', null);
 
     return { ok: true, cliente: nuevo, vinculados: count ?? 0 };
 }

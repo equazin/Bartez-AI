@@ -261,6 +261,95 @@ export async function correrAnaliticaAhora(dias = 7): Promise<{ resultado: Infor
     return res.json();
 }
 
+// ---------- Proveedores y Cotizador ----------
+
+export interface Proveedor {
+    codigo: 'elit' | 'air' | 'invid';
+    nombre: string;
+    activo: boolean;
+    margen_pct: number;
+    ultima_sync: string | null;
+    ultimo_estado: 'ok' | 'error' | 'sin_configurar' | null;
+    ultimo_detalle: string | null;
+    items_sincronizados: number | null;
+}
+
+export interface ArticuloPrecio {
+    catalogo_id: number;
+    proveedor: string;
+    sku: string;
+    descripcion: string;
+    marca: string | null;
+    stock: number | null;
+    moneda_origen: string;
+    costo_usd: number;
+    margen_pct: number;
+    precio_unit_usd: number;
+    iva_pct: number;
+    precio_unit_final_usd: number;
+}
+
+export interface LineaCotizada {
+    pedido: string;
+    cantidad: number;
+    nota: string;
+    elegido: ArticuloPrecio | null;
+    alternativas: ArticuloPrecio[];
+}
+
+export interface Cotizacion {
+    ok: boolean;
+    id?: string;
+    pedido: string;
+    lineas: LineaCotizada[];
+    comentario: string;
+    tipo_cambio: number;
+    fuente_tc: string;
+    subtotal_usd: number;
+    iva_usd: number;
+    total_usd: number;
+    total_ars: number;
+    busquedas: number;
+    costo_ia_usd: number;
+    duracion_ms: number;
+}
+
+async function jsonOError<T>(res: Response): Promise<T> {
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(typeof err.error === 'string' ? err.error : `Backend respondió ${res.status}`);
+    }
+    return res.json();
+}
+
+export async function listarProveedores(): Promise<{ proveedores: Proveedor[]; tipo_cambio: { valor: number; fuente: string } | null }> {
+    return jsonOError(await fetch(`${BASE}/proveedores`));
+}
+
+export async function actualizarProveedor(codigo: string, cambios: { activo?: boolean; margen_pct?: number }): Promise<{ proveedor: Proveedor }> {
+    return jsonOError(await fetch(`${BASE}/proveedores/${codigo}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cambios),
+    }));
+}
+
+export interface ResultadoSync { proveedor: string; ok: boolean; items: number; detalle?: string; duracion_ms: number }
+
+export async function sincronizarProveedor(codigo: string): Promise<{ resultado: ResultadoSync }> {
+    return jsonOError(await fetch(`${BASE}/proveedores/${codigo}/sincronizar`, { method: 'POST' }));
+}
+
+export async function importarCsvProveedor(codigo: string, csv: string, moneda: 'USD' | 'ARS'): Promise<{ resultado: ResultadoSync }> {
+    return jsonOError(await fetch(`${BASE}/proveedores/${codigo}/importar-csv`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csv, moneda }),
+    }));
+}
+
+export async function crearCotizacion(pedido: string): Promise<{ cotizacion: Cotizacion }> {
+    return jsonOError(await fetch(`${BASE}/cotizaciones`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedido }),
+    }));
+}
+
 // ---------- Seguimientos ----------
 
 export interface EmpresaSeguimiento {

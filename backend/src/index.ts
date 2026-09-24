@@ -17,6 +17,8 @@ import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, g
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
+import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
+import { cotizar } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
@@ -227,6 +229,69 @@ app.post('/seguimientos/empresas/:id/informe', async (req, res) => {
     const r = await generarInformeCliente(id, { contexto_extra: parseo.data.contexto_extra });
     if (!r.ok) return res.status(500).send({ error: r.detalle ?? 'Falló la generación del informe' });
     return { informe: r };
+});
+
+// ---------- Proveedores y Cotizador ----------
+
+app.get('/proveedores', async () => {
+    const { data } = await supabase.from('proveedores').select('*').order('codigo');
+    let tc: { valor: number; fuente: string } | null = null;
+    try { tc = await tipoDeCambio(); } catch { /* sin tipo de cambio */ }
+    return { proveedores: data ?? [], tipo_cambio: tc };
+});
+
+const ProveedorUpdateSchema = z.object({
+    activo: z.boolean().optional(),
+    margen_pct: z.number().min(0).max(500).optional(),
+});
+app.patch('/proveedores/:codigo', async (req, res) => {
+    const { codigo } = req.params as { codigo: string };
+    const parseo = ProveedorUpdateSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    const { data, error } = await supabase.from('proveedores').update(parseo.data).eq('codigo', codigo).select().single();
+    if (error) return res.status(404).send({ error: 'Proveedor no encontrado' });
+    return { proveedor: data };
+});
+
+app.post('/proveedores/sincronizar', async () => ({ resultados: await sincronizarTodos() }));
+
+app.post('/proveedores/:codigo/sincronizar', async (req) => {
+    const { codigo } = req.params as { codigo: string };
+    return { resultado: await sincronizarProveedor(codigo) };
+});
+
+const CsvSchema = z.object({ csv: z.string().min(10), moneda: z.enum(['USD', 'ARS']).optional() });
+app.post('/proveedores/:codigo/importar-csv', { bodyLimit: 30 * 1024 * 1024 }, async (req, res) => {
+    const { codigo } = req.params as { codigo: string };
+    const parseo = CsvSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    return { resultado: await importarCsv(codigo, parseo.data.csv, parseo.data.moneda ?? 'USD') };
+});
+
+app.get('/catalogo/buscar', async (req) => {
+    const q = (req.query as { q?: string; stock?: string }) ?? {};
+    if (!q.q) return { items: [] };
+    const { data, error } = await supabase.rpc('buscar_catalogo', { q: q.q, limite: 30, solo_stock: q.stock === '1' });
+    if (error) return { items: [], error: error.message };
+    return { items: data ?? [] };
+});
+
+const CotizarSchema = z.object({ pedido: z.string().min(3), cliente_id: z.string().uuid().optional() });
+app.post('/cotizaciones', async (req, res) => {
+    const parseo = CotizarSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    const r = await cotizar(parseo.data.pedido, { cliente_id: parseo.data.cliente_id });
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    return { cotizacion: r };
+});
+
+app.get('/cotizaciones', async () => {
+    const { data } = await supabase
+        .from('cotizaciones')
+        .select('id, pedido, total_usd, total_ars, tipo_cambio, creado_en')
+        .order('creado_en', { ascending: false })
+        .limit(30);
+    return { cotizaciones: data ?? [] };
 });
 
 app.post('/bartez/refresh-web', async () => {
@@ -895,6 +960,18 @@ async function main() {
         }
     }, { timezone: 'America/Argentina/Buenos_Aires' });
     app.log.info('[cron] informe Analítica programado lunes 08:00 AR (semanal)');
+
+    // Cron cada 4 horas — sincronizar listas de proveedores (Elit, Air, Invid).
+    // Los que no tienen credenciales en el .env quedan como 'sin_configurar'.
+    cron.schedule('15 */4 * * *', async () => {
+        try {
+            const r = await sincronizarTodos();
+            app.log.info({ r: r.map((x) => ({ p: x.proveedor, ok: x.ok, items: x.items })) }, '[cron] sync proveedores');
+        } catch (err) {
+            app.log.error({ err }, '[cron] sync proveedores falló');
+        }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
+    app.log.info('[cron] sync de proveedores programado cada 4 h');
 }
 
 main().catch((err) => {
