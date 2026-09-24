@@ -1,10 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// GitHub Pages sirve el sitio desde /bartez-ai/ cuando se publica desde este repo.
-// En dev queda en /.
-export default defineConfig(({ command }) => ({
+// Rutas relativas: sirve igual en GitHub Pages (/Bartez-AI/) que en local.
+export default defineConfig(() => ({
     plugins: [react()],
-    base: command === 'build' ? '/bartez-ai/' : '/',
+    base: './',
     server: { port: 5173 },
 }));

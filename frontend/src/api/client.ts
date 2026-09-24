@@ -1,7 +1,7 @@
 // Cliente HTTP mínimo al backend de Bartez AI.
 // La URL del backend se toma de VITE_BACKEND_URL en build; por defecto localhost.
 
-const BASE = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:3000';
+const BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 export interface TareaEntrada {
     canal: 'correo' | 'whatsapp' | 'panel';

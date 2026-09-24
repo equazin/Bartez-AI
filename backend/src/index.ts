@@ -871,8 +871,19 @@ app.get('/metricas/hoy', async () => {
 });
 
 async function main() {
-    await app.register(cors, {
-        origin: true, // en dev acepta cualquier origen local (localhost:5173, etc.)
+    // Solo el panel (local o GitHub Pages) puede llamar al backend: evita que
+    // cualquier web que abras en el navegador use tu backend local.
+    const origenesPermitidos = [
+        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+        'https://equazin.github.io',
+        ...(process.env.FRONTEND_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    ];
+    await app.register(cors, { origin: origenesPermitidos });
+    // Chrome pide permiso explícito para que un sitio público hable con localhost.
+    app.addHook('onSend', async (req, reply) => {
+        if (req.method === 'OPTIONS' && req.headers['access-control-request-private-network']) {
+            reply.header('Access-Control-Allow-Private-Network', 'true');
+        }
     });
     try {
         await catalogo.cargar();
