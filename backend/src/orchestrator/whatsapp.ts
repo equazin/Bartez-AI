@@ -23,6 +23,7 @@ import {
 } from '../connectors/studio.js';
 import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
+import { conLecciones } from './aprendizaje.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 
 const VENTANA_MS = 24 * 3600_000;
@@ -252,11 +253,11 @@ export async function proponerRespuestaWhatsapp(
     }
 
     const web = (await textoWebBartez().catch(() => '')).slice(0, 3000);
-    const system = [
+    const system = await conLecciones([
         promptBase,
         contextoFecha(),
         web ? `\nINFORMACIÓN DE BARTEZ (de la web):\n${web}` : '',
-    ].join('\n');
+    ].join('\n'), fila?.id as string | undefined);
 
     const quien = (o: string) => (o === 'cliente' ? 'CLIENTE' : o === 'bot' ? 'BOT WEB' : 'BARTEZ');
     const hilo = msgs.map((m) =>

@@ -770,6 +770,29 @@ export interface AsistenteEditable {
     autonomia: number;
     activo: boolean;
     actualizado_en: string;
+    lecciones?: string | null;
+    lecciones_en?: string | null;
+}
+
+export interface Aprendizaje {
+    id: string;
+    tipo: 'rechazo' | 'edicion';
+    canal: string | null;
+    situacion: string | null;
+    propuesto: string | null;
+    corregido: string | null;
+    motivo: string | null;
+    destilado: boolean;
+    creado_en: string;
+}
+
+export async function listarAprendizajes(asistenteId: string): Promise<{ aprendizajes: Aprendizaje[] }> {
+    return jsonOError(await apiFetch(`${BASE}/asistentes/${asistenteId}/aprendizajes`));
+}
+
+// Convierte las correcciones en lecciones ahora, sin esperar a la corrida nocturna.
+export async function actualizarLecciones(asistenteId: string): Promise<{ ok: boolean; lecciones?: string; usadas?: number }> {
+    return jsonOError(await apiFetch(`${BASE}/asistentes/${asistenteId}/lecciones`, { method: 'POST' }));
 }
 
 export async function listarAsistentes(): Promise<{ asistentes: AsistenteEditable[] }> {
@@ -780,7 +803,7 @@ export async function listarAsistentes(): Promise<{ asistentes: AsistenteEditabl
 
 export async function actualizarAsistente(
     id: string,
-    cambios: Partial<Pick<AsistenteEditable, 'prompt' | 'modelo' | 'autonomia' | 'activo'>>,
+    cambios: Partial<Pick<AsistenteEditable, 'prompt' | 'modelo' | 'autonomia' | 'activo' | 'lecciones'>>,
 ): Promise<AsistenteEditable> {
     const res = await apiFetch(`${BASE}/asistentes/${id}`, {
         method: 'PATCH',

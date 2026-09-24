@@ -2186,3 +2186,24 @@ input, textarea, select { color: var(--texto); }
 }
 .wa-filtros button:hover { border-color: var(--texto); }
 .wa-filtros button.activo { background: var(--texto); color: var(--bg); border-color: var(--texto); font-weight: 650; }
+
+/* ---- Aprendizaje: motivo al rechazar y "Lo que aprendió" ---- */
+.btn-peligro { background: var(--peligro); color: #fff; border: 0; padding: 8px 16px; border-radius: 6px; font: inherit; font-size: var(--t-sm); font-weight: 650; cursor: pointer; }
+.btn-peligro:hover { filter: brightness(0.95); }
+.apr-rechazo { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.apr-rechazo-titulo { font-weight: 650; font-size: var(--t-sm); }
+.apr-rechazo-titulo .tenue { font-weight: 400; }
+.apr-rechazo-fila { display: flex; gap: 8px; flex-wrap: wrap; }
+.apr-rechazo-fila input { flex: 1; min-width: 200px; font: inherit; font-size: var(--t-sm); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--borde); background: var(--hundido); color: var(--texto); }
+.apr-rechazo-fila input:focus { outline: 2px solid var(--acento-soft); border-color: var(--acento); }
+
+.aprendio { margin: 14px 0; padding: 12px 14px; border-radius: 10px; background: var(--hundido); border: 1px solid var(--borde-soft); display: flex; flex-direction: column; gap: 8px; }
+.aprendio-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.aprendio-cab .tenue { font-size: var(--t-xs); }
+.aprendio textarea { font: inherit; font-size: var(--t-sm); line-height: 1.5; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--borde); background: var(--panel); color: var(--texto); resize: vertical; }
+.aprendio-nota { margin: 0; font-size: var(--t-xs); }
+.aprendio-lista summary { cursor: pointer; font-size: var(--t-xs); color: var(--acento); font-weight: 600; }
+.aprendio-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid var(--borde-soft); font-size: var(--t-xs); }
+.aprendio-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canal-rechazo { background: var(--peligro-soft); color: var(--peligro); }
+.canal-edicion { background: var(--acento-soft); color: var(--acento); }

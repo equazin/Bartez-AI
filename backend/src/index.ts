@@ -28,6 +28,7 @@ import {
 import { studioConfigurado } from './connectors/studio.js';
 import { actualizarCotizacion, borrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
+import { destilarLecciones, destilarPendientes, listarAprendizajes, olvidarCacheLecciones, registrarCorreccion } from './orchestrator/aprendizaje.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
 // trustProxy: detrás del proxy de Railway, req.ip es la IP real del cliente.
@@ -426,7 +427,7 @@ app.get('/asistentes', async () => {
     // Lee TODOS los asistentes del catálogo (activos y dormidos) para el editor
     const { data, error } = await supabase
         .from('asistentes')
-        .select('id, nombre, area, modelo, prompt, autonomia, activo, actualizado_en')
+        .select('id, nombre, area, modelo, prompt, autonomia, activo, actualizado_en, lecciones, lecciones_en')
         .order('activo', { ascending: false })
         .order('nombre', { ascending: true });
     if (error) throw error;
@@ -438,6 +439,7 @@ const AsistenteUpdateSchema = z.object({
     modelo: z.enum(['sonnet', 'haiku', 'opus']).optional(),
     autonomia: z.number().int().min(0).max(100).optional(),
     activo: z.boolean().optional(),
+    lecciones: z.string().max(4000).nullable().optional(),
 });
 
 app.patch('/asistentes/:id', async (req, res) => {
@@ -446,6 +448,7 @@ app.patch('/asistentes/:id', async (req, res) => {
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
     const cambios = { ...parseo.data, actualizado_en: new Date().toISOString() };
+    if (parseo.data.lecciones !== undefined) olvidarCacheLecciones(id);
     const { data, error } = await supabase
         .from('asistentes')
         .update(cambios)
@@ -462,6 +465,19 @@ app.patch('/asistentes/:id', async (req, res) => {
     }
 
     return { asistente: data };
+});
+
+// Aprendizaje: correcciones recientes y lecciones destiladas de un asistente.
+app.get('/asistentes/:id/aprendizajes', async (req) => {
+    const { id } = req.params as { id: string };
+    return { aprendizajes: await listarAprendizajes(id) };
+});
+
+app.post('/asistentes/:id/lecciones', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const r = await destilarLecciones(id, true);
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    return r;
 });
 
 app.post('/tareas', async (req, res) => {
@@ -806,6 +822,10 @@ app.post('/acciones/:id/editar', async (req, res) => {
         return res.status(400).send({ error: 'Falta payload editado' });
     }
 
+    // El original hace falta para aprender qué se corrigió.
+    const { data: original } = await supabase
+        .from('acciones_pendientes').select('id, asistente_id, accion, payload').eq('id', id).eq('estado', 'pendiente').maybeSingle();
+
     const { data, error } = await supabase
         .from('acciones_pendientes')
         .update({
@@ -820,6 +840,7 @@ app.post('/acciones/:id/editar', async (req, res) => {
         .single();
     if (error || !data) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
 
+    if (original) void registrarCorreccion(original, 'edicion', { payloadNuevo: parseo.data.payload, motivo: parseo.data.nota });
     const ejec = await ejecutarAccion({ accion: data.accion as string, payload: data.payload as Record<string, unknown> });
     await supabase
         .from('acciones_pendientes')
@@ -874,6 +895,7 @@ app.post('/acciones/:id/rechazar', async (req, res) => {
         .select()
         .single();
     if (error) return res.status(404).send({ error: 'Acción no encontrada o ya resuelta' });
+    if (data) void registrarCorreccion(data, 'rechazo', { motivo: parseo.data.nota });
 
     return { accion: data };
 });
@@ -1076,6 +1098,16 @@ async function main() {
 
     // Cron cada 4 horas — sincronizar listas de proveedores (Elit, Air, Invid).
     // Los que no tienen credenciales en el .env quedan como 'sin_configurar'.
+    // Todas las noches, las correcciones del día se convierten en lecciones.
+    cron.schedule('40 20 * * *', async () => {
+        try {
+            const n = await destilarPendientes();
+            if (n) app.log.info({ asistentes: n }, 'lecciones actualizadas');
+        } catch (err) {
+            app.log.error({ err }, 'destilar lecciones falló');
+        }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
+
     cron.schedule('15 */4 * * *', async () => {
         try {
             const r = await sincronizarTodos();

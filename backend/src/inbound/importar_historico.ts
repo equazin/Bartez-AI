@@ -145,7 +145,7 @@ export async function importarHistorico(
                 for (const uid of uids) {
                     try {
                         const msg = await client.fetchOne(uid, { source: true, envelope: true, uid: true });
-                        if (!msg?.source) continue;
+                        if (!msg || !msg.source) continue;
                         const parsed = await simpleParser(msg.source);
                         const messageId = parsed.messageId ?? `uid-${carpeta}-${uid}`;
 

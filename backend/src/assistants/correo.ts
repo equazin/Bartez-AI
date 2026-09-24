@@ -6,6 +6,7 @@ import { AsistenteBase, contextoFecha } from './base.js';
 import type { ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 import { buscarEnCatalogo } from '../orchestrator/notion_sync.js';
 import { textoWebBartez } from '../connectors/bartez_web.js';
+import { conLecciones } from '../orchestrator/aprendizaje.js';
 import { historicoConCliente, historicoConEmail } from '../inbound/importar_historico.js';
 
 const PROMPT_PANEL = `
@@ -144,7 +145,7 @@ export class AsistenteCorreo extends AsistenteBase {
             }
         }
 
-        return `${fecha}\n\n${base}${extra.length > 0 ? '\n\n' + extra.join('\n\n') : ''}`;
+        return conLecciones(`${fecha}\n\n${base}${extra.length > 0 ? '\n\n' + extra.join('\n\n') : ''}`, this.config.id);
     }
 
     protected override extraerAccion(texto: string, tarea: TareaEntrante): ResultadoAsistente['accionPropuesta'] {
@@ -241,7 +242,7 @@ function extraerTareas(texto: string): TareaExtractada[] {
     const m = /<tareas>([\s\S]*?)<\/tareas>/i.exec(texto);
     if (!m) return [];
     try {
-        const parsed = JSON.parse(m[1].trim());
+        const parsed = JSON.parse((m[1] ?? '').trim());
         if (!Array.isArray(parsed)) return [];
         return parsed
             .filter((t): t is Record<string, unknown> => typeof t === 'object' && t !== null)

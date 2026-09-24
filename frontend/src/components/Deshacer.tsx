@@ -10,10 +10,10 @@ export const DESHACER_MS = 5000;
 export const EVENTO_RESUELTA = 'bartez:resuelta';
 
 export type Resolucion = 'aprobar' | 'editar' | 'rechazar';
-export interface EnCola { id: string; tipo: Resolucion; destino: string; payload?: Record<string, unknown>; timer: number }
+export interface EnCola { id: string; tipo: Resolucion; destino: string; payload?: Record<string, unknown>; nota?: string; timer: number }
 
 async function resolver(x: EnCola): Promise<string | undefined> {
-    const res = await resolverAccion(x.id, x.tipo, x.payload ? { payload: x.payload } : {});
+    const res = await resolverAccion(x.id, x.tipo, { ...(x.payload ? { payload: x.payload } : {}), ...(x.nota ? { nota: x.nota } : {}) });
     window.dispatchEvent(new Event(EVENTO_RESUELTA));
     if (x.tipo !== 'rechazar' && res.ejecucion && !res.ejecucion.ok) {
         return `Se aprobó la respuesta a ${x.destino} pero no se pudo enviar: ${res.ejecucion.detalle ?? 'error desconocido'}`;
@@ -32,9 +32,9 @@ export function useColaDeshacer(alTerminar: (error?: string) => void) {
         setEnCola(colaRef.current);
     }, []);
 
-    const encolar = useCallback((id: string, tipo: Resolucion, destino: string, payload?: Record<string, unknown>) => {
+    const encolar = useCallback((id: string, tipo: Resolucion, destino: string, payload?: Record<string, unknown>, nota?: string) => {
         if (colaRef.current.some((x) => x.id === id)) return;
-        const item: EnCola = { id, tipo, destino: destino || 'sin destinatario', payload, timer: 0 };
+        const item: EnCola = { id, tipo, destino: destino || 'sin destinatario', payload, nota, timer: 0 };
         item.timer = window.setTimeout(async () => {
             quitar(id);
             let error: string | undefined;

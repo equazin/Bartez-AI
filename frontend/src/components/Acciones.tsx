@@ -149,11 +149,43 @@ function Editor({ e, cambiar, guardar, cancelar }: { e: Edicion; cambiar: (e: Ed
     );
 }
 
+// Motivos rápidos: el asistente aprende de ellos (se destilan en lecciones).
+const MOTIVOS = ['El tono no va', 'Datos o precios mal', 'Muy largo', 'No hacía falta responder', 'Lo respondo yo'];
+
+function Rechazo({ confirmar, cancelar }: { confirmar: (motivo: string) => void; cancelar: () => void }) {
+    const [motivo, setMotivo] = useState('');
+    const campo = useRef<HTMLInputElement>(null);
+    useEffect(() => { campo.current?.focus(); }, []);
+    return (
+        <div className="apr-rechazo" onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); cancelar(); } }}>
+            <span className="apr-rechazo-titulo">¿Por qué la rechazás? <span className="tenue">Opcional: el asistente aprende de esto.</span></span>
+            <div className="chips">
+                {MOTIVOS.map((m) => (
+                    <button key={m} type="button" className={motivo === m ? 'chip on' : 'chip'} aria-pressed={motivo === m} onClick={() => { setMotivo((v) => (v === m ? '' : m)); campo.current?.focus(); }}>{m}</button>
+                ))}
+            </div>
+            <div className="apr-rechazo-fila">
+                <input
+                    ref={campo}
+                    value={motivo}
+                    onChange={(e) => setMotivo(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmar(motivo); } }}
+                    placeholder="O escribilo con tus palabras…"
+                    aria-label="Motivo del rechazo"
+                />
+                <button className="btn-peligro" onClick={() => confirmar(motivo)}>Rechazar</button>
+                <button className="boton-fantasma" onClick={cancelar}>Cancelar</button>
+            </div>
+        </div>
+    );
+}
+
 export function Acciones() {
     const [acciones, setAcciones] = useState<AccionPendiente[]>([]);
     const [cargado, setCargado] = useState(false);
     const [selId, setSelId] = useState<string | null>(null);
     const [edicion, setEdicion] = useState<Edicion | null>(null);
+    const [rechazando, setRechazando] = useState<string | null>(null);
     const [verDetalle, setVerDetalle] = useState(false); // celular: lista o detalle
     const [error, setError] = useState<string>();
     const [cargando, setCargando] = useState(false);
@@ -187,15 +219,17 @@ export function Acciones() {
         if (!a) return;
         setSelId(a.id);
         setEdicion(null);
+        setRechazando(null);
         document.querySelector(`[data-apr-id="${a.id}"]`)?.scrollIntoView({ block: 'nearest' });
     }, []);
 
     // Al resolver una, queda seleccionada la siguiente.
-    const resolver = useCallback((a: AccionPendiente, tipo: 'aprobar' | 'rechazar' | 'editar', payload?: Record<string, unknown>) => {
+    const resolver = useCallback((a: AccionPendiente, tipo: 'aprobar' | 'rechazar' | 'editar', payload?: Record<string, unknown>, nota?: string) => {
         const i = visibles.findIndex((x) => x.id === a.id);
         const siguiente = visibles[i + 1] ?? visibles[i - 1];
-        cola.encolar(a.id, tipo, resumenAccion(a).destino, payload);
+        cola.encolar(a.id, tipo, resumenAccion(a).destino, payload, nota?.trim() || undefined);
         setEdicion(null);
+        setRechazando(null);
         setSelId(siguiente?.id ?? null);
         if (!siguiente) setVerDetalle(false);
     }, [visibles, cola.encolar]);
@@ -212,19 +246,19 @@ export function Acciones() {
     // Teclado: J/K moverse, A aprobar, R rechazar, E editar.
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
-            if (e.ctrlKey || e.metaKey || e.altKey || escribiendo(e.target) || edicion || !sel) return;
+            if (e.ctrlKey || e.metaKey || e.altKey || escribiendo(e.target) || edicion || rechazando || !sel) return;
             const k = e.key.toLowerCase();
             if (k === 'j') seleccionar(visibles[Math.min(idxSel + 1, visibles.length - 1)]);
             else if (k === 'k') seleccionar(visibles[Math.max(idxSel - 1, 0)]);
             else if (k === 'a') resolver(sel, 'aprobar');
-            else if (k === 'r') resolver(sel, 'rechazar');
+            else if (k === 'r') setRechazando(sel.id);
             else if (k === 'e') setEdicion(empezarEdicion(sel));
             else return;
             e.preventDefault();
         };
         window.addEventListener('keydown', tecla);
         return () => window.removeEventListener('keydown', tecla);
-    }, [visibles, idxSel, sel, edicion, seleccionar, resolver]);
+    }, [visibles, idxSel, sel, edicion, rechazando, seleccionar, resolver]);
 
     return (
         <section className={`apr ${verDetalle ? 'ver-detalle' : ''}`}>
@@ -306,7 +340,9 @@ export function Acciones() {
                         </div>
 
                         <div className="apr-barra">
-                            {edicion && edicion.id === sel.id ? (
+                            {rechazando === sel.id ? (
+                                <Rechazo confirmar={(m) => resolver(sel, 'rechazar', undefined, m)} cancelar={() => setRechazando(null)} />
+                            ) : edicion && edicion.id === sel.id ? (
                                 <>
                                     <button className="btn-aprobar" onClick={guardarEdicion}>Guardar y enviar</button>
                                     <button className="boton-fantasma" onClick={() => setEdicion(null)}>Cancelar</button>
@@ -316,7 +352,7 @@ export function Acciones() {
                                 <>
                                     <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>Aprobar y enviar</button>
                                     <button className="boton-fantasma" onClick={() => setEdicion(empezarEdicion(sel))}>Editar</button>
-                                    <button className="boton-fantasma peligro" onClick={() => resolver(sel, 'rechazar')}>Rechazar</button>
+                                    <button className="boton-fantasma peligro" onClick={() => setRechazando(sel.id)}>Rechazar</button>
                                 </>
                             )}
                         </div>

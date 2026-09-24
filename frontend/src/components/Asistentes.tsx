@@ -1,5 +1,78 @@
 import { useCallback, useEffect, useState } from 'react';
-import { actualizarAsistente, AsistenteEditable, listarAsistentes } from '../api/client.ts';
+import { actualizarAsistente, actualizarLecciones, Aprendizaje, AsistenteEditable, listarAprendizajes, listarAsistentes } from '../api/client.ts';
+import { hace } from '../lib/acciones.ts';
+
+// Lo que el asistente aprendió de tus rechazos y ediciones: las lecciones se
+// suman a su prompt y se pueden corregir a mano.
+function LoQueAprendio({ a, lecciones, cambiar, alActualizar }: {
+    a: AsistenteEditable; lecciones: string; cambiar: (v: string) => void; alActualizar: () => Promise<void>;
+}) {
+    const [correcciones, setCorrecciones] = useState<Aprendizaje[] | null>(null);
+    const [ocupado, setOcupado] = useState(false);
+    const [aviso, setAviso] = useState<string>();
+
+    const cargar = useCallback(() => {
+        listarAprendizajes(a.id).then((r) => setCorrecciones(r.aprendizajes)).catch(() => setCorrecciones([]));
+    }, [a.id]);
+    useEffect(() => { cargar(); }, [cargar]);
+
+    const sinProcesar = (correcciones ?? []).filter((c) => !c.destilado).length;
+
+    async function actualizar() {
+        setOcupado(true);
+        setAviso(undefined);
+        try {
+            const r = await actualizarLecciones(a.id);
+            setAviso(`Listo: lecciones actualizadas con ${r.usadas ?? 0} correcciones.`);
+            await alActualizar();
+            cargar();
+        } catch (e) {
+            setAviso((e as Error).message);
+        } finally {
+            setOcupado(false);
+        }
+    }
+
+    return (
+        <div className="aprendio">
+            <div className="aprendio-cab">
+                <div>
+                    <strong>Lo que aprendió</strong>
+                    <span className="tenue">
+                        {correcciones == null ? ' · cargando…' : ` · ${correcciones.length} correcciones${sinProcesar ? `, ${sinProcesar} sin procesar` : ''}`}
+                        {a.lecciones_en ? ` · actualizado ${hace(a.lecciones_en)}` : ''}
+                    </span>
+                </div>
+                <button className="secundario" onClick={actualizar} disabled={ocupado || !correcciones?.length}>
+                    {ocupado ? 'Aprendiendo…' : 'Aprender de las correcciones ahora'}
+                </button>
+            </div>
+            <textarea
+                value={lecciones}
+                onChange={(e) => cambiar(e.target.value)}
+                rows={Math.min(Math.max(lecciones.split('\n').length + 1, 3), 12)}
+                placeholder="Todavía no hay lecciones. Se arman solas cuando rechazás o editás lo que propone este asistente (al juntar 3 correcciones y todas las noches)."
+            />
+            <p className="tenue aprendio-nota">Se suman al final de su prompt. Podés editarlas o borrar las que no correspondan; se guardan con “Guardar cambios”.</p>
+            {aviso && <p className="msg-ok">{aviso}</p>}
+            {correcciones && correcciones.length > 0 && (
+                <details className="aprendio-lista">
+                    <summary>Ver las últimas correcciones</summary>
+                    {correcciones.slice(0, 8).map((c) => (
+                        <div key={c.id} className="aprendio-item">
+                            <span className={`canal ${c.tipo === 'rechazo' ? 'canal-rechazo' : 'canal-edicion'}`}>{c.tipo === 'rechazo' ? 'Rechazada' : 'Editada'}</span>
+                            <span className="aprendio-texto">
+                                {c.motivo ? <strong>“{c.motivo}”</strong> : c.tipo === 'rechazo' ? <span className="tenue">sin motivo</span> : null}
+                                <span className="tenue"> {(c.corregido ?? c.propuesto ?? '').replace(/\s+/g, ' ').slice(0, 140)}</span>
+                            </span>
+                            <span className="hora">{hace(c.creado_en)}</span>
+                        </div>
+                    ))}
+                </details>
+            )}
+        </div>
+    );
+}
 
 export function Asistentes() {
     const [asistentes, setAsistentes] = useState<AsistenteEditable[]>([]);
@@ -129,8 +202,16 @@ export function Asistentes() {
                                     </label>
                                 </div>
 
+                                <LoQueAprendio
+                                    a={a}
+                                    lecciones={(valor(a, 'lecciones') as string | null) ?? ''}
+                                    cambiar={(v) => cambio(a.id, 'lecciones', v)}
+                                    alActualizar={cargar}
+                                />
+
                                 <div className="accion-acciones">
                                     <button
+                                        className="btn-primario"
                                         onClick={() => guardar(a)}
                                         disabled={!modificado || guardando === a.id}
                                     >

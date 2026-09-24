@@ -5,7 +5,7 @@
 import { AsistenteBase } from './base.js';
 
 export class AsistenteNotion extends AsistenteBase {
-    protected override construirSystem(): string {
+    protected override async construirSystem(): Promise<string> {
         return (
             this.config.prompt?.trim() ||
             'Sos el asistente de Notion de Bartez. Recibís pedidos para crear o actualizar páginas y tareas.'

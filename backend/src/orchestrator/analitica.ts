@@ -200,7 +200,7 @@ export async function correrAnalitica(dias = 7): Promise<ReporteAnalitica> {
     let propuestas: Propuesta[] = [];
     if (propMatch) {
         try {
-            const parsed = JSON.parse(propMatch[1].trim());
+            const parsed = JSON.parse((propMatch[1] ?? '').trim());
             if (Array.isArray(parsed)) {
                 propuestas = parsed.filter((p): p is Propuesta => typeof p?.titulo === 'string' && typeof p?.razon === 'string');
             }
