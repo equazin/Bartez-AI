@@ -1290,6 +1290,14 @@ textarea.payload.editable {
     margin-bottom: 12px;
     font-size: 12px;
 }
+.msg-error {
+    background: rgba(239,68,68,0.12);
+    color: var(--peligro);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    font-size: 12px;
+}
 .contexto-extra { margin-bottom: 16px; }
 .contexto-extra label { display: block; }
 .contexto-extra .lbl { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); font-weight: 600; margin-bottom: 2px; }

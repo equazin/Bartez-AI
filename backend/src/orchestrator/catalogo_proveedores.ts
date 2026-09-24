@@ -74,8 +74,8 @@ export async function sincronizarProveedor(codigo: string): Promise<ResultadoSyn
 
     try {
         const { items, completo, nota } = await adaptador.traerCatalogo();
-        if (items.length === 0) throw new Error('la API no devolvió artículos');
-        await guardarItems(codigo, items, inicio, completo);
+        if (items.length === 0 && !nota) throw new Error('la API no devolvió artículos');
+        if (items.length > 0) await guardarItems(codigo, items, inicio, completo);
         const { count } = await supabase.from('catalogo_proveedores').select('*', { count: 'exact', head: true }).eq('proveedor', codigo);
         const total = count ?? items.length;
         await registrarEstado(codigo, 'ok', nota ?? null, total);

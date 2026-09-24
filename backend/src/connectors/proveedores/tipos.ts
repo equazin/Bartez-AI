@@ -38,6 +38,9 @@ export async function pedirJson(url: string, init: RequestInit, proveedor: strin
     if (!res.ok) {
         const j = json as Record<string, unknown> | null;
         const msg = j?.message ?? j?.error_name ?? j?.error ?? j?.mensaje ?? txt.slice(0, 200);
+        // Air devuelve sus errores con status HTTP y cuerpo { error_id, ... }: se
+        // pasan como dato para que el conector decida (ej. "Too many queries").
+        if (j && typeof j === 'object' && 'error_id' in j) return j;
         const retry = res.headers.get('retry-after');
         throw new Error(`${proveedor}: HTTP ${res.status} — ${String(msg)}${retry ? ` (reintentar en ${Math.ceil(Number(retry) / 60)} min)` : ''}`);
     }

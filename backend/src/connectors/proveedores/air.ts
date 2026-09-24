@@ -108,9 +108,18 @@ export const air: AdaptadorProveedor = {
                 throw new Error('Air: el token venció o no es válido. Generá uno nuevo en la intranet y reemplazá AIR_TOKEN, o cargá AIR_USER y AIR_PASSWORD para que se renueve solo.');
             }
             if (esError(j)) {
-                const extra = j.error_id === 403 && /many/i.test(j.error_name ?? '')
-                    ? ' (Air no deja repetir la misma consulta en 5 minutos; probá de nuevo en un rato)' : '';
-                throw new Error(`Air: ${j.error_name} — ${j.error_detail ?? ''}${extra}`);
+                // Air rechaza repetir la misma consulta dentro de 5 minutos: no es un
+                // error real, se conserva lo que ya estaba (o lo que vino hasta acá).
+                if (/many queries/i.test(`${j.error_name} ${j.error_detail}`)) {
+                    return {
+                        items,
+                        completo: false,
+                        nota: page === 0
+                            ? 'Air ya se sincronizó hace menos de 5 minutos: se mantienen los datos actuales.'
+                            : `Air cortó en la página ${page} por consultas repetidas; se actualizaron ${items.length} artículos.`,
+                    };
+                }
+                throw new Error(`Air: ${j.error_name} — ${j.error_detail ?? ''}`);
             }
             if (!Array.isArray(j) || j.length === 0) break;
             for (const a of j as ArticuloAir[]) {

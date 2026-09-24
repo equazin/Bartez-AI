@@ -48,7 +48,7 @@ export function Cotizador() {
         setMsgProv(null);
         try {
             const { resultado } = await sincronizarProveedor(codigo);
-            setMsgProv(resultado.ok ? `✓ ${codigo}: ${resultado.items} artículos sincronizados` : `✗ ${codigo}: ${resultado.detalle}`);
+            setMsgProv(resultado.ok ? `✓ ${codigo}: ${resultado.detalle ?? `${resultado.items} artículos sincronizados`}` : `✗ ${codigo}: ${resultado.detalle}`);
             await cargarProvs();
         } catch (e) { setError((e as Error).message); }
         finally { setOcupado(null); }
@@ -177,7 +177,7 @@ export function Cotizador() {
             )}
 
             <h4 className="section-h">Proveedores</h4>
-            {msgProv && <div className="msg-ok">{msgProv}</div>}
+            {msgProv && <div className={msgProv.startsWith('✗') ? 'msg-error' : 'msg-ok'}>{msgProv}</div>}
             <div className="prov-grid">
                 {provs.map((p) => (
                     <div key={p.codigo} className={`prov-card est-${p.ultimo_estado ?? 'nunca'}`}>
