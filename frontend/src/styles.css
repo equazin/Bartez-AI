@@ -1767,3 +1767,27 @@ input, textarea, select { color: var(--texto); }
 .contenido button.peligro { background: transparent; color: var(--peligro); border: 1px solid var(--peligro); border-radius: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
 
 .secundario-login { background: transparent; color: var(--sutil); border: 1px solid var(--borde); padding: 9px 14px; border-radius: 6px; font-size: 14px; cursor: pointer; }
+
+/* ---------- Chat (pantalla completa y barra del Inicio) ---------- */
+.chat { background: var(--panel); border: 1px solid var(--borde); border-radius: 12px; box-shadow: var(--sombra); padding: 18px 20px; }
+.chat-cabeza { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 14px; }
+.chat-cabeza h2 { font-size: 26px; font-weight: 800; font-stretch: 112%; margin: 0 0 4px; }
+.chat-cabeza .sub { margin: 0; }
+.chat .historial { min-height: 0; max-height: 60vh; overflow-y: auto; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+.chat .mensaje { margin: 0; padding: 9px 13px; border-radius: 10px; max-width: 85%; border: 0; font-size: 14px; }
+.chat .mensaje p { margin: 0; white-space: pre-wrap; }
+.chat .mensaje.usuario { align-self: flex-end; background: var(--acento); color: #fff; border-left: 0; }
+.chat .mensaje.sistema { align-self: flex-start; background: var(--hundido); border: 1px solid var(--borde-soft); }
+.chat .mensaje.pensando { color: var(--sutil); font-style: italic; }
+.chat .entrada { display: flex; gap: 8px; align-items: flex-end; }
+.chat .entrada textarea { flex: 1; min-height: 0; background: var(--hundido); border: 1px solid var(--borde); border-radius: 8px; padding: 10px 12px; font-size: 14px; resize: vertical; line-height: 1.4; }
+.chat .entrada textarea:focus { outline: 2px solid var(--acento-soft); border-color: var(--acento); }
+.chat .entrada .btn-primario { padding: 10px 18px; }
+.sugerencias { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.sugerencia { background: var(--hundido); border: 1px solid var(--borde); color: var(--texto); border-radius: 16px; padding: 5px 11px; font-size: 12.5px; cursor: pointer; }
+.sugerencia:hover { border-color: var(--acento); color: var(--acento); }
+.chat-compacto { margin-bottom: 18px; padding: 14px 16px; }
+.chat-compacto .historial { max-height: 340px; }
+.chat-compacto .entrada textarea { resize: none; max-height: 140px; }
+.chat-pie { display: flex; justify-content: space-between; margin-top: 8px; }
+.chat-mas { align-self: center; margin-bottom: 4px; }

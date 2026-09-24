@@ -9,6 +9,7 @@ import { escalar } from '../escalation/humano.js';
 import { supabase } from '../connectors/supabase.js';
 import { ejecutarAccion } from './ejecutor.js';
 import type { TareaEntrante, ResultadoAsistente } from './types.js';
+import { responderOperador } from './operador.js';
 
 export interface ResultadoRuteo extends ResultadoAsistente {
     conversacionId: string;
@@ -16,6 +17,7 @@ export interface ResultadoRuteo extends ResultadoAsistente {
 
 export async function enrutar(tarea: TareaEntrante): Promise<ResultadoRuteo> {
     const area = decidirArea(tarea);
+    if (area === 'operador') return enrutarOperador(tarea);
     const asistente = catalogo.obtenerPorArea(area);
 
     if (!asistente) {
@@ -88,7 +90,44 @@ export async function enrutar(tarea: TareaEntrante): Promise<ResultadoRuteo> {
     }
 }
 
-async function asegurarConversacion(tarea: TareaEntrante, asistenteId: string): Promise<string> {
+// Asistente General: no tiene clase en el catálogo, responde con herramientas
+// sobre los datos del sistema (ver operador.ts).
+async function enrutarOperador(tarea: TareaEntrante): Promise<ResultadoRuteo> {
+    const { data: fila } = await supabase.from('asistentes').select('id').eq('area', 'operador').maybeSingle();
+    const asistenteId = (fila?.id as string | undefined) ?? null;
+    const conversacionId = await asegurarConversacion(tarea, asistenteId);
+    await guardarMensaje(conversacionId, 'humano', tarea.texto);
+    const inicio = Date.now();
+    try {
+        const r = await responderOperador(tarea.texto, conversacionId);
+        await guardarMensaje(conversacionId, 'asistente', r.respuesta);
+        if (asistenteId) {
+            await bitacora.registrar({
+                asistenteId, conversacionId,
+                entrada: { canal: tarea.canal, texto: tarea.texto },
+                salida: { respuesta: r.respuesta },
+                tokensIn: r.tokensIn, tokensOut: r.tokensOut, costoUsd: r.costoUsd, duracionMs: r.duracionMs,
+            });
+        }
+        return {
+            respuesta: r.respuesta, requiereAprobacion: false,
+            tokensIn: r.tokensIn, tokensOut: r.tokensOut, costoUsd: r.costoUsd, duracionMs: r.duracionMs,
+            conversacionId,
+        };
+    } catch (err) {
+        if (asistenteId) {
+            await bitacora.registrar({
+                asistenteId, conversacionId,
+                entrada: { canal: tarea.canal, texto: tarea.texto },
+                error: err instanceof Error ? err.message : String(err),
+                duracionMs: Date.now() - inicio,
+            });
+        }
+        throw err;
+    }
+}
+
+async function asegurarConversacion(tarea: TareaEntrante, asistenteId: string | null): Promise<string> {
     if (tarea.conversacionId) return tarea.conversacionId;
     const { data, error } = await supabase
         .from('conversaciones')
@@ -120,7 +159,18 @@ function decidirArea(tarea: TareaEntrante): string {
         case 'whatsapp':
             return 'whatsapp';
         case 'panel':
-            // En el panel se puede pedir a un área específica; por defecto va al de correo.
-            return (tarea.metadata?.area as string) ?? 'correo';
+            // Se puede forzar un área; si no, se decide por lo que se pide.
+            return (tarea.metadata?.area as string) ?? areaDelPedido(tarea.texto);
     }
+}
+
+// Pedidos específicos van a su asistente; el resto, al asistente General,
+// que conoce el estado del negocio y puede cotizar.
+function areaDelPedido(texto: string): string {
+    const t = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (/\b(prospect|busca(me)? (empresas|clientes|prospectos|leads)|nuevos (clientes|leads))/.test(t)) return 'prospeccion';
+    if (/\b(segui?miento|retoma|recontact|hace(me)? un seguimiento)/.test(t)) return 'seguimientos';
+    if (/\b(redacta|escribi(le)?|arma(me)? un (correo|mail|email)|responde(le)? (el|al|este) (correo|mail))/.test(t)) return 'correo';
+    if (/\b(analitica|informe semanal|como venimos (esta|la) semana)/.test(t)) return 'analitica';
+    return 'operador';
 }

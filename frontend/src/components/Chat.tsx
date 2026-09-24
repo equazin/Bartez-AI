@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { cargarMensajes, enviarTarea } from '../api/client.ts';
 
@@ -7,122 +7,162 @@ interface Mensaje {
     texto: string;
 }
 
+// La misma conversación se ve en el Inicio y en la pantalla Chat.
 const CONV_KEY = 'bartez.panel.conversacionId';
+const EVENTO_CHAT = 'bartez:chat';
 
-export function Chat() {
+const SUGERENCIAS = [
+    '¿Qué tengo pendiente hoy?',
+    'Cotizame 10 notebooks i5 16 GB y 10 monitores de 24"',
+    '¿Qué hablamos con…?',
+    'Buscá prospectos: estudios contables en Rosario',
+];
+
+function leerConv(): string | null {
+    try { return localStorage.getItem(CONV_KEY); } catch { return null; }
+}
+function guardarConv(id: string | null) {
+    try {
+        if (id) localStorage.setItem(CONV_KEY, id);
+        else localStorage.removeItem(CONV_KEY);
+    } catch { /* sin storage: seguimos en memoria */ }
+}
+
+export function Chat({ compacto = false, alAbrirChat }: { compacto?: boolean; alAbrirChat?: () => void }) {
     const [historial, setHistorial] = useState<Mensaje[]>([]);
     const [entrada, setEntrada] = useState('');
     const [cargando, setCargando] = useState(false);
-    const [conversacionId, setConversacionId] = useState<string | null>(() => {
-        try {
-            return localStorage.getItem(CONV_KEY);
-        } catch {
-            return null;
-        }
-    });
+    const [conversacionId, setConversacionId] = useState<string | null>(leerConv);
+    const finRef = useRef<HTMLDivElement>(null);
+    const entradaRef = useRef<HTMLTextAreaElement>(null);
 
-    // Al montar, si hay conversación previa, cargar sus mensajes desde la DB.
+    // Cargar la conversación guardada (y recargarla si cambia en otra pantalla).
     useEffect(() => {
-        if (!conversacionId) return;
+        if (!conversacionId) { setHistorial([]); return; }
         cargarMensajes(conversacionId)
-            .then((msgs) => {
-                setHistorial(
-                    msgs.map((m) => ({
-                        rol: m.remitente === 'asistente' ? 'sistema' : 'usuario',
-                        texto: m.texto,
-                    })),
-                );
-            })
-            .catch(() => {
-                // Si la conversación no existe más, empezar limpio.
-                localStorage.removeItem(CONV_KEY);
-                setConversacionId(null);
-            });
+            .then((msgs) => setHistorial(msgs.map((m) => ({ rol: m.remitente === 'asistente' ? 'sistema' : 'usuario', texto: m.texto }))))
+            .catch(() => { guardarConv(null); setConversacionId(null); });
     }, [conversacionId]);
 
-    async function enviar() {
-        if (!entrada.trim() || cargando) return;
-        const texto = entrada;
+    useEffect(() => {
+        const alCambiar = () => setConversacionId(leerConv());
+        window.addEventListener(EVENTO_CHAT, alCambiar);
+        return () => window.removeEventListener(EVENTO_CHAT, alCambiar);
+    }, []);
+
+    useEffect(() => {
+        const caja = finRef.current?.parentElement;
+        if (caja) caja.scrollTop = caja.scrollHeight;
+    }, [historial, cargando]);
+
+    async function enviar(textoForzado?: string) {
+        const texto = (textoForzado ?? entrada).trim();
+        if (!texto || cargando) return;
         setHistorial((h) => [...h, { rol: 'usuario', texto }]);
         setEntrada('');
         setCargando(true);
         try {
-            const { resultado } = await enviarTarea({
-                canal: 'panel',
-                texto,
-                conversacionId: conversacionId ?? undefined,
-            });
+            const { resultado } = await enviarTarea({ canal: 'panel', texto, conversacionId: conversacionId ?? undefined });
             if (resultado.conversacionId && resultado.conversacionId !== conversacionId) {
+                guardarConv(resultado.conversacionId);
                 setConversacionId(resultado.conversacionId);
-                try {
-                    localStorage.setItem(CONV_KEY, resultado.conversacionId);
-                } catch {
-                    /* localStorage no disponible: seguimos en memoria */
-                }
+                window.dispatchEvent(new Event(EVENTO_CHAT));
             }
-            setHistorial((h) => [
-                ...h,
-                { rol: 'sistema', texto: resultado.respuesta ?? '(sin respuesta)' },
-            ]);
+            setHistorial((h) => [...h, { rol: 'sistema', texto: resultado.respuesta ?? '(sin respuesta)' }]);
         } catch (err) {
-            setHistorial((h) => [
-                ...h,
-                { rol: 'sistema', texto: `Error: ${(err as Error).message}` },
-            ]);
+            setHistorial((h) => [...h, { rol: 'sistema', texto: `No se pudo responder: ${(err as Error).message}` }]);
         } finally {
             setCargando(false);
+            entradaRef.current?.focus();
         }
     }
 
     function nuevaConversacion() {
-        if (!confirm('¿Empezar una conversación nueva? La actual se conserva en el historial.')) return;
+        if (historial.length > 0 && !confirm('¿Empezar una conversación nueva? La actual queda guardada en la Bitácora.')) return;
         setHistorial([]);
+        guardarConv(null);
         setConversacionId(null);
-        try {
-            localStorage.removeItem(CONV_KEY);
-        } catch {
-            /* ignore */
-        }
+        window.dispatchEvent(new Event(EVENTO_CHAT));
     }
 
+    // En el Inicio se muestran los últimos mensajes; el hilo completo, en Chat.
+    const visibles = compacto ? historial.slice(-6) : historial;
+
     return (
-        <section className="chat">
-            <div className="chat-toolbar">
-                <button className="secundario" onClick={nuevaConversacion} disabled={cargando}>
-                    Nueva conversación
-                </button>
-            </div>
-            <div className="historial">
-                {historial.length === 0 && (
-                    <p className="vacio">Escribí un pedido y el orquestador lo deriva al asistente correspondiente.</p>
-                )}
-                {historial.map((m, i) => (
-                    <div key={i} className={`mensaje ${m.rol}`}>
-                        <span className="rol">{m.rol === 'usuario' ? 'Vos' : 'Bartez AI'}:</span>
-                        {m.rol === 'sistema' ? (
-                            <div className="cuerpo-md">
-                                <ReactMarkdown>{m.texto}</ReactMarkdown>
-                            </div>
-                        ) : (
-                            <p>{m.texto}</p>
-                        )}
+        <section className={compacto ? 'chat chat-compacto' : 'chat'}>
+            {!compacto && (
+                <div className="chat-cabeza">
+                    <div>
+                        <h2>Chat</h2>
+                        <p className="sub">Preguntá por el negocio o pedí algo: cotizar, buscar un cliente, ver pendientes, redactar un correo o prospectar.</p>
                     </div>
-                ))}
-                {cargando && <div className="mensaje sistema">…procesando</div>}
-            </div>
+                    <button className="secundario" onClick={nuevaConversacion} disabled={cargando}>Nueva conversación</button>
+                </div>
+            )}
+
+            {(visibles.length > 0 || cargando) && (
+                <div className="historial">
+                    {compacto && historial.length > visibles.length && (
+                        <button className="enlace chat-mas" onClick={alAbrirChat}>Ver los {historial.length - visibles.length} mensajes anteriores en Chat →</button>
+                    )}
+                    {visibles.map((m, i) => (
+                        <div key={i} className={`mensaje ${m.rol}`}>
+                            {m.rol === 'sistema' ? (
+                                <div className="cuerpo-md"><ReactMarkdown>{m.texto}</ReactMarkdown></div>
+                            ) : (
+                                <p>{m.texto}</p>
+                            )}
+                        </div>
+                    ))}
+                    {cargando && <div className="mensaje sistema pensando">Buscando en el sistema…</div>}
+                    <div ref={finRef} />
+                </div>
+            )}
+
+            {historial.length === 0 && !cargando && (
+                <div className="sugerencias">
+                    {SUGERENCIAS.map((s) => (
+                        <button
+                            key={s}
+                            className="sugerencia"
+                            onClick={() => {
+                                if (s.endsWith('…?')) {
+                                    setEntrada(s.replace('…?', ' '));
+                                    entradaRef.current?.focus();
+                                } else {
+                                    enviar(s);
+                                }
+                            }}
+                        >
+                            {s}
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <div className="entrada">
                 <textarea
+                    ref={entradaRef}
+                    rows={compacto ? 1 : 3}
                     value={entrada}
                     onChange={(e) => setEntrada(e.target.value)}
                     onKeyDown={(e) => {
-                        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) enviar();
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
                     }}
-                    placeholder="Escribí lo que necesitás. Cmd/Ctrl+Enter para enviar."
+                    placeholder={compacto ? 'Pedile algo a Bartez AI…' : 'Escribí tu pedido. Enter envía, Shift+Enter hace un salto de línea.'}
+                    aria-label="Mensaje para Bartez AI"
                 />
-                <button className="btn-primario" onClick={enviar} disabled={cargando}>
-                    Enviar
+                <button className="btn-primario" onClick={() => enviar()} disabled={cargando || !entrada.trim()}>
+                    {cargando ? '…' : 'Enviar'}
                 </button>
             </div>
+
+            {compacto && historial.length > 0 && (
+                <div className="chat-pie">
+                    <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva conversación</button>
+                    {alAbrirChat && <button className="enlace" onClick={alAbrirChat}>Abrir en Chat →</button>}
+                </div>
+            )}
         </section>
     );
 }

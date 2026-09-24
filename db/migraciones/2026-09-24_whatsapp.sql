@@ -31,3 +31,8 @@ create index if not exists wa_msg_conv_idx on wa_mensajes (wa_id, creado_en);
 insert into asistentes (nombre, area, modelo, prompt, autonomia, activo)
 select 'WhatsApp', 'whatsapp', 'sonnet', '', 0, true
 where not exists (select 1 from asistentes where area = 'whatsapp');
+
+-- Asistente General del chat del panel (responde con datos del sistema y cotiza).
+insert into asistentes (nombre, area, modelo, prompt, autonomia, activo)
+select 'General', 'operador', 'sonnet', '', 0, true
+where not exists (select 1 from asistentes where area = 'operador');

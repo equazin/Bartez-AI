@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccionPendiente, ResumenHoy, listarAcciones, resolverAccion, resumenHoy } from '../api/client.ts';
+import { Chat } from './Chat.tsx';
 
-type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard';
+type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard' | 'chat';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -167,6 +168,8 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                     </button>
                 </div>
             </header>
+
+            <Chat compacto alAbrirChat={() => irA('chat')} />
 
             {error && <p className="error">{error}</p>}
             {!r && !error && <p className="sub">Cargando el día…</p>}
