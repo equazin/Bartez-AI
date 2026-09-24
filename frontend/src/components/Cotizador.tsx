@@ -139,6 +139,20 @@ export function Cotizador() {
         await cargarProvs();
     }
 
+    const [generandoPdf, setGenerandoPdf] = useState(false);
+
+    async function generarPdf() {
+        if (!cot) return;
+        await guardarTitulo();
+        if (!cot.lineas.some((l) => l.elegido)) { setError('La cotización no tiene artículos para presupuestar'); return; }
+        setGenerandoPdf(true);
+        try {
+            const { descargarPresupuestoPdf } = await import('../lib/presupuestoPdf.ts');
+            await descargarPresupuestoPdf({ ...cot, titulo: titulo.trim() || cot.titulo });
+        } catch (e) { setError(`No se pudo generar el PDF: ${(e as Error).message}`); }
+        finally { setGenerandoPdf(false); }
+    }
+
     function copiarTexto() {
         if (!cot) return;
         const lineas = cot.lineas.filter((l) => l.elegido).map((l) => {
@@ -249,7 +263,12 @@ export function Cotizador() {
                     </div>
                     <div className="cot-pie">
                         <span className="mono">{cot.busquedas} búsquedas · USD {cot.costo_ia_usd.toFixed(4)} IA · {Math.round(cot.duracion_ms / 1000)}s</span>
-                        <button className="secundario" onClick={copiarTexto}>Copiar como texto</button>
+                        <div className="cot-pie-btns">
+                            <button className="secundario" onClick={copiarTexto}>Copiar como texto</button>
+                            <button className="secundario" onClick={generarPdf} disabled={generandoPdf}>
+                                {generandoPdf ? 'Generando…' : 'Descargar PDF'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

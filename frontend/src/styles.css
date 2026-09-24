@@ -1427,3 +1427,4 @@ nav button.salir { color: var(--peligro); }
     .cot-hist-fila { grid-template-columns: 1fr auto 28px; }
     .cot-hist-fila > .mono { display: none; }
 }
+.cot-pie-btns { display: flex; gap: 8px; }
