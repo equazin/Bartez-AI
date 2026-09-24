@@ -913,7 +913,30 @@ export interface ResumenHoy {
         proveedores: Array<{ nombre: string; estado: string | null; articulos: number | null; ultima_sync: string | null }>;
         tareas_notion: Array<{ id: string; titulo: string; cliente: string; estado: string | null; fecha_limite: string | null }>;
     };
+    pulso: Pulso | null;
     generado_en: string;
+}
+
+// Series de los últimos 30 días (una posición por día, la última es hoy).
+export interface Pulso {
+    dias: string[];
+    consultas_correo: number[];
+    consultas_whatsapp: number[];
+    cotizado_usd: number[];
+    leads_nuevos: number[];
+    kpis: {
+        cotizado_mes_usd: number;
+        cotizado_mes_anterior_usd: number;
+        presupuestos_mes: number;
+        presupuestos_mes_anterior: number;
+        consultas_30d: number;
+        consultas_30d_anterior: number;
+        leads_30d: number;
+        leads_30d_anterior: number;
+        aprobadas_30d: number;
+        resueltas_30d: number;
+    };
+    embudo: { prospectos: number; contactados: number; respondieron: number; clientes: number };
 }
 
 export async function resumenHoy(refrescar = false): Promise<ResumenHoy> {

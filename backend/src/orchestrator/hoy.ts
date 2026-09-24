@@ -4,6 +4,7 @@
 
 import { supabase } from '../connectors/supabase.js';
 import { fotoNegocio, FotoNegocio } from './notion_autonomo.js';
+import { calcularPulso, Pulso } from './pulso.js';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -23,6 +24,7 @@ export interface ResumenHoy {
     costo_hoy_usd: number;
     prioridades: { fecha: string; items: Array<{ texto: string; por_que?: string }> } | null;
     foto: FotoNegocio;
+    pulso: Pulso | null;
     generado_en: string;
 }
 
@@ -32,8 +34,9 @@ export async function resumenHoy(forzar = false): Promise<ResumenHoy> {
     if (!forzar && cache && Date.now() - cache.en < 60_000) return cache.datos;
     const desde = inicioDeHoy();
 
-    const [foto, correos, wa, propuestas, pendientes, resueltas, logs, prio] = await Promise.all([
+    const [foto, pulso, correos, wa, propuestas, pendientes, resueltas, logs, prio] = await Promise.all([
         fotoNegocio(),
+        calcularPulso().catch((err) => { console.warn('[hoy] pulso:', (err as Error).message); return null; }),
         supabase.from('correos_historicos').select('id', { count: 'exact', head: true }).eq('direccion', 'entrante').eq('ignorable', false).gte('fecha', desde),
         supabase.from('wa_mensajes').select('id', { count: 'exact', head: true }).eq('origen', 'cliente').gte('creado_en', desde),
         supabase.from('acciones_pendientes').select('id', { count: 'exact', head: true }).gte('creado_en', desde),
@@ -59,6 +62,7 @@ export async function resumenHoy(forzar = false): Promise<ResumenHoy> {
         costo_hoy_usd: (logs.data ?? []).reduce((s, l) => s + Number(l.costo_usd ?? 0), 0),
         prioridades,
         foto,
+        pulso,
         generado_en: new Date().toISOString(),
     };
     cache = { en: Date.now(), datos };
