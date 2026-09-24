@@ -67,8 +67,9 @@ export function NotionPanel() {
                     <h2>Notion</h2>
                     <p className="sub">
                         El asistente mantiene Notion ordenado solo: con lo que generan los demás asistentes crea, actualiza, completa y
-                        archiva tareas y notas, limpia la página principal y define las prioridades del día. El <strong>Tablero</strong> se
-                        reescribe cada 30 minutos (7 a 21 h) con datos exactos; el análisis con IA corre a las 8:30, 13 y 18 h.
+                        archiva tareas y notas y define las prioridades del día. La <strong>página principal de Bartez AI en Notion es el Tablero</strong>:
+                        se reescribe cada 30 minutos (7 a 21 h) con datos exactos (las bases de datos y subpáginas no se tocan); el análisis
+                        con IA corre a las 8:30, 13 y 18 h.
                     </p>
                 </div>
                 {estado?.tablero_url && (

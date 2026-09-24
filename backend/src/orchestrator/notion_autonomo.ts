@@ -1,16 +1,14 @@
 // Notion autónomo: que cada vez que el operador entre a Notion esté todo claro.
 //
-// 1) Tablero (página "📊 Tablero Bartez"): se REESCRIBE entero en cada
+// 1) Tablero (la página principal de Bartez AI): se REESCRIBE entero en cada
 //    actualización con datos exactos calculados acá (nunca por la IA), así
 //    nunca queda viejo ni duplicado. Corre cada 30 min en horario laboral.
 // 2) Curador: un agente con decisión propia que lee la foto completa del
 //    negocio (lo que generaron todos los asistentes) y el estado de Notion, y
-//    crea / actualiza / completa / archiva tareas y notas, y limpia la página
-//    raíz. Deja las prioridades del día para el tablero. Cada cambio queda en
+//    crea / actualiza / completa / archiva tareas y notas. Deja las prioridades del día para el tablero. Cada cambio queda en
 //    notion_cambios. Corre 3 veces por día hábil y a demanda.
 //
-// Límites: solo toca la página raíz autorizada, el tablero y filas de los
-// databases Tareas y Notas. Prospectos es de solo lectura (su fuente de verdad
+// Límites: el curador solo toca filas de los databases Tareas y Notas. Prospectos es de solo lectura (su fuente de verdad
 // es Bartez AI y se sincroniza sola). Nunca borra: archiva (recuperable).
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -266,37 +264,90 @@ const gris = (t: string): Seg => ({ t, color: 'gray' });
 // Tablero
 // ====================================================================
 
-async function asegurarTablero(): Promise<string> {
-    if (!notion) throw new Error('Notion no configurado');
-    const guardado = await leerConfig('notion_page_tablero');
-    if (guardado) {
-        try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const pg = await notion.pages.retrieve({ page_id: guardado }) as any;
-            if (!pg.archived && !pg.in_trash) return guardado;
-        } catch { /* se borró: la recreamos */ }
-    }
-    const pg = await notion.pages.create({
-        parent: { type: 'page_id', page_id: ROOT },
-        icon: { type: 'emoji', emoji: '📊' },
-        properties: { title: { title: [{ type: 'text', text: { content: 'Tablero Bartez' } }] } },
-    });
-    await guardarConfig('notion_page_tablero', pg.id);
-    return pg.id;
-}
+// El Tablero ES la página principal de Bartez AI. Como la API de Notion no
+// permite reordenar bloques, se usa un título fijo ("ancla"): el sistema
+// borra y reescribe todo lo que no sea base de datos ni subpágina, y lo
+// inserta justo debajo del ancla. El operador arrastra el ancla arriba de
+// todo una sola vez y desde ahí el tablero queda primero.
 
-async function vaciarPagina(pageId: string): Promise<void> {
-    if (!notion) return;
-    const ids: string[] = [];
+const PRESERVAR = new Set(['child_database', 'child_page', 'link_to_page']);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function hijos(pageId: string): Promise<any[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const out: any[] = [];
     let cursor: string | undefined;
     do {
-        const r = await notion.blocks.children.list({ block_id: pageId, page_size: 100, start_cursor: cursor });
-        ids.push(...r.results.map((b) => b.id));
+        const r = await notion!.blocks.children.list({ block_id: pageId, page_size: 100, start_cursor: cursor });
+        out.push(...r.results);
         cursor = r.has_more ? r.next_cursor ?? undefined : undefined;
     } while (cursor);
+    return out;
+}
+
+// La primera vez: lo que había escrito en la página principal se copia a una
+// subpágina de respaldo antes de reemplazarlo.
+async function respaldarPortada(ancla: string | null): Promise<void> {
+    if (await leerConfig('notion_raiz_respaldada')) return;
+    const viejos = (await hijos(ROOT)).filter((b) => !PRESERVAR.has(b.type) && b.id !== ancla);
+    if (viejos.length > 0) {
+        const pg = await notion!.pages.create({
+            parent: { type: 'page_id', page_id: ROOT },
+            icon: { type: 'emoji', emoji: '🗄️' },
+            properties: { title: { title: [{ type: 'text', text: { content: 'Portada anterior (respaldo)' } }] } },
+        });
+        const copias: Bloque[] = viejos.map((b) => {
+            const c = b[b.type] ?? {};
+            const texto = Array.isArray(c.rich_text) ? c.rich_text.map((r: { plain_text: string }) => r.plain_text).join('') : '';
+            if (b.type === 'divider') return divider();
+            const tipo = ['heading_1', 'heading_2', 'heading_3', 'paragraph', 'bulleted_list_item', 'numbered_list_item', 'quote'].includes(b.type) ? b.type : 'paragraph';
+            return { object: 'block', type: tipo, [tipo]: { rich_text: rich(texto || ' ') } };
+        });
+        for (let k = 0; k < copias.length; k += 90) {
+            await notion!.blocks.children.append({ block_id: pg.id, children: copias.slice(k, k + 90) });
+        }
+    }
+    await guardarConfig('notion_raiz_respaldada', new Date().toISOString());
+}
+
+// El tablero de la versión anterior era una subpágina: se archiva.
+async function archivarTableroViejo(): Promise<void> {
+    const viejo = await leerConfig('notion_page_tablero');
+    if (!viejo) return;
+    await notion!.pages.update({ page_id: viejo, archived: true }).catch(() => undefined);
+    await guardarConfig('notion_page_tablero', '');
+}
+
+async function asegurarAncla(): Promise<string> {
+    const guardada = await leerConfig('notion_raiz_ancla');
+    if (guardada) {
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const b = await notion!.blocks.retrieve({ block_id: guardada }) as any;
+            if (!b.archived && !b.in_trash && sinGuiones(b.parent?.page_id ?? '') === sinGuiones(ROOT)) return guardada;
+        } catch { /* se borró: se crea de nuevo */ }
+    }
+    const r = await notion!.blocks.children.append({
+        block_id: ROOT,
+        children: [{ object: 'block', type: 'heading_1', heading_1: { rich_text: [{ type: 'text', text: { content: '📊 Tablero Bartez' } }] } }],
+    });
+    const id = r.results[0]!.id;
+    await guardarConfig('notion_raiz_ancla', id);
+    return id;
+}
+
+async function prepararRaiz(): Promise<string> {
+    if (!notion) throw new Error('Notion no configurado');
+    await respaldarPortada(await leerConfig('notion_raiz_ancla'));
+    await archivarTableroViejo();
+    return asegurarAncla();
+}
+
+async function limpiarRaiz(ancla: string): Promise<void> {
+    const ids = (await hijos(ROOT)).filter((b) => !PRESERVAR.has(b.type) && b.id !== ancla).map((b) => b.id as string);
     // De a 3 en paralelo: el límite de Notion es ~3 pedidos por segundo.
-    for (let i = 0; i < ids.length; i += 3) {
-        await Promise.all(ids.slice(i, i + 3).map((id) => notion!.blocks.delete({ block_id: id }).catch(() => undefined)));
+    for (let k = 0; k < ids.length; k += 3) {
+        await Promise.all(ids.slice(k, k + 3).map((id) => notion!.blocks.delete({ block_id: id }).catch(() => undefined)));
     }
 }
 
@@ -309,7 +360,7 @@ export function armarTablero(f: FotoNegocio, prioridades: { fecha: string; items
 
     b.push(callout('🕒', 'gray_background',
         { t: `Actualizado ${fechaHora(f.generado_en)}`, b: true },
-        ' · Esta página la reescribe Bartez AI sola cada 30 minutos (7 a 21 h). No escribas acá: lo que agregues se pierde en la próxima actualización.'));
+        ' · Bartez AI reescribe esta página sola cada 30 minutos (7 a 21 h). Lo que escribas acá se borra en la próxima actualización: usá subpáginas o las bases de datos.'));
 
     // Resumen rápido
     const tareasPend = f.tareas_notion.filter((t) => t.estado === 'pendiente');
@@ -407,7 +458,7 @@ export function armarTablero(f: FotoNegocio, prioridades: { fecha: string; items
     for (const c of cambios) b.push(li(gris(`${fechaHora(c.creado_en)} · `), c.detalle));
 
     b.push(divider());
-    b.push(p(gris('Bartez AI · datos exactos del sistema; las prioridades las decide el asistente de Notion.')));
+    b.push(p(gris('Bartez AI · datos exactos del sistema; las prioridades las decide el asistente de Notion. Las bases de datos y subpáginas de esta página no se tocan.')));
     return b;
 }
 
@@ -418,8 +469,8 @@ export async function actualizarTablero(): Promise<{ ok: boolean; url?: string; 
     if (actualizandoTablero) return { ok: false, detalle: 'Ya se está actualizando' };
     actualizandoTablero = true;
     try {
-        const [pageId, foto, prioRaw, cambios] = await Promise.all([
-            asegurarTablero(),
+        const [ancla, foto, prioRaw, cambios] = await Promise.all([
+            prepararRaiz(),
             fotoNegocio(),
             leerConfig('notion_prioridades'),
             supabase.from('notion_cambios').select('creado_en, detalle').order('creado_en', { ascending: false }).limit(10),
@@ -427,12 +478,15 @@ export async function actualizarTablero(): Promise<{ ok: boolean; url?: string; 
         let prioridades: { fecha: string; items: Prioridad[] } | null = null;
         try { prioridades = prioRaw ? JSON.parse(prioRaw) : null; } catch { prioridades = null; }
         const bloques = armarTablero(foto, prioridades, (cambios.data ?? []) as Array<{ creado_en: string; detalle: string }>);
-        await vaciarPagina(pageId);
+        await limpiarRaiz(ancla);
+        // Se inserta debajo del ancla, en orden, lote por lote.
+        let despues = ancla;
         for (let i = 0; i < bloques.length; i += 90) {
-            await notion.blocks.children.append({ block_id: pageId, children: bloques.slice(i, i + 90) });
+            const r = await notion.blocks.children.append({ block_id: ROOT, children: bloques.slice(i, i + 90), after: despues });
+            despues = r.results[r.results.length - 1]?.id ?? despues;
         }
         await guardarConfig('notion_tablero_actualizado', new Date().toISOString());
-        return { ok: true, url: notionUrl(pageId), bloques: bloques.length };
+        return { ok: true, url: notionUrl(ROOT), bloques: bloques.length };
     } catch (err) {
         return { ok: false, detalle: (err as Error).message };
     } finally {
@@ -468,11 +522,9 @@ Qué decidís y hacés vos:
 2. NOTAS (database Notas de casos): creá una nota solo si hay una situación
    que conviene tener documentada (queja, negociación grande, problema con
    un proveedor). No hagas notas de rutina.
-3. PÁGINA RAÍZ: debe quedar como índice limpio. Leela; si hay bloques viejos,
-   repetidos o que ya no sirven (textos de organizaciones anteriores), quitalos
-   con notion_quitar_bloque. No toques las bases ni la página del Tablero.
-4. PRIORIDADES: al final, definí de 3 a 6 prioridades concretas para hoy,
-   ordenadas por impacto en ventas. Van al Tablero.
+3. PRIORIDADES: al final, definí de 3 a 6 prioridades concretas para hoy,
+   ordenadas por impacto en ventas. Van al Tablero, que es la página
+   principal de Bartez AI y la escribe el sistema (vos no la modificás).
 
 Límites:
 - Prospectos es de solo lectura (lo sincroniza Bartez AI).
@@ -490,33 +542,6 @@ const TOOLS_CURADOR: Anthropic.Tool[] = [
         name: 'notion_leer_pagina',
         description: 'Lee los bloques de una página (sin page_id: la página raíz). Devuelve id, tipo y texto de cada bloque.',
         input_schema: { type: 'object', properties: { page_id: { type: 'string' } } },
-    },
-    {
-        name: 'notion_quitar_bloque',
-        description: 'Quita un bloque de la página raíz (solo bloques de texto: no bases de datos ni subpáginas). Usalo para limpiar contenido viejo o repetido.',
-        input_schema: { type: 'object', properties: { block_id: { type: 'string' }, motivo: { type: 'string' } }, required: ['block_id', 'motivo'] },
-    },
-    {
-        name: 'notion_agregar_bloques_raiz',
-        description: 'Agrega bloques al final de la página raíz. Solo para dejarla como índice claro (título, explicación breve, links).',
-        input_schema: {
-            type: 'object',
-            properties: {
-                bloques: {
-                    type: 'array',
-                    items: {
-                        type: 'object',
-                        properties: {
-                            tipo: { type: 'string', enum: ['heading_2', 'heading_3', 'paragraph', 'callout', 'divider', 'bulleted_list_item'] },
-                            texto: { type: 'string' },
-                            link: { type: 'string', description: 'URL opcional para todo el texto' },
-                        },
-                        required: ['tipo'],
-                    },
-                },
-            },
-            required: ['bloques'],
-        },
     },
     {
         name: 'notion_crear_tarea',
@@ -580,22 +605,10 @@ async function filaPermitida(pageId: string): Promise<'tareas' | 'notas'> {
     throw new Error('Solo se pueden modificar filas de Tareas o Notas');
 }
 
-function bloqueRaiz(bl: { tipo: string; texto?: string; link?: string }): Bloque {
-    const seg: Seg = { t: (bl.texto ?? '').slice(0, 1900), link: bl.link };
-    switch (bl.tipo) {
-        case 'divider': return divider();
-        case 'callout': return callout('💡', 'gray_background', seg);
-        case 'heading_3': return { object: 'block', type: 'heading_3', heading_3: { rich_text: rich(seg) } };
-        case 'heading_2': return h2(seg.t);
-        case 'bulleted_list_item': return li(seg);
-        default: return p(seg);
-    }
-}
-
 interface Cambio { tipo: string; detalle: string; pagina_id?: string }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function ejecutarToolCurador(nombre: string, e: any, cambios: Cambio[], tablero: string): Promise<string> {
+async function ejecutarToolCurador(nombre: string, e: any, cambios: Cambio[]): Promise<string> {
     if (!notion) throw new Error('Notion no configurado');
     const ids = idsNotion();
     const tope = () => { if (cambios.length >= 20) throw new Error('Llegaste al máximo de 20 cambios en esta corrida'); };
@@ -610,27 +623,6 @@ async function ejecutarToolCurador(nombre: string, e: any, cambios: Cambio[], ta
             const texto = Array.isArray(c.rich_text) ? c.rich_text.map((x: { plain_text: string }) => x.plain_text).join('') : (c.title ?? '');
             return { id: a.id, tipo: a.type, texto: String(texto).slice(0, 200) };
         }));
-    }
-
-    if (nombre === 'notion_quitar_bloque') {
-        tope();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const blk = await notion.blocks.retrieve({ block_id: e.block_id }) as any;
-        if (sinGuiones(blk.parent?.page_id ?? '') !== sinGuiones(ROOT)) throw new Error('Solo se pueden quitar bloques de la página raíz');
-        if (['child_database', 'child_page'].includes(blk.type) || sinGuiones(blk.id) === sinGuiones(tablero)) {
-            throw new Error('No se pueden quitar bases de datos ni subpáginas');
-        }
-        await notion.blocks.delete({ block_id: e.block_id });
-        cambios.push({ tipo: 'limpiar_pagina', detalle: `Quité un bloque viejo de la página principal (${e.motivo})` });
-        return '{"ok":true}';
-    }
-
-    if (nombre === 'notion_agregar_bloques_raiz') {
-        tope();
-        const bloques = (e.bloques ?? []).slice(0, 30).map(bloqueRaiz);
-        await notion.blocks.children.append({ block_id: ROOT, children: bloques });
-        cambios.push({ tipo: 'ordenar_pagina', detalle: `Ordené la página principal (${bloques.length} bloques)` });
-        return '{"ok":true}';
     }
 
     if (nombre === 'notion_crear_tarea') {
@@ -718,8 +710,7 @@ export async function correrCurador(opts: { instruccion?: string } = {}): Promis
     const corridaId = `c${Date.now()}`;
     const cambios: Cambio[] = [];
     try {
-        const [tablero, foto, filaAsist] = await Promise.all([
-            asegurarTablero(),
+        const [foto, filaAsist] = await Promise.all([
             fotoNegocio(),
             supabase.from('asistentes').select('id, modelo, activo').eq('area', 'notion').maybeSingle(),
         ]);
@@ -731,7 +722,7 @@ export async function correrCurador(opts: { instruccion?: string } = {}): Promis
             '```json',
             JSON.stringify(foto, null, 1).slice(0, 60_000),
             '```',
-            `Página raíz: ${ROOT}. Tablero (no tocar, lo escribe el sistema): ${tablero}.`,
+            `Página principal (es el Tablero, la escribe el sistema): ${ROOT}.`,
             opts.instruccion?.trim() ? `\nPEDIDO PUNTUAL DEL DUEÑO (priorizalo): ${opts.instruccion.trim().slice(0, 1500)}` : '',
             '\nHacé tu trabajo y terminá con <prioridades> y <resumen>.',
         ].join('\n');
@@ -755,7 +746,7 @@ export async function correrCurador(opts: { instruccion?: string } = {}): Promis
             const resultados: Anthropic.ToolResultBlockParam[] = [];
             for (const u of usos) {
                 try {
-                    resultados.push({ type: 'tool_result', tool_use_id: u.id, content: await ejecutarToolCurador(u.name, u.input, cambios, tablero) });
+                    resultados.push({ type: 'tool_result', tool_use_id: u.id, content: await ejecutarToolCurador(u.name, u.input, cambios) });
                 } catch (err) {
                     resultados.push({ type: 'tool_result', tool_use_id: u.id, content: `ERROR: ${(err as Error).message}`, is_error: true });
                 }
@@ -805,8 +796,7 @@ export async function correrCurador(opts: { instruccion?: string } = {}): Promis
 }
 
 export async function estadoNotionAutonomo() {
-    const [tablero, act, cur, prio, cambios] = await Promise.all([
-        leerConfig('notion_page_tablero'),
+    const [act, cur, prio, cambios] = await Promise.all([
         leerConfig('notion_tablero_actualizado'),
         leerConfig('notion_curador_ultimo'),
         leerConfig('notion_prioridades'),
@@ -815,7 +805,7 @@ export async function estadoNotionAutonomo() {
     const parse = (s: string | null) => { try { return s ? JSON.parse(s) : null; } catch { return null; } };
     return {
         configurado: notionConfigurado,
-        tablero_url: tablero ? notionUrl(tablero) : null,
+        tablero_url: ROOT ? notionUrl(ROOT) : null,
         tablero_actualizado: act,
         curador: parse(cur),
         prioridades: parse(prio),
