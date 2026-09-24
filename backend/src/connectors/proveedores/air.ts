@@ -1,5 +1,5 @@
 // Air — https://api.air-intra.com/v2
-// 1) GET /login?user=&pass=  → { token, cotiza, ... }
+// 1) GET /login?user=&pass=  → { token, cotiza, ... }  (o AIR_TOKEN fijo)
 // 2) POST /articulos?page=N con Authorization: Bearer  → 500 artículos por página,
 //    la primera es 0; un array vacío [] marca el final.
 // Errores vienen como { error_id, error_name, error_detail }. La API rechaza
@@ -30,6 +30,10 @@ interface ErrorAir { error_id?: number; error_name?: string; error_detail?: stri
 
 const usuario = () => env('AIR_USER') || env('AIR_API_USER');
 const clave = () => env('AIR_PASSWORD') || env('AIR_API_PASSWORD');
+// Token fijo generado en la intranet. Vence: si hay usuario y contraseña se
+// renueva solo; si no, hay que generar uno nuevo y reemplazarlo en el .env.
+const tokenFijo = () => env('AIR_TOKEN') || env('AIR_API_TOKEN');
+const puedeLoguear = () => Boolean(usuario() && clave());
 
 function esError(j: unknown): j is ErrorAir {
     return !!j && typeof j === 'object' && !Array.isArray(j) && 'error_id' in j;
@@ -78,17 +82,31 @@ async function login(): Promise<string> {
 export const air: AdaptadorProveedor = {
     codigo: 'air',
     faltaConfig() {
-        if (!usuario() || !clave()) return 'Faltan AIR_USER y AIR_PASSWORD en el .env';
+        if (!tokenFijo() && !puedeLoguear()) return 'Faltan AIR_TOKEN, o AIR_USER y AIR_PASSWORD, en el .env';
         return null;
     },
     async traerCatalogo(): Promise<CatalogoTraido> {
-        const token = await login();
+        let token = tokenFijo() || await login();
+        let renovado = !tokenFijo();
         const items: ItemCatalogo[] = [];
         for (let page = 0; page < MAX_PAGINAS; page++) {
-            const j = await pedirJson(`${URL_BASE}/articulos?page=${page}`, {
+            const pedir = () => pedirJson(`${URL_BASE}/articulos?page=${page}`, {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-            }, 'Air');
+            }, 'Air').catch((e: Error) => {
+                if (/HTTP 401/.test(e.message)) return { error_id: 401, error_name: e.message } as ErrorAir;
+                throw e;
+            });
+            let j = await pedir();
+            // Token vencido o inválido → pedir uno nuevo una sola vez.
+            if (esError(j) && j.error_id === 401 && !renovado && puedeLoguear()) {
+                token = await login();
+                renovado = true;
+                j = await pedir();
+            }
+            if (esError(j) && j.error_id === 401 && !puedeLoguear()) {
+                throw new Error('Air: el token venció o no es válido. Generá uno nuevo en la intranet y reemplazá AIR_TOKEN, o cargá AIR_USER y AIR_PASSWORD para que se renueve solo.');
+            }
             if (esError(j)) {
                 const extra = j.error_id === 403 && /many/i.test(j.error_name ?? '')
                     ? ' (Air no deja repetir la misma consulta en 5 minutos; probá de nuevo en un rato)' : '';
