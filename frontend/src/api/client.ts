@@ -283,13 +283,38 @@ export async function estadoCatalogoNotion(): Promise<{ registrado: boolean; id:
     return res.json();
 }
 
-export async function organizarNotion(): Promise<{ resultado: ResultadoNotionAgent }> {
-    const res = await apiFetch(`${BASE}/notion/organizar`, { method: 'POST' });
-    if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(err.error || `Backend respondió ${res.status}`);
-    }
-    return res.json();
+export interface ResultadoCuradorNotion {
+    ok: boolean;
+    resumen: string;
+    prioridades: Array<{ texto: string; por_que?: string }>;
+    cambios: number;
+    costo_usd: number;
+    duracion_ms: number;
+    tablero_url?: string;
+    detalle?: string;
+}
+
+export async function organizarNotion(instruccion?: string): Promise<{ resultado: ResultadoCuradorNotion }> {
+    return jsonOError(await apiFetch(`${BASE}/notion/organizar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ instruccion }),
+    }));
+}
+
+export async function actualizarTableroNotion(): Promise<{ resultado: { ok: boolean; url?: string; bloques?: number; detalle?: string } }> {
+    return jsonOError(await apiFetch(`${BASE}/notion/tablero`, { method: 'POST' }));
+}
+
+export interface EstadoNotionAutonomo {
+    configurado: boolean;
+    tablero_url: string | null;
+    tablero_actualizado: string | null;
+    curador: { fecha: string; resumen: string; cambios: number } | null;
+    prioridades: { fecha: string; items: Array<{ texto: string; por_que?: string }> } | null;
+    cambios: Array<{ creado_en: string; origen: string; tipo: string; detalle: string; url: string | null }>;
+}
+
+export async function estadoNotionAutonomo(): Promise<EstadoNotionAutonomo> {
+    return jsonOError(await apiFetch(`${BASE}/notion/autonomo`));
 }
 
 export async function pedirANotion(texto: string): Promise<{ resultado: ResultadoNotionAgent }> {

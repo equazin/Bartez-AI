@@ -1485,3 +1485,28 @@ nav button.salir { color: var(--peligro); }
 .timeline-wa { margin-bottom: 12px; }
 .timeline-wa summary { cursor: pointer; font-size: 13px; font-weight: 600; }
 @media (max-width: 800px) { .wa-layout { grid-template-columns: 1fr; } .wa-lista { max-height: 40vh; } }
+
+/* ---------- Notion ---------- */
+.primario-link { background: var(--acento); color: #fff; padding: 10px 16px; border-radius: 6px; font-weight: 600; text-decoration: none; white-space: nowrap; font-size: 14px; }
+.notion-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.notion-card { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 14px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.notion-grid .notion-card { margin-bottom: 0; }
+.notion-card h4 { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); }
+.notion-card h4 .mono { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.notion-dato { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.notion-dato span { color: var(--sutil); }
+.notion-resumen { margin: 0; font-size: 13px; background: var(--bg); border-radius: 5px; padding: 8px; }
+.notion-prioridades { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.notion-card textarea { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 6px; font: inherit; font-size: 13px; resize: vertical; background: var(--panel); color: var(--texto); }
+.notion-card button.primario { align-self: flex-end; background: var(--acento); color: #fff; border: 0; padding: 9px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.notion-card button.secundario { align-self: flex-start; background: var(--panel); color: var(--acento); border: 1px solid var(--acento); padding: 6px 12px; border-radius: 4px; font-weight: 600; font-size: 12px; cursor: pointer; }
+.notion-card button:disabled { opacity: 0.5; cursor: default; }
+.notion-cambios { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; overflow: hidden; }
+.notion-cambio { display: grid; grid-template-columns: auto auto 1fr auto; gap: 10px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--borde-soft); font-size: 13px; }
+.notion-cambio:last-child { border-bottom: 0; }
+.notion-cambio .mono { font-size: 11px; color: var(--sutil); white-space: nowrap; }
+.notion-cambio a { font-size: 12px; color: var(--acento); text-decoration: none; }
+.notion-tipo { font-size: 10px; padding: 2px 7px; border-radius: 8px; background: var(--borde-soft); color: var(--sutil); font-weight: 600; white-space: nowrap; }
+.notion-tipo.t-crear_tarea, .notion-tipo.t-crear_nota { background: var(--acento-soft); color: var(--acento); }
+.notion-tipo.t-archivar { background: var(--alerta-soft); color: var(--alerta); }
+@media (max-width: 700px) { .notion-grid { grid-template-columns: 1fr; } .notion-cambio { grid-template-columns: 1fr auto; } .notion-cambio .mono { grid-column: 1 / -1; } }

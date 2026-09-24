@@ -11,9 +11,10 @@ import { Seguimientos } from './components/Seguimientos.tsx';
 import { Cotizador } from './components/Cotizador.tsx';
 import { Login } from './components/Login.tsx';
 import { WhatsApp } from './components/WhatsApp.tsx';
+import { NotionPanel } from './components/NotionPanel.tsx';
 import { EVENTO_LOGOUT, estadoAuth, logout } from './api/client.ts';
 
-type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador' | 'whatsapp';
+type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
 
 const TABS: { id: Tab; label: string }[] = [
     { id: 'home', label: 'Inicio' },
@@ -23,6 +24,7 @@ const TABS: { id: Tab; label: string }[] = [
     { id: 'seguimientos', label: 'Seguimientos' },
     { id: 'whatsapp', label: 'WhatsApp' },
     { id: 'cotizador', label: 'Cotizador' },
+    { id: 'notion', label: 'Notion' },
     { id: 'asistentes', label: 'Asistentes' },
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'analitica', label: 'Analítica' },
@@ -93,6 +95,7 @@ export function App() {
                 {tab === 'seguimientos' && <Seguimientos />}
                 {tab === 'cotizador' && <Cotizador />}
                 {tab === 'whatsapp' && <WhatsApp />}
+                {tab === 'notion' && <NotionPanel />}
                 {tab === 'bitacora' && <Bitacora />}
             </main>
         </div>

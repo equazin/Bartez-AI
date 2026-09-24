@@ -16,6 +16,7 @@ import { correrBarridoSeguimientos, generarSeguimientoIndividual } from './orche
 import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
+import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -118,18 +119,17 @@ app.get('/analitica/informes/:id', async (req, res) => {
     return { informe };
 });
 
-app.post('/notion/organizar', async () => {
-    // Consigna default: que el asistente diseñe/organice la página raíz.
-    const consigna =
-        'Organizá la página raíz de Bartez AI para que sea un centro de operaciones útil. ' +
-        'Primero leé qué hay hoy. Después consultá los 3 databases para saber cuánto hay ' +
-        '(prospectos, tareas pendientes, notas). Armá una portada útil: un header, un callout ' +
-        'con qué es esto, secciones con quick access a cada database, un resumen del estado ' +
-        'actual con las stats reales, y un bloque con tips de uso del sistema. ' +
-        'Si ya hay contenido, no dupliques — actualizá o complementá lo que corresponda.';
-    const r = await correrNotionAgent(consigna, 15);
+// Notion autónomo: el curador decide qué crear/actualizar/archivar con la
+// información de todos los asistentes y después reescribe el tablero.
+app.post('/notion/organizar', async (req) => {
+    const parseo = z.object({ instruccion: z.string().max(2000).optional() }).safeParse(req.body ?? {});
+    const r = await correrCurador({ instruccion: parseo.success ? parseo.data.instruccion : undefined });
     return { resultado: r };
 });
+
+app.post('/notion/tablero', async () => ({ resultado: await actualizarTablero() }));
+
+app.get('/notion/autonomo', async () => estadoNotionAutonomo());
 
 app.post('/correos/importar', async (req) => {
     // Import ASYNC: arranca el job en background, devuelve jobId inmediatamente.
@@ -1076,6 +1076,22 @@ async function main() {
         }
     }, { timezone: 'America/Argentina/Buenos_Aires' });
     app.log.info('[cron] sync de proveedores programado cada 4 h');
+
+    // Notion autónomo: tablero con datos exactos cada 30 min (7 a 21 h) y el
+    // curador (IA con decisión propia) 3 veces por día hábil.
+    if (notionConfigurado) {
+        cron.schedule('*/30 7-21 * * *', async () => {
+            const r = await actualizarTablero();
+            if (!r.ok && r.detalle !== 'Ya se está actualizando') app.log.warn({ r }, '[cron] tablero Notion falló');
+        }, { timezone: 'America/Argentina/Buenos_Aires' });
+        const curar = async () => {
+            const r = await correrCurador();
+            app.log.info({ ok: r.ok, cambios: r.cambios, costo: r.costo_usd, detalle: r.detalle }, '[cron] curador Notion');
+        };
+        cron.schedule('30 8 * * 1-6', curar, { timezone: 'America/Argentina/Buenos_Aires' });
+        cron.schedule('0 13,18 * * 1-5', curar, { timezone: 'America/Argentina/Buenos_Aires' });
+        app.log.info('[cron] Notion: tablero cada 30 min (7-21 h), curador 8:30 / 13 / 18 h');
+    }
 
     // Cada 2 minutos — traer conversaciones de WhatsApp del bot de la web y
     // proponer respuestas en las escaladas. Sin STUDIO_API_TOKEN no hace nada.
