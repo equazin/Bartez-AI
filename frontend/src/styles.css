@@ -1428,3 +1428,12 @@ nav button.salir { color: var(--peligro); }
     .cot-hist-fila > .mono { display: none; }
 }
 .cot-pie-btns { display: flex; gap: 8px; }
+.cot-datos-cli { margin-bottom: 12px; border: 1px solid var(--borde); border-radius: 6px; padding: 8px 12px; background: var(--bg); }
+.cot-datos-cli summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.cot-datos-cli .mono { font-weight: 400; color: var(--sutil); font-size: 12px; }
+.cot-datos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-top: 10px; }
+.cot-datos-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--sutil); text-transform: uppercase; letter-spacing: 0.4px; font-weight: 600; }
+.cot-datos-grid label.ancho { grid-column: 1 / -1; }
+.cot-datos-grid input, .cot-datos-grid textarea { padding: 7px 9px; border: 1px solid var(--borde); border-radius: 5px; font: inherit; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--texto); background: var(--panel); resize: vertical; }
+.cot-datos-cli .sub { margin: 8px 0 2px; font-size: 12px; color: var(--sutil); }
+@media (max-width: 640px) { .cot-datos-grid { grid-template-columns: 1fr; } }

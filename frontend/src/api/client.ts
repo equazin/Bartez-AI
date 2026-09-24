@@ -401,7 +401,17 @@ export interface Cotizacion {
     costo_ia_usd: number;
     duracion_ms: number;
     titulo?: string | null;
+    numero?: number | null;
+    datos_cliente?: DatosCliente;
     creado_en?: string;
+}
+
+export interface DatosCliente {
+    cuit?: string;
+    direccion?: string;
+    localidad?: string;
+    atencion?: string;
+    objeto?: string;
 }
 
 async function jsonOError<T>(res: Response): Promise<T> {
@@ -452,10 +462,17 @@ export async function obtenerCotizacion(id: string): Promise<{ cotizacion: Cotiz
     return jsonOError(await apiFetch(`${BASE}/cotizaciones/${id}`));
 }
 
-export async function renombrarCotizacion(id: string, titulo: string | null): Promise<{ ok: boolean }> {
+export async function actualizarCotizacion(
+    id: string,
+    cambios: { titulo?: string | null; datos_cliente?: DatosCliente },
+): Promise<{ ok: boolean }> {
     return jsonOError(await apiFetch(`${BASE}/cotizaciones/${id}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ titulo }),
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cambios),
     }));
+}
+
+export async function numeroPresupuesto(id: string): Promise<{ numero: number }> {
+    return jsonOError(await apiFetch(`${BASE}/cotizaciones/${id}/numero`, { method: 'POST' }));
 }
 
 export async function borrarCotizacion(id: string): Promise<{ ok: boolean }> {

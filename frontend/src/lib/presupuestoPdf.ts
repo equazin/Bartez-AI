@@ -1,127 +1,211 @@
-// Genera el PDF de presupuesto para el cliente a partir de una cotización.
+// PDF de presupuesto con el diseño del presupuesto modelo de Bartez.
 // Solo incluye lo que ve el cliente: nunca proveedor, SKU del mayorista, costo
 // ni alternativas. Se carga bajo demanda para no agrandar la app.
 
 import type { Cotizacion } from '../api/client.ts';
-import { CONDICIONES, EMPRESA } from '../config/empresa.ts';
+import { CIERRE, CONDICIONES, EMPRESA, NOTA_PRECIOS } from '../config/empresa.ts';
+import logoUrl from '../assets/logo-bartez.png';
 
-const usd = (n: number) => `USD ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const ars = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+type RGB = [number, number, number];
+const AZUL_OSCURO: RGB = [27, 58, 140];
+const AZUL: RGB = [0, 102, 255];
+const AZUL_TABLA: RGB = [59, 130, 221];
+const TEXTO: RGB = [30, 30, 30];
+const GRIS: RGB = [110, 115, 125];
+const FONDO_ETIQ: RGB = [236, 240, 247];
+const LINEA: RGB = [220, 224, 232];
 
-export function numeroPresupuesto(c: Cotizacion): string {
-    const fecha = c.creado_en ? new Date(c.creado_en) : new Date();
-    const aammdd = fecha.toISOString().slice(2, 10).replace(/-/g, '');
-    return `${aammdd}-${(c.id ?? 'borrador').slice(0, 4).toUpperCase()}`;
+const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const pct = (n: number) => `${n.toLocaleString('es-AR')}%`;
+
+export function numeroFormateado(c: Cotizacion, numero?: number | null): string {
+    const anio = (c.creado_en ? new Date(c.creado_en) : new Date()).getFullYear();
+    return numero ? `${anio}-${String(numero).padStart(4, '0')}` : 'BORRADOR';
 }
 
-function nombreArchivo(c: Cotizacion): string {
-    const base = (c.titulo || 'cliente').normalize('NFD').replace(/[̀-ͯ]/g, '')
-        .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
-    return `presupuesto-bartez-${base || 'cliente'}-${numeroPresupuesto(c)}.pdf`;
+// "NB" es la abreviatura de Air: al cliente se le muestra "Notebook".
+function descripcionCliente(desc: string, marca: string | null): string {
+    const base = desc.replace(/^NB\b/i, 'Notebook');
+    return marca && !base.toUpperCase().includes(marca.toUpperCase()) ? `${marca} ${base}` : base;
 }
 
-export async function descargarPresupuestoPdf(c: Cotizacion, opts: { cliente?: string; conPesos?: boolean } = {}): Promise<void> {
-    const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
+export function objetoPorDefecto(c: Cotizacion): string {
+    const lineas = c.lineas.filter((l) => l.elegido);
+    if (lineas.length === 1) {
+        const l = lineas[0]!;
+        return `Provisión de ${l.cantidad} x ${descripcionCliente(l.elegido!.descripcion, l.elegido!.marca)}.`;
+    }
+    const unidades = lineas.reduce((s, l) => s + l.cantidad, 0);
+    return `Provisión de equipamiento IT según detalle: ${lineas.length} ítems, ${unidades} unidades en total.`;
+}
+
+async function cargarLogo(): Promise<string> {
+    const blob = await (await fetch(logoUrl)).blob();
+    return await new Promise((ok, mal) => {
+        const r = new FileReader();
+        r.onload = () => ok(r.result as string);
+        r.onerror = () => mal(r.error);
+        r.readAsDataURL(blob);
+    });
+}
+
+function nombreArchivo(cliente: string, numero: string): string {
+    const base = (cliente || 'cliente').normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+    return `Presupuesto_${numero}_${base || 'cliente'}.pdf`;
+}
+
+export async function descargarPresupuestoPdf(c: Cotizacion, numero?: number | null): Promise<void> {
+    const [{ jsPDF }, { default: autoTable }, logo] = await Promise.all([
+        import('jspdf'), import('jspdf-autotable'), cargarLogo(),
+    ]);
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    const ancho = doc.internal.pageSize.getWidth();
-    const M = 15;
-    const acento: [number, number, number] = [47, 111, 237];
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const M = 18;
+    const num = numeroFormateado(c, numero);
+    const fecha = (c.creado_en ? new Date(c.creado_en) : new Date())
+        .toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const dc = c.datos_cliente ?? {};
+    const cliente = (c.titulo ?? '').trim();
 
-    // Encabezado: empresa a la izquierda, datos del presupuesto a la derecha.
-    doc.setFont('helvetica', 'bold').setFontSize(18).setTextColor(23, 26, 36);
-    doc.text(EMPRESA.nombre, M, 22);
-    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(106, 114, 128);
-    const datosEmpresa = [
-        EMPRESA.cuit && `CUIT ${EMPRESA.cuit}`,
-        EMPRESA.direccion,
-        [EMPRESA.telefono, EMPRESA.email].filter(Boolean).join(' · '),
-        EMPRESA.web,
-    ].filter(Boolean) as string[];
-    datosEmpresa.forEach((l, i) => doc.text(l, M, 28 + i * 4.5));
+    // ---- Encabezado ----
+    doc.addImage(logo, 'PNG', M, 12, 54, 13.8);
+    doc.setFont('helvetica', 'bold').setFontSize(22).setTextColor(...AZUL_OSCURO);
+    doc.text('PRESUPUESTO', W - M, 21, { align: 'right' });
+    doc.setFontSize(12).setTextColor(...AZUL);
+    doc.text(`N ${num}`, W - M, 28, { align: 'right' });
 
-    const fecha = c.creado_en ? new Date(c.creado_en) : new Date();
-    doc.setFont('helvetica', 'bold').setFontSize(14).setTextColor(...acento);
-    doc.text('PRESUPUESTO', ancho - M, 22, { align: 'right' });
-    doc.setFont('helvetica', 'normal').setFontSize(9).setTextColor(23, 26, 36);
-    doc.text(`N° ${numeroPresupuesto(c)}`, ancho - M, 28, { align: 'right' });
-    doc.text(`Fecha: ${fecha.toLocaleDateString('es-AR')}`, ancho - M, 32.5, { align: 'right' });
+    doc.setFont('helvetica', 'normal').setFontSize(8).setTextColor(...GRIS);
+    doc.text(`${EMPRESA.descripcion}  -  ${EMPRESA.titular}  -  CUIT ${EMPRESA.cuit}`, M, 34);
+    doc.text(`${EMPRESA.direccion}  -  ${EMPRESA.telefono}  -  ${EMPRESA.web}`, M, 38);
+    doc.text(`Fecha: ${fecha}`, W - M, 34, { align: 'right' });
+    if (cliente) doc.text(`Cliente: ${cliente}`, W - M, 38, { align: 'right' });
+    doc.setDrawColor(...AZUL).setLineWidth(0.6).line(M, 40.5, W - M, 40.5);
+    doc.setLineWidth(0.2).line(M, 41.6, W - M, 41.6);
 
-    let y = 30 + datosEmpresa.length * 4.5 + 4;
-    doc.setDrawColor(223, 227, 236).line(M, y, ancho - M, y);
-    y += 7;
-    const cliente = (opts.cliente ?? c.titulo ?? '').trim();
-    if (cliente) {
-        doc.setFont('helvetica', 'bold').setFontSize(10).text('Cliente:', M, y);
-        doc.setFont('helvetica', 'normal').text(cliente, M + 16, y);
-        y += 7;
+    // ---- Presupuesto para / Objeto ----
+    const mitad = W / 2;
+    let yIzq = 51;
+    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...AZUL_OSCURO);
+    doc.text('PRESUPUESTO PARA', M, yIzq);
+    yIzq += 8;
+    doc.setFontSize(15).setTextColor(...TEXTO);
+    const nombreCli = doc.splitTextToSize(cliente || '—', mitad - M - 6) as string[];
+    doc.text(nombreCli, M, yIzq);
+    yIzq += nombreCli.length * 6 + 0.5;
+    doc.setFont('helvetica', 'normal').setFontSize(9.5);
+    for (const l of [
+        dc.cuit && `CUIT ${dc.cuit}`,
+        dc.direccion,
+        dc.localidad,
+        dc.atencion && `At.: ${dc.atencion}`,
+    ].filter(Boolean) as string[]) {
+        doc.text(l, M, yIzq);
+        yIzq += 4.8;
     }
 
-    // Renglones: solo los que tienen artículo elegido.
+    let yDer = 51;
+    const xDer = mitad + 4;
+    doc.setFont('helvetica', 'bold').setFontSize(10).setTextColor(...AZUL_OSCURO);
+    doc.text('OBJETO DEL PRESUPUESTO', xDer, yDer);
+    yDer += 6;
+    doc.setFont('helvetica', 'normal').setFontSize(9.5).setTextColor(...TEXTO);
+    const objeto = doc.splitTextToSize((dc.objeto || objetoPorDefecto(c)).trim(), W - M - xDer) as string[];
+    doc.text(objeto, xDer, yDer);
+    yDer += objeto.length * 4.8;
+
+    const yBloque = Math.max(yIzq, yDer) + 2;
+    doc.setDrawColor(...LINEA).setLineWidth(0.3).line(mitad, 46, mitad, yBloque);
+    let y = yBloque + 9;
+
+    // ---- Detalle ----
+    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(...AZUL_OSCURO);
+    doc.text('Detalle', M, y);
+    y += 3;
+
     const lineas = c.lineas.filter((l) => l.elegido);
+    const ivaPorTasa = new Map<number, number>();
+    for (const l of lineas) {
+        const e = l.elegido!;
+        const iva = (e.precio_unit_final_usd - e.precio_unit_usd) * l.cantidad;
+        ivaPorTasa.set(e.iva_pct, (ivaPorTasa.get(e.iva_pct) ?? 0) + iva);
+    }
+
     autoTable(doc, {
         startY: y,
         margin: { left: M, right: M },
-        head: [['#', 'Descripción', 'Cant.', 'Precio unit.', 'IVA', 'Subtotal']],
-        body: lineas.map((l, i) => {
+        head: [['Cant.', 'Descripción (precio neto sin IVA)', 'IVA', 'Unitario', 'Monto']],
+        body: lineas.map((l) => {
             const e = l.elegido!;
-            // "NB" es la abreviatura de Air: al cliente se le muestra "Notebook".
-            const base = e.descripcion.replace(/^NB\b/i, 'Notebook');
-            const desc = e.marca && !base.toUpperCase().includes(e.marca.toUpperCase()) ? `${e.marca} ${base}` : base;
-            const iva = `${e.iva_pct.toLocaleString('es-AR')}%`;
-            return [String(i + 1), desc, String(l.cantidad), usd(e.precio_unit_usd), iva, usd(e.precio_unit_usd * l.cantidad)];
+            return [String(l.cantidad), descripcionCliente(e.descripcion, e.marca), pct(e.iva_pct), usd(e.precio_unit_usd), usd(e.precio_unit_usd * l.cantidad)];
         }),
-        styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 2, textColor: [23, 26, 36], lineColor: [223, 227, 236], lineWidth: 0.1 },
-        headStyles: { fillColor: acento, textColor: 255, fontStyle: 'bold' },
-        alternateRowStyles: { fillColor: [246, 247, 250] },
+        foot: [
+            [{ content: 'Subtotal (neto sin IVA)', colSpan: 4 }, usd(c.subtotal_usd)],
+            ...[...ivaPorTasa.entries()].sort((a, b) => a[0] - b[0])
+                .map(([tasa, monto]) => [{ content: `IVA ${pct(tasa)}`, colSpan: 4 }, usd(monto)]),
+        ],
+        showFoot: 'lastPage',
+        theme: 'plain',
+        styles: { font: 'helvetica', fontSize: 9, cellPadding: { top: 2.6, bottom: 2.6, left: 3, right: 3 }, textColor: TEXTO, lineColor: LINEA },
+        headStyles: { fillColor: AZUL_TABLA, textColor: 255, fontStyle: 'bold' },
+        bodyStyles: { lineWidth: { bottom: 0.2 } },
+        footStyles: { fillColor: [255, 255, 255], textColor: TEXTO, fontStyle: 'normal', lineWidth: { bottom: 0.2 } },
         columnStyles: {
-            0: { cellWidth: 8, halign: 'center' },
-            2: { cellWidth: 14, halign: 'center' },
-            3: { cellWidth: 28, halign: 'right' },
-            4: { cellWidth: 14, halign: 'center' },
-            5: { cellWidth: 30, halign: 'right' },
+            0: { cellWidth: 16, halign: 'center' },
+            2: { cellWidth: 15, halign: 'center' },
+            3: { cellWidth: 27, halign: 'right' },
+            4: { cellWidth: 29, halign: 'right' },
+        },
+        didParseCell: (d) => {
+            // Encabezados numéricos alineados como sus columnas.
+            if (d.section === 'head' && (d.column.index === 3 || d.column.index === 4)) d.cell.styles.halign = 'right';
+            if (d.section === 'head' && (d.column.index === 0 || d.column.index === 2)) d.cell.styles.halign = 'center';
+            if (d.section === 'foot') d.cell.styles.halign = d.column.index === 4 ? 'right' : 'left';
         },
     });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY;
 
-    // Totales.
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
-    if (y > 250) { doc.addPage(); y = 20; }
-    const filaTotal = (etq: string, val: string, fuerte = false) => {
-        doc.setFont('helvetica', fuerte ? 'bold' : 'normal').setFontSize(fuerte ? 11 : 9.5);
-        doc.text(etq, ancho - M - 45, y, { align: 'right' });
-        doc.text(val, ancho - M, y, { align: 'right' });
-        y += fuerte ? 7 : 5.5;
-    };
-    filaTotal('Subtotal', usd(c.subtotal_usd));
-    filaTotal('IVA', usd(c.iva_usd));
-    doc.setDrawColor(223, 227, 236).line(ancho - M - 80, y - 3.5, ancho - M, y - 3.5);
-    filaTotal('Total', usd(c.total_usd), true);
-    if (opts.conPesos !== false && c.tipo_cambio > 0) {
-        doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(106, 114, 128);
-        doc.text(`Equivalente en pesos: ${ars(c.total_ars)} (TC ${c.tipo_cambio.toLocaleString('es-AR')} al ${fecha.toLocaleDateString('es-AR')})`, ancho - M, y, { align: 'right' });
-        doc.setTextColor(23, 26, 36);
-        y += 8;
-    }
+    // Barra de TOTAL FINAL.
+    if (y > H - 60) { doc.addPage(); y = 20; }
+    doc.setFillColor(...AZUL_OSCURO).rect(M, y, W - 2 * M, 11, 'F');
+    doc.setFont('helvetica', 'bold').setFontSize(12).setTextColor(255, 255, 255);
+    doc.text('TOTAL FINAL', M + 3, y + 7.4);
+    doc.text(usd(c.total_usd), W - M - 3, y + 7.4, { align: 'right' });
+    y += 16;
 
-    // Condiciones.
-    y += 4;
-    if (y > 265) { doc.addPage(); y = 20; }
-    doc.setFont('helvetica', 'bold').setFontSize(9).text('Condiciones', M, y);
-    y += 5;
-    doc.setFont('helvetica', 'normal').setFontSize(8.5).setTextColor(106, 114, 128);
-    for (const cond of CONDICIONES) {
-        const partes = doc.splitTextToSize(`• ${cond}`, ancho - 2 * M) as string[];
-        doc.text(partes, M, y);
-        y += partes.length * 4.2;
-    }
+    doc.setFont('helvetica', 'normal').setFontSize(7.8).setTextColor(...GRIS);
+    const nota = doc.splitTextToSize(NOTA_PRECIOS, W - 2 * M) as string[];
+    doc.text(nota, M, y);
+    y += nota.length * 3.6 + 9;
 
-    // Pie en todas las páginas.
+    // ---- Condiciones comerciales ----
+    if (y > H - 75) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'bold').setFontSize(13).setTextColor(...AZUL_OSCURO);
+    doc.text('Condiciones comerciales', M, y);
+    autoTable(doc, {
+        startY: y + 3,
+        margin: { left: M, right: M },
+        body: CONDICIONES,
+        theme: 'plain',
+        styles: { font: 'helvetica', fontSize: 8.8, cellPadding: { top: 2.2, bottom: 2.2, left: 3, right: 3 }, textColor: TEXTO, lineColor: LINEA, lineWidth: { bottom: 0.2 } },
+        columnStyles: { 0: { cellWidth: 32, fontStyle: 'bold' } },
+        didParseCell: (d) => { if (d.row.index % 2 === 0) d.cell.styles.fillColor = FONDO_ETIQ; },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10;
+    if (y > H - 25) { doc.addPage(); y = 20; }
+    doc.setFont('helvetica', 'normal').setFontSize(10).setTextColor(...TEXTO);
+    doc.text(CIERRE, M, y);
+
+    // ---- Pie en todas las páginas ----
     const paginas = doc.getNumberOfPages();
     for (let i = 1; i <= paginas; i++) {
         doc.setPage(i);
-        doc.setFontSize(7.5).setTextColor(150, 155, 165);
-        doc.text(`${EMPRESA.nombre} · ${EMPRESA.web}`, M, 290);
-        doc.text(`Página ${i} de ${paginas}`, ancho - M, 290, { align: 'right' });
+        doc.setDrawColor(...AZUL).setLineWidth(0.4).line(M, H - 17, W - M, H - 17);
+        doc.setFont('helvetica', 'normal').setFontSize(7.8).setTextColor(...GRIS);
+        doc.text(`${EMPRESA.nombre}  -  ${EMPRESA.descripcion}  -  Rosario, Santa Fe`, M, H - 12);
+        doc.text(`Página ${i}${paginas > 1 ? ` de ${paginas}` : ''}`, W - M, H - 12, { align: 'right' });
     }
 
-    doc.save(nombreArchivo(c));
+    doc.save(nombreArchivo(cliente, num));
 }

@@ -304,11 +304,23 @@ interface FilaCotizacion {
     tipo_cambio: number | string | null;
     costo_ia_usd: number | string | null;
     resultado: ResultadoCotizacion | null;
+    numero: number | null;
+    datos_cliente: DatosCliente | null;
     creado_en: string;
+}
+
+export interface DatosCliente {
+    cuit?: string;
+    direccion?: string;
+    localidad?: string;
+    atencion?: string;
+    objeto?: string;
 }
 
 export interface CotizacionGuardada extends ResultadoCotizacion {
     titulo: string | null;
+    numero: number | null;
+    datos_cliente: DatosCliente;
     creado_en: string;
 }
 
@@ -338,7 +350,7 @@ function rearmar(f: FilaCotizacion): CotizacionGuardada {
             duracion_ms: 0,
         };
     })();
-    return { ...base, id: f.id, titulo: f.titulo, creado_en: f.creado_en };
+    return { ...base, id: f.id, titulo: f.titulo, numero: f.numero, datos_cliente: f.datos_cliente ?? {}, creado_en: f.creado_en };
 }
 
 export async function listarCotizaciones(limite = 50) {
@@ -365,8 +377,11 @@ export async function obtenerCotizacion(id: string): Promise<CotizacionGuardada 
     return data ? rearmar(data as FilaCotizacion) : null;
 }
 
-export async function renombrarCotizacion(id: string, titulo: string | null): Promise<boolean> {
-    const { data, error } = await supabase.from('cotizaciones').update({ titulo }).eq('id', id).select('id');
+export async function actualizarCotizacion(
+    id: string,
+    cambios: { titulo?: string | null; datos_cliente?: DatosCliente },
+): Promise<boolean> {
+    const { data, error } = await supabase.from('cotizaciones').update(cambios).eq('id', id).select('id');
     if (error) throw new Error(error.message);
     return (data ?? []).length > 0;
 }
@@ -375,4 +390,11 @@ export async function borrarCotizacion(id: string): Promise<boolean> {
     const { data, error } = await supabase.from('cotizaciones').delete().eq('id', id).select('id');
     if (error) throw new Error(error.message);
     return (data ?? []).length > 0;
+}
+
+// Número de presupuesto: se asigna la primera vez que se genera el PDF.
+export async function numeroPresupuesto(id: string): Promise<number | null> {
+    const { data, error } = await supabase.rpc('asignar_numero_presupuesto', { p_id: id });
+    if (error) throw new Error(error.message);
+    return (data as number | null) ?? null;
 }

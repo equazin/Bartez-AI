@@ -19,7 +19,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
-import { borrarCotizacion, cotizar, listarCotizaciones, obtenerCotizacion, renombrarCotizacion } from './orchestrator/cotizador.js';
+import { actualizarCotizacion, borrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
@@ -313,13 +313,36 @@ app.get('/cotizaciones/:id', async (req, res) => {
     return { cotizacion: cot };
 });
 
+const campoCliente = z.string().max(500).optional();
+const ActualizarCotizacionSchema = z.object({
+    titulo: z.string().max(200).nullable().optional(),
+    datos_cliente: z.object({
+        cuit: campoCliente, direccion: campoCliente, localidad: campoCliente, atencion: campoCliente,
+        objeto: z.string().max(2000).optional(),
+    }).optional(),
+});
+
 app.patch('/cotizaciones/:id', async (req, res) => {
     const { id } = req.params as { id: string };
-    const parseo = z.object({ titulo: z.string().max(200).nullable() }).safeParse(req.body ?? {});
+    const parseo = ActualizarCotizacionSchema.safeParse(req.body ?? {});
     if (!z.string().uuid().safeParse(id).success || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
-    const titulo = parseo.data.titulo?.trim() || null;
-    if (!(await renombrarCotizacion(id, titulo))) return res.status(404).send({ error: 'cotización no encontrada' });
+    const cambios: Parameters<typeof actualizarCotizacion>[1] = {};
+    if (parseo.data.titulo !== undefined) cambios.titulo = parseo.data.titulo?.trim() || null;
+    if (parseo.data.datos_cliente) {
+        cambios.datos_cliente = Object.fromEntries(
+            Object.entries(parseo.data.datos_cliente).map(([k, v]) => [k, (v ?? '').trim()]).filter(([, v]) => v),
+        );
+    }
+    if (!(await actualizarCotizacion(id, cambios))) return res.status(404).send({ error: 'cotización no encontrada' });
     return { ok: true };
+});
+
+app.post('/cotizaciones/:id/numero', async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
+    const numero = await numeroPresupuesto(id);
+    if (numero == null) return res.status(404).send({ error: 'cotización no encontrada' });
+    return { numero };
 });
 
 app.delete('/cotizaciones/:id', async (req, res) => {

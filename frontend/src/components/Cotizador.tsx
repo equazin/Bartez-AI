@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import {
     Cotizacion,
     CotizacionResumen,
+    DatosCliente,
     Proveedor,
     actualizarProveedor,
     borrarCotizacion,
     crearCotizacion,
     listarCotizaciones,
     obtenerCotizacion,
-    renombrarCotizacion,
+    actualizarCotizacion,
+    numeroPresupuesto,
     importarCsvProveedor,
     listarProveedores,
     sincronizarProveedor,
@@ -37,6 +39,7 @@ export function Cotizador() {
 
     const [historial, setHistorial] = useState<CotizacionResumen[]>([]);
     const [titulo, setTitulo] = useState('');
+    const [datosCli, setDatosCli] = useState<DatosCliente>({});
 
     async function cargarHistorial() {
         try { setHistorial((await listarCotizaciones()).cotizaciones); } catch { /* el error principal ya se muestra arriba */ }
@@ -45,6 +48,7 @@ export function Cotizador() {
     function mostrar(c: Cotizacion | null) {
         setCot(c);
         setTitulo(c?.titulo ?? '');
+        setDatosCli(c?.datos_cliente ?? {});
         recordarAbierta(c?.id ?? null);
     }
 
@@ -59,11 +63,25 @@ export function Cotizador() {
     async function guardarTitulo() {
         if (!cot?.id || (cot.titulo ?? '') === titulo.trim()) return;
         try {
-            await renombrarCotizacion(cot.id, titulo.trim() || null);
+            await actualizarCotizacion(cot.id, { titulo: titulo.trim() || null });
             setCot({ ...cot, titulo: titulo.trim() || null });
             await cargarHistorial();
         } catch (e) { setError((e as Error).message); }
     }
+
+    async function guardarDatosCli() {
+        if (!cot?.id || JSON.stringify(cot.datos_cliente ?? {}) === JSON.stringify(datosCli)) return;
+        try {
+            await actualizarCotizacion(cot.id, { datos_cliente: datosCli });
+            setCot({ ...cot, datos_cliente: datosCli });
+        } catch (e) { setError((e as Error).message); }
+    }
+
+    const campoCli = (k: keyof DatosCliente) => ({
+        value: datosCli[k] ?? '',
+        onChange: (e: { target: { value: string } }) => setDatosCli((d) => ({ ...d, [k]: e.target.value })),
+        onBlur: guardarDatosCli,
+    });
 
     async function borrar(id: string) {
         if (!window.confirm('¿Borrar esta cotización? No se puede deshacer.')) return;
@@ -144,11 +162,15 @@ export function Cotizador() {
     async function generarPdf() {
         if (!cot) return;
         await guardarTitulo();
+        await guardarDatosCli();
         if (!cot.lineas.some((l) => l.elegido)) { setError('La cotización no tiene artículos para presupuestar'); return; }
         setGenerandoPdf(true);
         try {
             const { descargarPresupuestoPdf } = await import('../lib/presupuestoPdf.ts');
-            await descargarPresupuestoPdf({ ...cot, titulo: titulo.trim() || cot.titulo });
+            // El número se asigna la primera vez; después siempre es el mismo.
+            const numero = cot.id ? (await numeroPresupuesto(cot.id)).numero : null;
+            if (numero && numero !== cot.numero) setCot({ ...cot, numero });
+            await descargarPresupuestoPdf({ ...cot, titulo: titulo.trim() || cot.titulo, datos_cliente: datosCli }, numero);
         } catch (e) { setError(`No se pudo generar el PDF: ${(e as Error).message}`); }
         finally { setGenerandoPdf(false); }
     }
@@ -216,6 +238,25 @@ export function Cotizador() {
                         {cot.id && <button className="secundario peligro" onClick={() => borrar(cot.id!)}>Borrar</button>}
                     </div>
                     <div className="cot-pedido-original"><strong>Pedido:</strong> {cot.pedido}</div>
+                    {cot.id && (
+                        <details className="cot-datos-cli">
+                            <summary>
+                                Datos del cliente para el presupuesto
+                                {cot.numero ? <span className="mono"> · N {new Date(cot.creado_en ?? Date.now()).getFullYear()}-{String(cot.numero).padStart(4, '0')}</span> : null}
+                            </summary>
+                            <div className="cot-datos-grid">
+                                <label><span>CUIT</span><input {...campoCli('cuit')} placeholder="30-12345678-9" /></label>
+                                <label><span>Atención</span><input {...campoCli('atencion')} placeholder="Nombre del contacto" /></label>
+                                <label><span>Dirección</span><input {...campoCli('direccion')} placeholder="Calle y número" /></label>
+                                <label><span>Localidad</span><input {...campoCli('localidad')} placeholder="Ciudad, provincia (CP)" /></label>
+                                <label className="ancho">
+                                    <span>Objeto del presupuesto</span>
+                                    <textarea rows={2} {...campoCli('objeto')} placeholder="Si lo dejás vacío se arma solo con los artículos (ej. «Provisión de equipamiento IT según detalle…»)" />
+                                </label>
+                            </div>
+                            <p className="sub">El nombre del cliente es el título de arriba. Todo se guarda solo.</p>
+                        </details>
+                    )}
                     {cot.comentario && <div className="det-signal"><strong>Notas del asistente:</strong> {cot.comentario}</div>}
                     <table className="cot-tabla">
                         <thead>
