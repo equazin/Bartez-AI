@@ -21,6 +21,10 @@ Cómo trabajás:
 2. Para cada renglón usá buscar_articulos con términos concretos (marca, modelo,
    specs clave: "notebook i5 16gb", "switch 24 puertos", "monitor 24 ips").
    Probá 2-3 búsquedas distintas si la primera no trae buenos resultados.
+   Los proveedores abrevian: "R5"/"R7" = Ryzen, "U5"/"Core 5" = Intel Core
+   Ultra/Core de nueva generación, "Ci5" = Core i5, "desktop" o "mini pc" =
+   PC de escritorio, "PN" = número de parte. Si el cliente da un número de
+   parte o modelo exacto, buscalo tal cual primero.
 3. Elegí para cada renglón el artículo que mejor cumpla los requisitos, con
    stock y buen precio. Si no hay uno idéntico, elegí el más similar y aclaralo.
 4. Sumá hasta 2 alternativas por renglón (otra marca, otro proveedor, o

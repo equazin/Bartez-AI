@@ -16,7 +16,7 @@ export interface ResultadoSync {
     duracion_ms: number;
 }
 
-async function guardarItems(codigo: string, items: ItemCatalogo[], inicio: Date): Promise<void> {
+async function guardarItems(codigo: string, items: ItemCatalogo[], inicio: Date, borrarFaltantes = true): Promise<void> {
     const ahora = new Date().toISOString();
     // Dedupe por SKU dentro del lote (Postgres rechaza upserts con claves repetidas)
     const porSku = new Map<string, ItemCatalogo>();
@@ -43,7 +43,8 @@ async function guardarItems(codigo: string, items: ItemCatalogo[], inicio: Date)
         if (error) throw new Error(`upsert: ${error.message}`);
     }
 
-    // Lo que no vino en esta corrida ya no está en la lista del proveedor.
+    // Lo que no vino en una corrida completa ya no está en la lista del proveedor.
+    if (!borrarFaltantes) return;
     await supabase
         .from('catalogo_proveedores')
         .delete()
@@ -72,10 +73,13 @@ export async function sincronizarProveedor(codigo: string): Promise<ResultadoSyn
     }
 
     try {
-        const items = await adaptador.traerCatalogo();
-        await guardarItems(codigo, items, inicio);
-        await registrarEstado(codigo, 'ok', null, items.length);
-        return { proveedor: codigo, ok: true, items: items.length, duracion_ms: Date.now() - inicio.getTime() };
+        const { items, completo, nota } = await adaptador.traerCatalogo();
+        if (items.length === 0) throw new Error('la API no devolvió artículos');
+        await guardarItems(codigo, items, inicio, completo);
+        const { count } = await supabase.from('catalogo_proveedores').select('*', { count: 'exact', head: true }).eq('proveedor', codigo);
+        const total = count ?? items.length;
+        await registrarEstado(codigo, 'ok', nota ?? null, total);
+        return { proveedor: codigo, ok: true, items: total, detalle: nota, duracion_ms: Date.now() - inicio.getTime() };
     } catch (err) {
         const detalle = (err as Error).message;
         await registrarEstado(codigo, 'error', detalle, 0);

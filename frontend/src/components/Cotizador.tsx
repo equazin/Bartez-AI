@@ -189,7 +189,7 @@ export function Cotizador() {
                             {p.items_sincronizados ?? 0} artículos · margen <a onClick={() => cambiarMargen(p)}>{p.margen_pct}%</a>
                         </div>
                         {p.ultima_sync && <div className="prov-meta">Última: {new Date(p.ultima_sync).toLocaleString('es-AR')}</div>}
-                        {p.ultimo_detalle && p.ultimo_estado !== 'ok' && <div className="prov-detalle">{p.ultimo_detalle}</div>}
+                        {p.ultimo_detalle && <div className="prov-detalle">{p.ultimo_detalle}</div>}
                         <div className="prov-btns">
                             <button className="secundario" disabled={ocupado === p.codigo} onClick={() => sync(p.codigo)}>
                                 {ocupado === p.codigo ? '…' : 'Sincronizar API'}
