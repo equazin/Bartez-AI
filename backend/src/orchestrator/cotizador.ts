@@ -23,7 +23,7 @@ Cómo trabajás:
    Probá 2-3 búsquedas distintas si la primera no trae buenos resultados.
    Los proveedores abrevian: "R5"/"R7" = Ryzen, "U5"/"Core 5" = Intel Core
    Ultra/Core de nueva generación, "Ci5" = Core i5, "desktop" o "mini pc" =
-   PC de escritorio, "PN" = número de parte. Si el cliente da un número de
+   PC de escritorio, "NB" = notebook, "PN" = número de parte. Si el cliente da un número de
    parte o modelo exacto, buscalo tal cual primero.
 3. Elegí para cada renglón el artículo que mejor cumpla los requisitos, con
    stock y buen precio. Si no hay uno idéntico, elegí el más similar y aclaralo.
@@ -144,6 +144,7 @@ async function preciar(ids: number[], tc: number): Promise<Map<number, ArticuloP
 
     for (const f of filas ?? []) {
         const precio = Number(f.precio ?? 0);
+        if (!(precio > 0)) continue; // sin precio no se cotiza (nunca a USD 0)
         const costoUsd = f.moneda === 'ARS' ? precio / tc : precio;
         const margen = margenes.get(f.proveedor as string) ?? 15;
         const iva = f.iva_pct != null ? Number(f.iva_pct) : IVA_DEFAULT;
