@@ -73,9 +73,15 @@ export function Dashboard() {
 
     return (
         <section className="dashboard">
-            <div className="metrica-exito">
-                <div className="acciones-header">
-                    <h2>Métrica de éxito del negocio (hoy)</h2>
+            <div className="acciones-header">
+                <div>
+                    <h2>Métricas</h2>
+                    <p className="sub">Resultados comerciales del día (los cargás vos) y la actividad de cada asistente.</p>
+                </div>
+            </div>
+            <div className="metrica-exito panel">
+                <div className="panel-cab">
+                    <h3>Resultados de hoy</h3>
                     {!editando && (
                         <button className="secundario" onClick={abrirEdicion}>
                             {negocio ? 'Editar' : 'Cargar'}
@@ -162,8 +168,8 @@ export function Dashboard() {
                 )}
             </div>
 
-            <div className="metrica-sistema">
-                <h2>Actividad de asistentes (hoy)</h2>
+            <div className="metrica-sistema panel">
+                <div className="panel-cab"><h3>Actividad de los asistentes hoy</h3></div>
                 {error && <p className="error">Error: {error}</p>}
                 {sistema.length === 0 ? (
                     <p className="vacio">Sin actividad registrada.</p>
@@ -177,8 +183,8 @@ export function Dashboard() {
                                 <th>Aprob.</th>
                                 <th>Editadas</th>
                                 <th>Rechaz.</th>
-                                <th>Tokens</th>
-                                <th>USD</th>
+                                <th className="num">Tokens</th>
+                                <th className="num">USD</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -190,8 +196,8 @@ export function Dashboard() {
                                     <td>{m.acciones_aprobadas}</td>
                                     <td>{m.acciones_editadas}</td>
                                     <td>{m.acciones_rechazadas}</td>
-                                    <td>{m.tokens_totales}</td>
-                                    <td>{m.costo_usd_total.toFixed(4)}</td>
+                                    <td className="num">{m.tokens_totales.toLocaleString('es-AR')}</td>
+                                    <td className="num">{m.costo_usd_total.toFixed(4)}</td>
                                 </tr>
                             ))}
                         </tbody>

@@ -12,6 +12,10 @@ import {
 } from '../api/client.ts';
 
 type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
+const ETIQUETA_FILTRO: Record<EstadoFiltro, string> = {
+    todos: 'Todos', lead: 'Leads', cliente: 'Clientes', con_correos: 'Con correos',
+    detectado: 'Detectados', inactivo: 'Inactivos', descartado: 'Descartados',
+};
 
 export function Seguimientos() {
     const [empresas, setEmpresas] = useState<EmpresaSeguimiento[]>([]);
@@ -93,9 +97,9 @@ export function Seguimientos() {
         <section className="seguimientos">
             <div className="analitica-top">
                 <div>
-                    <h2>Seguimientos</h2>
+                    <h2>Clientes y seguimientos</h2>
                     <p className="sub">
-                        Empresas, contactos e historia detallada. Click en una empresa para ver el timeline y pedir un informe.
+                        Empresas, contactos e historia. Elegí una para ver su línea de tiempo y pedir un informe o un seguimiento.
                     </p>
                 </div>
             </div>
@@ -113,9 +117,9 @@ export function Seguimientos() {
                         />
                         <div className="chips">
                             {(['todos', 'lead', 'cliente', 'con_correos', 'detectado', 'inactivo', 'descartado'] as EstadoFiltro[]).map((f) => (
-                                <span key={f} className={filtro === f ? 'chip on' : 'chip'} onClick={() => setFiltro(f)}>
-                                    {f === 'con_correos' ? 'Con correos' : f}
-                                </span>
+                                <button key={f} type="button" className={filtro === f ? 'chip on' : 'chip'} aria-pressed={filtro === f} onClick={() => setFiltro(f)}>
+                                    {ETIQUETA_FILTRO[f]}
+                                </button>
                             ))}
                         </div>
                         <div className="cnt">{filtradas.length} de {empresas.length}</div>

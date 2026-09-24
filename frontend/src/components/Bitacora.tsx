@@ -32,7 +32,10 @@ export function Bitacora() {
     return (
         <section className="bitacora">
             <div className="acciones-header">
-                <h2>Bitácora (últimos 100)</h2>
+                <div>
+                    <h2>Bitácora</h2>
+                    <p className="sub">Los últimos 100 pasos de los asistentes: qué hicieron, cuánto tardaron y cuánto costaron.</p>
+                </div>
                 <div className="filtros">
                     <select value={filtro} onChange={(e) => setFiltro(e.target.value)}>
                         <option value="">Todos los asistentes</option>
@@ -51,14 +54,15 @@ export function Bitacora() {
             {error && <p className="error">Error: {error}</p>}
             {logs.length === 0 && !error && <p className="vacio">Sin registros.</p>}
 
+            <div className="panel panel-tabla">
             <table className="log-table">
                 <thead>
                     <tr>
                         <th>Hora</th>
                         <th>Asistente</th>
-                        <th>Tokens</th>
-                        <th>USD</th>
-                        <th>Tiempo</th>
+                        <th className="num">Tokens</th>
+                        <th className="num">USD</th>
+                        <th className="num">Tiempo</th>
                         <th></th>
                     </tr>
                 </thead>
@@ -71,10 +75,10 @@ export function Bitacora() {
                             >
                                 <td className="ts">{new Date(l.creado_en).toLocaleTimeString('es-AR')}</td>
                                 <td>{l.asistente_nombre ?? l.asistente_id.slice(0, 8)}</td>
-                                <td>{(l.tokens_in ?? 0) + (l.tokens_out ?? 0)}</td>
-                                <td>{(l.costo_usd ?? 0).toFixed(4)}</td>
-                                <td>{l.duracion_ms ?? '-'} ms</td>
-                                <td>{expandido === l.id ? '▲' : '▼'}</td>
+                                <td className="num">{((l.tokens_in ?? 0) + (l.tokens_out ?? 0)).toLocaleString('es-AR')}</td>
+                                <td className="num">{(l.costo_usd ?? 0).toFixed(4)}</td>
+                                <td className="num">{l.duracion_ms != null ? `${(l.duracion_ms / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 })} s` : '—'}</td>
+                                <td className="log-flecha" aria-hidden="true">{expandido === l.id ? '▾' : '▸'}</td>
                             </tr>
                             {expandido === l.id && (
                                 <tr className="log-detalle-row">
@@ -99,6 +103,7 @@ export function Bitacora() {
                     ))}
                 </tbody>
             </table>
+            </div>
         </section>
     );
 }

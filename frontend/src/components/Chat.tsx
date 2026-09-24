@@ -192,17 +192,23 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
     }
 
     return (
-        <section className="chat">
-            <div className="chat-cabeza">
+        <section className="chat-pagina">
+            <div className="acciones-header">
                 <div>
                     <h2>Chat</h2>
                     <p className="sub">Preguntá por el negocio o pedí algo: cotizar, buscar un cliente, ver pendientes, redactar un correo o prospectar.</p>
                 </div>
                 <button className="secundario" onClick={nuevaConversacion} disabled={cargando}>Nueva conversación</button>
             </div>
-            {(historial.length > 0 || cargando) && hilo(historial)}
-            {historial.length === 0 && !cargando && sugerencias}
-            {campo}
+            <div className="chat panel">
+                {(historial.length > 0 || cargando) ? hilo(historial) : (
+                    <div className="chat-inicio">
+                        <strong>¿En qué te ayudo?</strong>
+                        {sugerencias}
+                    </div>
+                )}
+                {campo}
+            </div>
         </section>
     );
 }

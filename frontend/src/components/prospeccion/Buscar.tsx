@@ -50,7 +50,7 @@ export function Buscar() {
     }
 
     return (
-        <>
+        <div className="panel">
             <div className="prosp-form">
                 <input
                     type="text"
@@ -129,7 +129,7 @@ export function Buscar() {
                     )}
                 </div>
             ))}
-        </>
+        </div>
     );
 }
 

@@ -63,7 +63,10 @@ export function Asistentes() {
     return (
         <section className="asistentes">
             <div className="acciones-header">
-                <h2>Asistentes</h2>
+                <div>
+                    <h2>Asistentes</h2>
+                    <p className="sub">Cómo trabaja cada asistente: modelo, instrucciones y cuánta autonomía tiene.</p>
+                </div>
                 <button className="secundario" onClick={cargar}>
                     Actualizar
                 </button>

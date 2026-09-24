@@ -6,6 +6,12 @@ import {
     obtenerInformeAnalitica,
 } from '../api/client.ts';
 
+// Acepta "2026-09-17" o un ISO completo y lo muestra como "17 sept".
+function fechaCorta(s: string): string {
+    const d = new Date(s.length === 10 ? `${s}T12:00:00-03:00` : s);
+    return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires', day: 'numeric', month: 'short' });
+}
+
 export function Analitica() {
     const [informes, setInformes] = useState<InformeAnalitica[]>([]);
     const [seleccionado, setSeleccionado] = useState<InformeAnalitica | null>(null);
@@ -75,7 +81,7 @@ export function Analitica() {
                                 className={`analitica-item ${seleccionado?.id === i.id ? 'on' : ''}`}
                                 onClick={() => abrir(i.id)}
                             >
-                                <div className="rango">{i.periodo_desde} → {i.periodo_hasta}</div>
+                                <div className="rango">{fechaCorta(i.periodo_desde)} → {fechaCorta(i.periodo_hasta)}</div>
                                 <div className="chips">
                                     <span className="chip-info">{i.propuestas.length} propuestas</span>
                                     <span className="chip-info">USD {Number(i.costo_usd).toFixed(4)}</span>
@@ -95,7 +101,7 @@ export function Analitica() {
                     {seleccionado && (
                         <>
                             <div className="detalle-head">
-                                <h3>Semana del {seleccionado.periodo_desde} al {seleccionado.periodo_hasta}</h3>
+                                <h3>Semana del {fechaCorta(seleccionado.periodo_desde)} al {fechaCorta(seleccionado.periodo_hasta)}</h3>
                                 <div className="meta">
                                     Costo del informe: USD {Number(seleccionado.costo_usd).toFixed(4)}
                                     {seleccionado.notion_page_id && (

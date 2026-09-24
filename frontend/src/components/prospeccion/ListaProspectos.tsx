@@ -58,17 +58,19 @@ export function ListaProspectos() {
     const filtrados = prospectos.filter((p) => (p.metadata?.puntaje_icp ?? 0) >= minIcp);
 
     return (
-        <>
+        <div className="panel">
             <div className="lista-toolbar">
                 <div className="chips">
                     {ESTADOS.map((e) => (
-                        <span
+                        <button
                             key={e.id}
+                            type="button"
                             className={filtro === e.id ? 'chip on' : 'chip'}
+                            aria-pressed={filtro === e.id}
                             onClick={() => setFiltro(e.id)}
                         >
                             {e.label}
-                        </span>
+                        </button>
                     ))}
                 </div>
                 <div className="icp-slider">
@@ -82,6 +84,9 @@ export function ListaProspectos() {
                     />
                 </div>
                 <button className="secundario" onClick={cargar}>Actualizar</button>
+                <details className="menu-mas">
+                    <summary>Más acciones</summary>
+                    <div className="menu-mas-lista">
                 <button
                     className="secundario"
                     disabled={ocupado === 'seguimientos'}
@@ -173,10 +178,12 @@ export function ListaProspectos() {
                 >
                     {ocupado === 'import' ? 'Importando (mirá el mensaje)…' : 'Importar histórico correos'}
                 </button>
+                    </div>
+                </details>
             </div>
 
             {error && <p className="error">{error}</p>}
-            {mensaje && <pre className="prosp-meta" style={{ background: 'rgba(16,163,127,0.12)', color: 'var(--ok)', whiteSpace: 'pre-wrap', margin: 0, fontFamily: 'inherit' }}>{mensaje}</pre>}
+            {mensaje && <pre className="msg-ok msg-largo">{mensaje}</pre>}
 
             {filtrados.length === 0 && !error && (
                 <p className="vacio">
@@ -242,7 +249,7 @@ export function ListaProspectos() {
                     </div>
                 );
             })}
-        </>
+        </div>
     );
 }
 
