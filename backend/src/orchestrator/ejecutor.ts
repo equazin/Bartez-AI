@@ -3,6 +3,7 @@
 // /acciones/:id/aprobar (cuando la aprueba un humano).
 
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
+import { enviarWhatsapp } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { actualizarProspectoEnNotion, crearNotaEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
 
@@ -21,6 +22,15 @@ export interface ResultadoEjecucion {
 
 export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecucion> {
     try {
+        if (a.accion === 'enviar_whatsapp') {
+            const p = a.payload;
+            const waId = String(p.waId ?? '');
+            const cuerpo = String(p.cuerpo ?? '').trim();
+            if (!waId || !cuerpo) return { ok: false, detalle: 'payload sin waId/cuerpo' };
+            const r = await enviarWhatsapp(waId, cuerpo, (p.clienteId as string | null | undefined) ?? null);
+            return r.ok ? { ok: true, resultado: { mensaje_id: r.id } } : { ok: false, detalle: r.detalle };
+        }
+
         if (a.accion === 'enviar_correo') {
             const p = a.payload;
             const para = String(p.para ?? '');

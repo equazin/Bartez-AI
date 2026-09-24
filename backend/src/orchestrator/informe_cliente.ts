@@ -3,6 +3,7 @@
 // último contacto) y devuelve diagnóstico + propuesta de próximos pasos.
 
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { mensajesWhatsappDeCliente } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 
@@ -93,6 +94,11 @@ export async function generarInformeCliente(
             asunto: h.asunto,
             categoria: h.categoria,
             cuerpo_recorte: (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 400),
+        })),
+        whatsapp: (await mensajesWhatsappDeCliente(clienteId, 30)).reverse().map((m) => ({
+            fecha: new Date(m.creado_en).toISOString().slice(0, 16).replace('T', ' '),
+            de: m.origen === 'cliente' ? 'cliente' : m.origen === 'bot' ? 'bot web' : 'bartez',
+            texto: (m.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 300),
         })),
         acciones: (acciones ?? []).map((a) => ({
             fecha: new Date(a.creado_en).toISOString().slice(0, 10),
@@ -333,9 +339,12 @@ export async function detalleEmpresa(clienteId: string) {
         .order('creado_en', { ascending: false })
         .limit(50);
 
+    const whatsapp = await mensajesWhatsappDeCliente(clienteId, 100);
+
     return {
         cliente,
         correos: historia,
+        whatsapp,
         acciones: acciones ?? [],
     };
 }

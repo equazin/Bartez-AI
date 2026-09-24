@@ -19,6 +19,11 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
+import {
+    crearClienteDesdeWa, detalleConversacionWa, listarConversacionesWa, proponerRespuestaWhatsapp,
+    sincronizarWhatsapp, vincularClienteWa,
+} from './orchestrator/whatsapp.js';
+import { studioConfigurado } from './connectors/studio.js';
 import { actualizarCotizacion, borrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
@@ -350,6 +355,50 @@ app.delete('/cotizaciones/:id', async (req, res) => {
     if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
     if (!(await borrarCotizacion(id))) return res.status(404).send({ error: 'cotización no encontrada' });
     return { ok: true };
+});
+
+// ---------- WhatsApp (vía la API de bartez.com.ar) ----------
+
+const esWaId = (v: string) => /^\d{8,15}$/.test(v);
+
+app.get('/whatsapp/estado', async () => ({ configurado: studioConfigurado() }));
+
+app.post('/whatsapp/sincronizar', async () => ({ resultado: await sincronizarWhatsapp() }));
+
+app.get('/whatsapp/conversaciones', async () => ({ conversaciones: await listarConversacionesWa() }));
+
+app.get('/whatsapp/conversaciones/:waId', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    if (!esWaId(waId)) return res.status(400).send({ error: 'número inválido' });
+    const d = await detalleConversacionWa(waId);
+    if (!d) return res.status(404).send({ error: 'conversación no encontrada' });
+    return d;
+});
+
+app.post('/whatsapp/conversaciones/:waId/proponer', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ contexto_extra: z.string().max(3000).optional() }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    const r = await proponerRespuestaWhatsapp(waId, parseo.data);
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    return r;
+});
+
+app.post('/whatsapp/conversaciones/:waId/vincular', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ cliente_id: z.string().uuid().nullable() }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    if (!(await vincularClienteWa(waId, parseo.data.cliente_id))) return res.status(404).send({ error: 'conversación no encontrada' });
+    return { ok: true };
+});
+
+app.post('/whatsapp/conversaciones/:waId/crear-cliente', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ nombre: z.string().max(200).optional() }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    const r = await crearClienteDesdeWa(waId, parseo.data.nombre);
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    return r;
 });
 
 app.post('/bartez/refresh-web', async () => {
@@ -1027,6 +1076,19 @@ async function main() {
         }
     }, { timezone: 'America/Argentina/Buenos_Aires' });
     app.log.info('[cron] sync de proveedores programado cada 4 h');
+
+    // Cada 2 minutos — traer conversaciones de WhatsApp del bot de la web y
+    // proponer respuestas en las escaladas. Sin STUDIO_API_TOKEN no hace nada.
+    if (studioConfigurado()) {
+        cron.schedule('*/2 * * * *', async () => {
+            const r = await sincronizarWhatsapp();
+            if (!r.ok && r.detalle !== 'Ya hay una sincronización en curso') app.log.warn({ r }, '[cron] sync WhatsApp falló');
+            else if (r.actualizadas > 0) app.log.info({ r }, '[cron] sync WhatsApp');
+        });
+        app.log.info('[cron] sync de WhatsApp programado cada 2 min');
+    } else {
+        app.log.info('[whatsapp] deshabilitado (falta STUDIO_API_TOKEN)');
+    }
 }
 
 main().catch((err) => {

@@ -529,6 +529,7 @@ export interface DetalleEmpresa {
         ultimo_contacto_en: string | null;
     };
     correos: CorreoHistorico[];
+    whatsapp?: MensajeWa[];
     acciones: Array<{
         id: string;
         accion: string;
@@ -766,7 +767,7 @@ export async function resolverAccion(
     id: string,
     resolucion: 'aprobar' | 'editar' | 'rechazar',
     body: { payload?: Record<string, unknown>; nota?: string } = {},
-): Promise<void> {
+): Promise<{ ejecucion?: { ok: boolean; detalle?: string } }> {
     const res = await apiFetch(`${BASE}/acciones/${id}/${resolucion}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -776,4 +777,75 @@ export async function resolverAccion(
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
     }
+    return res.json().catch(() => ({}));
+}
+
+// ---------- WhatsApp (vía la web de Bartez) ----------
+
+export interface ConversacionWa {
+    wa_id: string;
+    nombre: string | null;
+    estado: string | null;
+    categoria: string | null;
+    cliente_id: string | null;
+    cliente_nombre: string | null;
+    actualizado_en: string | null;
+    ultimo_mensaje: string | null;
+    ultimo_origen: string | null;
+    en_ventana: boolean;
+    ventana_hasta: string | null;
+    respuesta_pendiente: boolean;
+}
+
+export interface MensajeWa {
+    id: string;
+    direccion: string;
+    origen: 'cliente' | 'bot' | 'humano' | string;
+    cuerpo: string | null;
+    creado_en: string;
+}
+
+export interface ResultadoSyncWa {
+    ok: boolean;
+    conversaciones: number;
+    actualizadas: number;
+    borradores: number;
+    detalle?: string;
+}
+
+export async function estadoWhatsapp(): Promise<{ configurado: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/estado`));
+}
+
+export async function sincronizarWa(): Promise<{ resultado: ResultadoSyncWa }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/sincronizar`, { method: 'POST' }));
+}
+
+export async function listarConversacionesWa(): Promise<{ conversaciones: ConversacionWa[] }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones`));
+}
+
+export async function detalleConversacionWa(waId: string): Promise<{
+    conversacion: ConversacionWa & { ultimo_entrante_en: string | null; clientes?: { nombre: string; email: string | null } | null };
+    mensajes: MensajeWa[];
+}> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}`));
+}
+
+export async function proponerRespuestaWa(waId: string, contexto_extra?: string): Promise<{ ok: boolean; accion_id?: string }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/proponer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contexto_extra }),
+    }));
+}
+
+export async function vincularClienteWa(waId: string, cliente_id: string | null): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/vincular`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cliente_id }),
+    }));
+}
+
+export async function crearClienteDesdeWa(waId: string, nombre?: string): Promise<{ ok: boolean; cliente_id?: string }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/crear-cliente`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }),
+    }));
 }

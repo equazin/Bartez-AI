@@ -42,6 +42,7 @@ header {
 
 header h1 {
     margin: 0;
+    white-space: nowrap;
     font-size: 22px;
     letter-spacing: -0.01em;
 }
@@ -50,7 +51,7 @@ nav button {
     background: transparent;
     color: var(--sutil);
     border: none;
-    padding: 6px 14px;
+    padding: 6px 9px;
     cursor: pointer;
     font-size: 14px;
     border-radius: 6px;
@@ -1437,3 +1438,50 @@ nav button.salir { color: var(--peligro); }
 .cot-datos-grid input, .cot-datos-grid textarea { padding: 7px 9px; border: 1px solid var(--borde); border-radius: 5px; font: inherit; font-size: 13px; text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--texto); background: var(--panel); resize: vertical; }
 .cot-datos-cli .sub { margin: 8px 0 2px; font-size: 12px; color: var(--sutil); }
 @media (max-width: 640px) { .cot-datos-grid { grid-template-columns: 1fr; } }
+
+/* ---------- WhatsApp ---------- */
+.wa-layout { display: grid; grid-template-columns: 340px 1fr; gap: 16px; align-items: start; }
+.wa-lista { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 10px; max-height: 75vh; overflow-y: auto; }
+.wa-buscar { width: 100%; padding: 7px 9px; border: 1px solid var(--borde); border-radius: 6px; font-size: 13px; margin-bottom: 8px; background: var(--bg); color: var(--texto); }
+.wa-filtros { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.wa-filtros button { background: transparent; border: 1px solid var(--borde); color: var(--sutil); border-radius: 12px; padding: 3px 9px; font-size: 11px; cursor: pointer; }
+.wa-filtros button.activo { background: var(--acento-soft); color: var(--acento); border-color: var(--acento); }
+.wa-item { padding: 8px; border-radius: 6px; cursor: pointer; border-bottom: 1px solid var(--borde-soft); }
+.wa-item:hover { background: var(--hover); }
+.wa-item.activo { background: var(--acento-soft); }
+.wa-item-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.wa-item-top .mono { font-size: 11px; color: var(--sutil); white-space: nowrap; }
+.wa-item-txt { font-size: 12px; color: var(--sutil); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.wa-de { font-weight: 600; }
+.wa-item-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.wa-tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--alerta-soft); color: var(--alerta); }
+.wa-tag.propuesta { background: var(--acento-soft); color: var(--acento); font-weight: 600; }
+.wa-tag.ventana { background: rgba(16,163,127,0.12); color: var(--ok); }
+.wa-tag.gris { background: var(--borde-soft); color: var(--sutil); }
+.wa-chat { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 14px; min-height: 300px; }
+.wa-chat-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--borde-soft); padding-bottom: 10px; margin-bottom: 10px; }
+.wa-chat-head h3 { margin: 0 0 2px; font-size: 17px; }
+.wa-chat-head .sub { font-size: 12px; color: var(--sutil); }
+.wa-cliente { display: flex; gap: 6px; align-items: center; }
+.wa-cliente select { padding: 6px 8px; border: 1px solid var(--borde); border-radius: 6px; font-size: 12px; max-width: 240px; background: var(--panel); color: var(--texto); }
+.wa-cliente button.secundario { background: var(--panel); color: var(--acento); border: 1px solid var(--acento); padding: 6px 10px; border-radius: 4px; font-weight: 600; font-size: 12px; cursor: pointer; }
+.wa-hilo, .wa-mini-hilo { display: flex; flex-direction: column; gap: 6px; background: #efeae2; border-radius: 8px; padding: 12px; max-height: 50vh; overflow-y: auto; }
+.wa-mini-hilo { max-height: 260px; margin: 8px 0; }
+.wa-burbuja { max-width: 78%; padding: 6px 10px; border-radius: 8px; font-size: 13px; line-height: 1.4; white-space: pre-wrap; word-break: break-word; color: #111b21; box-shadow: 0 1px 1px rgba(0,0,0,0.08); }
+.wa-burbuja.entrante { align-self: flex-start; background: #fff; }
+.wa-burbuja.saliente { align-self: flex-end; background: #d9fdd3; }
+.wa-burbuja.saliente.bot { background: #e7f0fb; }
+.wa-burbuja.propuesta { max-width: 100%; align-self: stretch; border: 2px dashed var(--ok); }
+.wa-quien { display: block; font-size: 10px; font-weight: 600; color: #667781; margin-bottom: 2px; }
+.wa-propuesta-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); font-weight: 600; margin: 10px 0 4px; }
+.wa-proponer { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.wa-proponer textarea { padding: 8px 10px; border: 1px solid var(--borde); border-radius: 6px; font: inherit; font-size: 13px; resize: vertical; background: var(--panel); color: var(--texto); }
+.wa-proponer button.primario { align-self: flex-end; background: var(--acento); color: #fff; border: 0; padding: 9px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; }
+.wa-proponer button.primario:disabled { opacity: 0.5; cursor: default; }
+.wa-ventana { font-size: 12px; padding: 6px 10px; border-radius: 5px; }
+.wa-ventana.abierta { background: rgba(16,163,127,0.1); color: var(--ok); }
+.wa-ventana.cerrada { background: var(--alerta-soft); color: var(--alerta); }
+.wa-vencida { color: var(--peligro); font-weight: 600; }
+.timeline-wa { margin-bottom: 12px; }
+.timeline-wa summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+@media (max-width: 800px) { .wa-layout { grid-template-columns: 1fr; } .wa-lista { max-height: 40vh; } }

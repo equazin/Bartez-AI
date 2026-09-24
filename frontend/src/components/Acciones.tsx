@@ -59,6 +59,46 @@ function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
     );
 }
 
+const QUIEN_WA: Record<string, string> = { cliente: 'Cliente', bot: 'Bot web', humano: 'Bartez' };
+
+function VistaWhatsapp({ payload }: { payload: Record<string, unknown> }) {
+    const cuerpo = String(payload.cuerpo ?? '');
+    const contacto = (payload.nombreCliente as string | null) || (payload.nombreContacto as string | null) || String(payload.waId ?? '');
+    const conversacion = Array.isArray(payload.conversacion)
+        ? (payload.conversacion as Array<{ origen: string; cuerpo: string | null; fecha: string }>) : [];
+    const ultimo = payload.ultimoEntranteEn as string | null | undefined;
+    const vence = ultimo ? new Date(new Date(ultimo).getTime() + 24 * 3600_000) : null;
+    const vencida = vence ? vence.getTime() < Date.now() : false;
+    return (
+        <div className="correo-preview">
+            <div className="correo-cabecera">
+                <div className="fila"><span className="etiq">WhatsApp</span><span className="valor bold">{contacto}</span></div>
+                <div className="fila"><span className="etiq">Número</span><span className="valor mono">+{String(payload.waId ?? '')}</span></div>
+                {vence && (
+                    <div className="fila">
+                        <span className="etiq">Ventana 24 h</span>
+                        <span className={`valor ${vencida ? 'wa-vencida' : ''}`}>
+                            {vencida ? 'vencida: WhatsApp no deja mandar texto libre' : `hasta ${vence.toLocaleString('es-AR')}`}
+                        </span>
+                    </div>
+                )}
+            </div>
+            {conversacion.length > 0 && (
+                <div className="wa-mini-hilo">
+                    {conversacion.map((m, i) => (
+                        <div key={i} className={`wa-burbuja ${m.origen === 'cliente' ? 'entrante' : 'saliente'} ${m.origen}`}>
+                            <span className="wa-quien">{QUIEN_WA[m.origen] ?? m.origen}</span>
+                            {m.cuerpo || <em>(sin texto)</em>}
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="wa-propuesta-label">Respuesta propuesta</div>
+            <div className="wa-burbuja saliente propuesta">{cuerpo}</div>
+        </div>
+    );
+}
+
 type Editando = { id: string; payloadTexto: string } | null;
 
 export function Acciones() {
@@ -84,8 +124,11 @@ export function Acciones() {
     async function ejecutar(a: AccionPendiente, tipo: 'aprobar' | 'rechazar') {
         setCargando(true);
         try {
-            await resolverAccion(a.id, tipo);
-            await cargar();
+            const r = await resolverAccion(a.id, tipo);
+            await cargar(); // limpia el error: el aviso de envío fallido va después
+            if (tipo === 'aprobar' && r.ejecucion && !r.ejecucion.ok) {
+                setError(`Se aprobó pero no se pudo enviar: ${r.ejecucion.detalle ?? 'error desconocido'}`);
+            }
         } catch (e) {
             setError((e as Error).message);
         } finally {
@@ -97,10 +140,14 @@ export function Acciones() {
         if (!editando) return;
         setCargando(true);
         try {
-            const payload = JSON.parse(editando.payloadTexto);
-            await resolverAccion(a.id, 'editar', { payload });
+            // WhatsApp se edita como texto plano; el resto, como JSON.
+            const payload = a.accion === 'enviar_whatsapp'
+                ? { ...a.payload, cuerpo: editando.payloadTexto }
+                : JSON.parse(editando.payloadTexto);
+            const r = await resolverAccion(a.id, 'editar', { payload });
             setEditando(null);
             await cargar();
+            if (r.ejecucion && !r.ejecucion.ok) setError(`Se guardó pero no se pudo enviar: ${r.ejecucion.detalle ?? 'error desconocido'}`);
         } catch (e) {
             setError((e as Error).message);
         } finally {
@@ -138,7 +185,9 @@ export function Acciones() {
                         {!esEditar ? (
                             a.accion === 'enviar_correo'
                                 ? <VistaCorreo payload={a.payload} />
-                                : <pre className="payload">{JSON.stringify(a.payload, null, 2)}</pre>
+                                : a.accion === 'enviar_whatsapp'
+                                    ? <VistaWhatsapp payload={a.payload} />
+                                    : <pre className="payload">{JSON.stringify(a.payload, null, 2)}</pre>
                         ) : (
                             <textarea
                                 className="payload editable"
@@ -160,7 +209,9 @@ export function Acciones() {
                                         onClick={() =>
                                             setEditando({
                                                 id: a.id,
-                                                payloadTexto: JSON.stringify(a.payload, null, 2),
+                                                payloadTexto: a.accion === 'enviar_whatsapp'
+                                                    ? String(a.payload.cuerpo ?? '')
+                                                    : JSON.stringify(a.payload, null, 2),
                                             })
                                         }
                                         disabled={cargando}

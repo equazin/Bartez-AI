@@ -248,6 +248,7 @@ export function Seguimientos() {
                                 <div className="stat"><span className="k">Intentos de contacto</span><span className="v">{seleccionada.cliente.intentos_contacto ?? 0}</span></div>
                                 <div className="stat"><span className="k">Último contacto Bartez</span><span className="v">{seleccionada.cliente.ultimo_contacto_en ? haceCuanto(seleccionada.cliente.ultimo_contacto_en) : 'nunca'}</span></div>
                                 <div className="stat"><span className="k">Correos históricos</span><span className="v">{seleccionada.correos.length}</span></div>
+                                <div className="stat"><span className="k">Mensajes WhatsApp</span><span className="v">{seleccionada.whatsapp?.length ?? 0}</span></div>
                                 <div className="stat"><span className="k">Acciones (aprobadas + pend)</span><span className="v">{seleccionada.acciones.length}</span></div>
                             </div>
 
@@ -262,7 +263,22 @@ export function Seguimientos() {
                             )}
 
                             <h4 className="section-h">Timeline de conversaciones</h4>
-                            {seleccionada.correos.length === 0 && seleccionada.acciones.length === 0 && (
+                            {(seleccionada.whatsapp?.length ?? 0) > 0 && (
+                                <details className="timeline-wa" open>
+                                    <summary>WhatsApp · {seleccionada.whatsapp!.length} mensajes recientes</summary>
+                                    <div className="wa-mini-hilo">
+                                        {seleccionada.whatsapp!.slice().reverse().map((m) => (
+                                            <div key={m.id} className={`wa-burbuja ${m.origen === 'cliente' ? 'entrante' : 'saliente'} ${m.origen}`}>
+                                                <span className="wa-quien">
+                                                    {m.origen === 'cliente' ? 'Cliente' : m.origen === 'bot' ? 'Bot web' : 'Bartez'} · {formatearFecha(m.creado_en)}
+                                                </span>
+                                                {m.cuerpo || <em>(sin texto)</em>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </details>
+                            )}
+                            {seleccionada.correos.length === 0 && seleccionada.acciones.length === 0 && !(seleccionada.whatsapp?.length) && (
                                 <p className="vacio-mini">Todavía no hay conversaciones registradas con esta empresa.</p>
                             )}
                             {seleccionada.correos.map((c, i) => (

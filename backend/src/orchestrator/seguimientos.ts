@@ -10,6 +10,7 @@
 import { supabase } from '../connectors/supabase.js';
 import { catalogo } from './catalog.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
+import { mensajesWhatsappDeCliente } from './whatsapp.js';
 
 const DIAS_SILENCIO = 7;
 const MAX_INTENTOS = 4;
@@ -71,6 +72,15 @@ export async function generarSeguimientoIndividual(
           }).join('\n\n')
         : '';
 
+    const wa = await mensajesWhatsappDeCliente(clienteId, 15);
+    const bloqueWhatsapp = wa.length > 0
+        ? '\n\nConversación de WhatsApp reciente (cronológica):\n' +
+          wa.slice().reverse().map((m) => {
+              const quien = m.origen === 'cliente' ? 'CLIENTE →' : m.origen === 'bot' ? 'BOT WEB →' : 'BARTEZ →';
+              return `[${new Date(m.creado_en).toISOString().slice(0, 10)}] ${quien} ${(m.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 300)}`;
+          }).join('\n')
+        : '';
+
     const intentos = c.intentos_contacto ?? 0;
     const diasSilencio = c.ultimo_contacto_en
         ? Math.floor((Date.now() - new Date(c.ultimo_contacto_en).getTime()) / (24 * 3600_000))
@@ -93,6 +103,7 @@ export async function generarSeguimientoIndividual(
         intentos > 0 ? `Intentos previos desde Bartez: ${intentos}` : 'Sin contactos previos oficiales desde Bartez (pero puede haber correos históricos importados).',
         c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : null,
         bloqueHistoria,
+        bloqueWhatsapp,
         bloqueInforme,
         bloqueExtra,
         '',
