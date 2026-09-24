@@ -28,11 +28,15 @@ function guardarConv(id: string | null) {
     } catch { /* sin storage: seguimos en memoria */ }
 }
 
-export function Chat({ compacto = false, alAbrirChat }: { compacto?: boolean; alAbrirChat?: () => void }) {
+export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barra'; alAbrirChat?: () => void }) {
+    const barra = modo === 'barra';
     const [historial, setHistorial] = useState<Mensaje[]>([]);
     const [entrada, setEntrada] = useState('');
     const [cargando, setCargando] = useState(false);
     const [conversacionId, setConversacionId] = useState<string | null>(leerConv);
+    // En modo barra el panel con el hilo solo se despliega cuando se usa.
+    const [abierto, setAbierto] = useState(false);
+    const cajaRef = useRef<HTMLElement>(null);
     const finRef = useRef<HTMLDivElement>(null);
     const entradaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -53,11 +57,33 @@ export function Chat({ compacto = false, alAbrirChat }: { compacto?: boolean; al
     useEffect(() => {
         const caja = finRef.current?.parentElement;
         if (caja) caja.scrollTop = caja.scrollHeight;
-    }, [historial, cargando]);
+    }, [historial, cargando, abierto]);
+
+    // Barra: Ctrl/Cmd+K abre, Esc o un clic afuera la cierran.
+    useEffect(() => {
+        if (!barra) return;
+        const tecla = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                setAbierto(true);
+                entradaRef.current?.focus();
+            } else if (e.key === 'Escape' && abierto) {
+                setAbierto(false);
+                entradaRef.current?.blur();
+            }
+        };
+        const fuera = (e: MouseEvent) => {
+            if (abierto && cajaRef.current && !cajaRef.current.contains(e.target as Node)) setAbierto(false);
+        };
+        window.addEventListener('keydown', tecla);
+        document.addEventListener('mousedown', fuera);
+        return () => { window.removeEventListener('keydown', tecla); document.removeEventListener('mousedown', fuera); };
+    }, [barra, abierto]);
 
     async function enviar(textoForzado?: string) {
         const texto = (textoForzado ?? entrada).trim();
         if (!texto || cargando) return;
+        setAbierto(true);
         setHistorial((h) => [...h, { rol: 'usuario', texto }]);
         setEntrada('');
         setCargando(true);
@@ -85,84 +111,98 @@ export function Chat({ compacto = false, alAbrirChat }: { compacto?: boolean; al
         window.dispatchEvent(new Event(EVENTO_CHAT));
     }
 
-    // En el Inicio se muestran los últimos mensajes; el hilo completo, en Chat.
-    const visibles = compacto ? historial.slice(-6) : historial;
+    const sugerencias = (
+        <div className="sugerencias">
+            {SUGERENCIAS.map((s) => (
+                <button
+                    key={s}
+                    className="sugerencia"
+                    onClick={() => {
+                        if (s.endsWith('…?')) {
+                            setEntrada(s.replace('…?', ' '));
+                            entradaRef.current?.focus();
+                        } else {
+                            enviar(s);
+                        }
+                    }}
+                >
+                    {s}
+                </button>
+            ))}
+        </div>
+    );
+
+    const hilo = (visibles: Mensaje[]) => (
+        <div className="historial">
+            {visibles.map((m, i) => (
+                <div key={i} className={`mensaje ${m.rol}`}>
+                    {m.rol === 'sistema' ? (
+                        <div className="cuerpo-md"><ReactMarkdown>{m.texto}</ReactMarkdown></div>
+                    ) : (
+                        <p>{m.texto}</p>
+                    )}
+                </div>
+            ))}
+            {cargando && <div className="mensaje sistema pensando">Buscando en el sistema…</div>}
+            <div ref={finRef} />
+        </div>
+    );
+
+    const campo = (
+        <div className="entrada">
+            {barra && <kbd className="atajo" aria-hidden="true">Ctrl K</kbd>}
+            <textarea
+                ref={entradaRef}
+                rows={barra ? 1 : 3}
+                value={entrada}
+                onChange={(e) => setEntrada(e.target.value)}
+                onFocus={() => barra && setAbierto(true)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
+                }}
+                placeholder={barra ? 'Pedile algo a Bartez AI…' : 'Escribí tu pedido. Enter envía, Shift+Enter hace un salto de línea.'}
+                aria-label="Mensaje para Bartez AI"
+            />
+            <button className="btn-primario" onClick={() => enviar()} disabled={cargando || !entrada.trim()}>
+                {cargando ? '…' : 'Enviar'}
+            </button>
+        </div>
+    );
+
+    if (barra) {
+        return (
+            <section ref={cajaRef} className={`chat chat-barra ${abierto ? 'abierto' : ''}`} aria-label="Bartez AI">
+                {abierto && (
+                    <div className="barra-panel">
+                        <div className="barra-cab">
+                            <strong>Bartez AI</strong>
+                            <span className="tenue">{historial.length ? `${historial.length} mensajes` : 'Preguntá por el negocio o pedí algo'}</span>
+                            <span className="barra-cab-acciones">
+                                {historial.length > 0 && <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva</button>}
+                                {alAbrirChat && <button className="enlace" onClick={alAbrirChat}>Abrir en Chat</button>}
+                                <button className="barra-cerrar" onClick={() => setAbierto(false)} aria-label="Minimizar el chat">✕</button>
+                            </span>
+                        </div>
+                        {historial.length === 0 && !cargando ? sugerencias : hilo(historial)}
+                    </div>
+                )}
+                {campo}
+            </section>
+        );
+    }
 
     return (
-        <section className={compacto ? 'chat chat-compacto' : 'chat'}>
-            {!compacto && (
-                <div className="chat-cabeza">
-                    <div>
-                        <h2>Chat</h2>
-                        <p className="sub">Preguntá por el negocio o pedí algo: cotizar, buscar un cliente, ver pendientes, redactar un correo o prospectar.</p>
-                    </div>
-                    <button className="secundario" onClick={nuevaConversacion} disabled={cargando}>Nueva conversación</button>
+        <section className="chat">
+            <div className="chat-cabeza">
+                <div>
+                    <h2>Chat</h2>
+                    <p className="sub">Preguntá por el negocio o pedí algo: cotizar, buscar un cliente, ver pendientes, redactar un correo o prospectar.</p>
                 </div>
-            )}
-
-            {(visibles.length > 0 || cargando) && (
-                <div className="historial">
-                    {compacto && historial.length > visibles.length && (
-                        <button className="enlace chat-mas" onClick={alAbrirChat}>Ver los {historial.length - visibles.length} mensajes anteriores en Chat →</button>
-                    )}
-                    {visibles.map((m, i) => (
-                        <div key={i} className={`mensaje ${m.rol}`}>
-                            {m.rol === 'sistema' ? (
-                                <div className="cuerpo-md"><ReactMarkdown>{m.texto}</ReactMarkdown></div>
-                            ) : (
-                                <p>{m.texto}</p>
-                            )}
-                        </div>
-                    ))}
-                    {cargando && <div className="mensaje sistema pensando">Buscando en el sistema…</div>}
-                    <div ref={finRef} />
-                </div>
-            )}
-
-            {historial.length === 0 && !cargando && (
-                <div className="sugerencias">
-                    {SUGERENCIAS.map((s) => (
-                        <button
-                            key={s}
-                            className="sugerencia"
-                            onClick={() => {
-                                if (s.endsWith('…?')) {
-                                    setEntrada(s.replace('…?', ' '));
-                                    entradaRef.current?.focus();
-                                } else {
-                                    enviar(s);
-                                }
-                            }}
-                        >
-                            {s}
-                        </button>
-                    ))}
-                </div>
-            )}
-
-            <div className="entrada">
-                <textarea
-                    ref={entradaRef}
-                    rows={compacto ? 1 : 3}
-                    value={entrada}
-                    onChange={(e) => setEntrada(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
-                    }}
-                    placeholder={compacto ? 'Pedile algo a Bartez AI…' : 'Escribí tu pedido. Enter envía, Shift+Enter hace un salto de línea.'}
-                    aria-label="Mensaje para Bartez AI"
-                />
-                <button className="btn-primario" onClick={() => enviar()} disabled={cargando || !entrada.trim()}>
-                    {cargando ? '…' : 'Enviar'}
-                </button>
+                <button className="secundario" onClick={nuevaConversacion} disabled={cargando}>Nueva conversación</button>
             </div>
-
-            {compacto && historial.length > 0 && (
-                <div className="chat-pie">
-                    <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva conversación</button>
-                    {alAbrirChat && <button className="enlace" onClick={alAbrirChat}>Abrir en Chat →</button>}
-                </div>
-            )}
+            {(historial.length > 0 || cargando) && hilo(historial)}
+            {historial.length === 0 && !cargando && sugerencias}
+            {campo}
         </section>
     );
 }
