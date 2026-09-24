@@ -1765,3 +1765,5 @@ input, textarea, select { color: var(--texto); }
 .contenido button.primario { background: var(--acento); color: #fff; border: 0; border-radius: 6px; font-weight: 650; cursor: pointer; }
 .contenido button.primario:disabled { opacity: 0.55; cursor: default; }
 .contenido button.peligro { background: transparent; color: var(--peligro); border: 1px solid var(--peligro); border-radius: 6px; padding: 7px 12px; font-size: 13px; cursor: pointer; }
+
+.secundario-login { background: transparent; color: var(--sutil); border: 1px solid var(--borde); padding: 9px 14px; border-radius: 6px; font-size: 14px; cursor: pointer; }

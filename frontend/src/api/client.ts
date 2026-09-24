@@ -39,6 +39,12 @@ const BASE = resolverBackend();
 export const BACKEND_URL = BASE;
 export const BACKEND_ES_DEMO = BASE !== DEFAULT_BACKEND;
 
+// Olvida el túnel guardado y vuelve al backend normal (el de esta PC o el publicado).
+export function volverAlBackendNormal(): void {
+    try { localStorage.removeItem(CLAVE_BACKEND); } catch { /* sin storage */ }
+    window.location.reload();
+}
+
 // ---------- Login ----------
 // El token se guarda en el navegador; cada pedido lo manda en Authorization.
 // Si el backend responde 401, se borra y la app vuelve a pedir la contraseña.

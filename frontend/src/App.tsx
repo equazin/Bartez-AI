@@ -12,7 +12,7 @@ import { Cotizador } from './components/Cotizador.tsx';
 import { Login } from './components/Login.tsx';
 import { WhatsApp } from './components/WhatsApp.tsx';
 import { NotionPanel } from './components/NotionPanel.tsx';
-import { EVENTO_LOGOUT, estadoAuth, logout, resumenHoy } from './api/client.ts';
+import { BACKEND_ES_DEMO, BACKEND_URL, EVENTO_LOGOUT, estadoAuth, logout, resumenHoy, volverAlBackendNormal } from './api/client.ts';
 
 export type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
 
@@ -127,8 +127,20 @@ export function App() {
             <div className="login-wrap">
                 <div className="login">
                     <h1>Bartez AI</h1>
-                    <p className="error">No se pudo conectar con el backend ({errorConexion}). Revisá que esté prendido.</p>
-                    <button className="primario" onClick={verificar}>Reintentar</button>
+                    {BACKEND_ES_DEMO ? (
+                        <>
+                            <p className="error">
+                                No responde el túnel guardado ({new URL(BACKEND_URL).host}). Si era de una demo que ya cerraste, volvé al backend de esta PC.
+                            </p>
+                            <button className="primario" onClick={volverAlBackendNormal}>Usar el backend de esta PC</button>
+                            <button className="secundario-login" onClick={verificar}>Reintentar el túnel</button>
+                        </>
+                    ) : (
+                        <>
+                            <p className="error">No se pudo conectar con el backend ({errorConexion}). Revisá que esté prendido.</p>
+                            <button className="primario" onClick={verificar}>Reintentar</button>
+                        </>
+                    )}
                 </div>
             </div>
         );
