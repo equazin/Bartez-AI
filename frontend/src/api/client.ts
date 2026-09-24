@@ -874,3 +874,42 @@ export async function crearClienteDesdeWa(waId: string, nombre?: string): Promis
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre }),
     }));
 }
+
+// ---------- Resumen del día (Inicio y contadores del menú) ----------
+
+export interface ResumenHoy {
+    linea: {
+        entra: { total: number; correos: number; whatsapp: number };
+        propone: number;
+        tu_ok: number;
+        sale: { total: number; aprobadas: number; rechazadas: number };
+    };
+    costo_hoy_usd: number;
+    prioridades: { fecha: string; items: Array<{ texto: string; por_que?: string }> } | null;
+    foto: {
+        generado_en: string;
+        acciones_pendientes: Array<{ tipo: string; destino: string; resumen: string; creada: string; asistente: string | null }>;
+        whatsapp: {
+            derivadas: number;
+            sin_responder_en_ventana: Array<{ contacto: string; ultimo: string; hace_horas: number; vence: string }>;
+            sin_responder_vencidas: Array<{ contacto: string; ultimo: string; dias: number }>;
+        };
+        correos_3_dias: {
+            por_categoria: Record<string, number>;
+            relevantes: Array<{ de: string; asunto: string; categoria: string | null; fecha: string; respondido: boolean }>;
+        };
+        cotizaciones_14_dias: Array<{ numero: string | null; cliente: string; total_usd: number; fecha: string; renglones: number }>;
+        pipeline: {
+            por_estado: Record<string, number>;
+            leads_calientes: Array<{ nombre: string; icp: number | null; ultimo_contacto: string | null; intentos: number }>;
+            leads_sin_contacto_7d: number;
+        };
+        proveedores: Array<{ nombre: string; estado: string | null; articulos: number | null; ultima_sync: string | null }>;
+        tareas_notion: Array<{ id: string; titulo: string; cliente: string; estado: string | null; fecha_limite: string | null }>;
+    };
+    generado_en: string;
+}
+
+export async function resumenHoy(refrescar = false): Promise<ResumenHoy> {
+    return jsonOError(await apiFetch(`${BASE}/hoy${refrescar ? '?refrescar=1' : ''}`));
+}

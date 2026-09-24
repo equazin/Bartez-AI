@@ -119,7 +119,7 @@ export function Chat() {
                     }}
                     placeholder="Escribí lo que necesitás. Cmd/Ctrl+Enter para enviar."
                 />
-                <button onClick={enviar} disabled={cargando}>
+                <button className="btn-primario" onClick={enviar} disabled={cargando}>
                     Enviar
                 </button>
             </div>

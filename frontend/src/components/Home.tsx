@@ -1,83 +1,141 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-    AccionPendiente,
-    AsistenteEditable,
-    LogEntry,
-    Prospecto,
-    PuntoSerie,
-    listarAcciones,
-    listarAsistentes,
-    listarLogs,
-    listarProspectos,
-    metricasHoy,
-    resolverAccion,
-    serieMetricas,
-} from '../api/client.ts';
+import { useCallback, useEffect, useState } from 'react';
+import { AccionPendiente, ResumenHoy, listarAcciones, resolverAccion, resumenHoy } from '../api/client.ts';
 
-interface MetricaNegocio {
-    propuestas_enviadas: number;
-    ventas_cerradas: number;
-    prospectos_calificados: number;
-}
-interface MetricaSistema {
-    asistente_id: string;
-    nombre?: string;
-    tokens_totales: number;
-    costo_usd_total: number;
-    mensajes: number;
+type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard';
+
+const TZ = 'America/Argentina/Buenos_Aires';
+const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
+const diaCorto = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ, day: '2-digit', month: '2-digit' });
+
+function hace(iso: string): string {
+    const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+    if (min < 1) return 'recién';
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `hace ${h} h`;
+    const d = Math.floor(h / 24);
+    return `hace ${d} día${d > 1 ? 's' : ''}`;
 }
 
-type IrA = 'chat' | 'acciones' | 'asistentes' | 'dashboard' | 'bitacora' | 'prospeccion';
+function saludo(): string {
+    const h = Number(new Date().toLocaleString('en-US', { timeZone: TZ, hour: 'numeric', hour12: false }));
+    return h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
+}
+
+const CANAL: Record<string, string> = { enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp' };
+
+function resumenAccion(a: AccionPendiente): { destino: string; titulo: string; cuerpo: string } {
+    const p = a.payload ?? {};
+    if (a.accion === 'enviar_whatsapp') {
+        return {
+            destino: String(p.nombreCliente || p.nombreContacto || `+${p.waId ?? ''}`),
+            titulo: 'Respuesta de WhatsApp',
+            cuerpo: String(p.cuerpo ?? ''),
+        };
+    }
+    if (a.accion === 'enviar_correo') {
+        return {
+            destino: String(p.nombreCliente || p.para || ''),
+            titulo: String(p.asunto ?? '(sin asunto)'),
+            cuerpo: String(p.cuerpo ?? ''),
+        };
+    }
+    return { destino: a.asistente_nombre ?? '', titulo: a.accion, cuerpo: JSON.stringify(p).slice(0, 200) };
+}
+
+// ---------- La línea: el recorrido real de cada consulta ----------
+
+function Linea({ r, irA }: { r: ResumenHoy; irA: (t: IrA) => void }) {
+    const l = r.linea;
+    const estaciones = [
+        {
+            clave: 'entra',
+            etiqueta: 'Entra',
+            numero: l.entra.total,
+            detalle: `${l.entra.correos} correo${l.entra.correos === 1 ? '' : 's'} · ${l.entra.whatsapp} WhatsApp`,
+            ir: undefined as IrA | undefined,
+        },
+        {
+            clave: 'propone',
+            etiqueta: 'El asistente propone',
+            numero: l.propone,
+            detalle: 'respuestas redactadas hoy',
+            ir: undefined,
+        },
+        {
+            clave: 'tuok',
+            etiqueta: 'Tu OK',
+            numero: l.tu_ok,
+            detalle: l.tu_ok === 0 ? 'nada esperando' : l.tu_ok === 1 ? 'espera tu decisión' : 'esperan tu decisión',
+            ir: 'acciones' as IrA,
+        },
+        {
+            clave: 'sale',
+            etiqueta: 'Sale',
+            numero: l.sale.aprobadas,
+            detalle: `aprobadas hoy${l.sale.rechazadas ? ` · ${l.sale.rechazadas} rechazada${l.sale.rechazadas === 1 ? '' : 's'}` : ''}`,
+            ir: undefined,
+        },
+    ];
+    return (
+        <section className="linea" aria-label="Recorrido de hoy">
+            <div className="linea-riel" aria-hidden="true" />
+            {estaciones.map((e) => {
+                const espera = e.clave === 'tuok' && e.numero > 0;
+                const contenido = (
+                    <>
+                        <span className="est-punto" aria-hidden="true" />
+                        <span className="est-etiqueta">{e.etiqueta}</span>
+                        <span className="est-numero">{e.numero}</span>
+                        <span className="est-detalle">{e.detalle}</span>
+                        {e.ir && e.numero > 0 && <span className="est-ir">Revisar →</span>}
+                    </>
+                );
+                const clase = `estacion est-${e.clave} ${espera ? 'espera' : ''}`;
+                return e.ir
+                    ? <button key={e.clave} type="button" className={clase} onClick={() => irA(e.ir!)}>{contenido}</button>
+                    : <div key={e.clave} className={clase}>{contenido}</div>;
+            })}
+        </section>
+    );
+}
 
 export function Home({ irA }: { irA: (t: IrA) => void }) {
+    const [r, setR] = useState<ResumenHoy | null>(null);
     const [acciones, setAcciones] = useState<AccionPendiente[]>([]);
-    const [asistentes, setAsistentes] = useState<AsistenteEditable[]>([]);
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [negocio, setNegocio] = useState<MetricaNegocio | null>(null);
-    const [sistema, setSistema] = useState<MetricaSistema[]>([]);
-    const [serie, setSerie] = useState<PuntoSerie[]>([]);
-    const [leadsCalientes, setLeadsCalientes] = useState<Prospecto[]>([]);
     const [error, setError] = useState<string>();
+    const [cargando, setCargando] = useState(false);
     const [resolviendo, setResolviendo] = useState<string | null>(null);
 
-    const cargar = useCallback(async () => {
+    const cargar = useCallback(async (forzar = false) => {
+        setCargando(true);
         try {
-            setError(undefined);
-            const [ac, as, lg, m, sr, pr] = await Promise.all([
-                listarAcciones('pendiente'),
-                listarAsistentes(),
-                listarLogs({ limit: 40 }),
-                metricasHoy(),
-                serieMetricas(7),
-                listarProspectos('lead'),
-            ]);
+            const [res, ac] = await Promise.all([resumenHoy(forzar), listarAcciones('pendiente')]);
+            setR(res);
             setAcciones(ac.acciones);
-            setAsistentes(as.asistentes);
-            setLogs(lg.logs);
-            setNegocio(m.negocio as MetricaNegocio | null);
-            setSistema(m.sistema as MetricaSistema[]);
-            setSerie(sr.serie);
-            // Top 5 leads por ICP descendente
-            const top = [...pr.prospectos]
-                .sort((a, b) => (b.metadata?.puntaje_icp ?? 0) - (a.metadata?.puntaje_icp ?? 0))
-                .slice(0, 5);
-            setLeadsCalientes(top);
+            setError(undefined);
         } catch (e) {
             setError((e as Error).message);
+        } finally {
+            setCargando(false);
         }
     }, []);
 
     useEffect(() => {
         cargar();
-        const t = setInterval(cargar, 30_000);
+        const t = setInterval(() => cargar(), 60_000);
         return () => clearInterval(t);
     }, [cargar]);
 
     async function resolver(a: AccionPendiente, tipo: 'aprobar' | 'rechazar') {
         setResolviendo(a.id);
         try {
-            await resolverAccion(a.id, tipo);
-            await cargar();
+            const res = await resolverAccion(a.id, tipo);
+            await cargar(true);
+            if (tipo === 'aprobar' && res.ejecucion && !res.ejecucion.ok) {
+                setError(`Se aprobó pero no se pudo enviar: ${res.ejecucion.detalle ?? 'error desconocido'}`);
+            }
         } catch (e) {
             setError((e as Error).message);
         } finally {
@@ -85,463 +143,214 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
         }
     }
 
-    // --- Datos derivados ---
-    const costoHoy = sistema.reduce((s, m) => s + Number(m.costo_usd_total ?? 0), 0);
-    const tokensHoy = sistema.reduce((s, m) => s + (m.tokens_totales ?? 0), 0);
-
-    // Estado por asistente: busy si tuvo log en último minuto; on si activo sin log reciente; off si dormido
-    const ahora = Date.now();
-    const ultimoLog = useMemo(() => {
-        const m = new Map<string, number>();
-        for (const l of logs) {
-            const t = new Date(l.creado_en).getTime();
-            const prev = m.get(l.asistente_id) ?? 0;
-            if (t > prev) m.set(l.asistente_id, t);
-        }
-        return m;
-    }, [logs]);
-    const costoPorAsistente = useMemo(() => {
-        const m = new Map<string, number>();
-        for (const s of sistema) m.set(s.asistente_id, Number(s.costo_usd_total ?? 0));
-        return m;
-    }, [sistema]);
-
-    function estadoAsistente(a: AsistenteEditable): 'busy' | 'on' | 'off' {
-        if (!a.activo) return 'off';
-        const t = ultimoLog.get(a.id);
-        if (t && ahora - t < 60_000) return 'busy';
-        return 'on';
-    }
-
-    const asistentesOrdenados = useMemo(() => {
-        return [...asistentes].sort((a, b) => {
-            const ea = estadoAsistente(a);
-            const eb = estadoAsistente(b);
-            const rank = { busy: 0, on: 1, off: 2 } as const;
-            if (rank[ea] !== rank[eb]) return rank[ea] - rank[eb];
-            return a.nombre.localeCompare(b.nombre);
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [asistentes, ultimoLog]);
-
-    // En curso: logs de último minuto (heurística)
-    const enCurso = useMemo(() => {
-        return logs
-            .filter((l) => ahora - new Date(l.creado_en).getTime() < 60_000)
-            .slice(0, 5);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [logs]);
-
-    // Hecho hoy: logs de hoy, excluidos los "en curso"
-    const hoyStr = new Date().toISOString().slice(0, 10);
-    const hechoHoy = useMemo(() => {
-        return logs.filter(
-            (l) => l.creado_en.slice(0, 10) === hoyStr && ahora - new Date(l.creado_en).getTime() >= 60_000,
-        );
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [logs, hoyStr]);
-
-    // Alertas: acciones esperando > 4h, errores recientes, costo alto de un asistente
-    const alertas = useMemo(() => {
-        const out: { tipo: 'hi' | 'warn' | 'info'; titulo: string; fuente: string }[] = [];
-        const viejas = acciones.filter(
-            (a) => ahora - new Date(a.creado_en).getTime() > 4 * 3600_000,
-        );
-        if (viejas.length > 0) {
-            out.push({
-                tipo: 'warn',
-                titulo: `${viejas.length} acción${viejas.length > 1 ? 'es' : ''} esperando hace más de 4 h`,
-                fuente: 'Revisar en Acciones',
-            });
-        }
-        const errores = logs.filter((l) => l.error).slice(0, 1);
-        for (const e of errores) {
-            out.push({
-                tipo: 'warn',
-                titulo: `Error reciente: ${e.error?.slice(0, 80)}`,
-                fuente: `${e.asistente_nombre ?? 'Asistente'} · ${new Date(e.creado_en).toLocaleTimeString('es-AR')}`,
-            });
-        }
-        // Asistente más caro de hoy
-        const top = [...sistema].sort((a, b) => b.costo_usd_total - a.costo_usd_total)[0];
-        if (top && top.costo_usd_total > 0) {
-            out.push({
-                tipo: 'hi',
-                titulo: `${top.nombre ?? 'Asistente'} lleva USD ${top.costo_usd_total.toFixed(4)} hoy`,
-                fuente: `${top.mensajes} mensajes procesados`,
-            });
-        }
-        return out.slice(0, 3);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [acciones, logs, sistema]);
-
-    // Chart SVG dimensions
-    const maxTokens = Math.max(1, ...serie.map((s) => s.tokens));
-    const maxCosto = Math.max(0.0001, ...serie.map((s) => s.costo_usd));
-    const sparkFlat = serie.map((s) => s.tokens);
+    const fecha = new Date().toLocaleDateString('es-AR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' });
+    const f = r?.foto;
+    const waPendientes = f?.whatsapp.sin_responder_en_ventana ?? [];
+    const correosSinResp = (f?.correos_3_dias.relevantes ?? []).filter((c) => !c.respondido);
+    const hoyIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+    const tareas = (f?.tareas_notion ?? []).filter((t) => t.estado === 'pendiente');
+    const tareasUrgentes = tareas.filter((t) => t.fecha_limite && t.fecha_limite <= hoyIso);
+    const prioridades = r?.prioridades?.items ?? [];
+    const prioridadesDeHoy = r?.prioridades && new Date(r.prioridades.fecha).toLocaleDateString('en-CA', { timeZone: TZ }) === hoyIso;
 
     return (
-        <section className="ops">
-            <div className="ops-top">
-                <h2>Panel operativo</h2>
-                <div className="filtros-fecha">
-                    <span className="on">Hoy</span>
-                    <span>7 días</span>
-                    <span>30 días</span>
+        <div className="hoy">
+            <header className="hoy-cabecera">
+                <div>
+                    <div className="eyebrow">{fecha}</div>
+                    <h1>{saludo()}.</h1>
                 </div>
-            </div>
-
-            {error && <p className="error">Error: {error}</p>}
-
-            {/* KPIs */}
-            <div className="ops-kpis">
-                <KPI label="Propuestas enviadas" val={negocio?.propuestas_enviadas ?? 0} spark={sparkFlat} tone="ok" />
-                <KPI label="Ventas cerradas" val={negocio?.ventas_cerradas ?? 0} accent="ok" spark={sparkFlat} tone="ok" />
-                <KPI label="Prospectos calificados" val={negocio?.prospectos_calificados ?? 0} spark={sparkFlat} tone="ok" />
-                <KPI
-                    label="Costo IA · hoy"
-                    val={`$${costoHoy.toFixed(4)}`}
-                    sub={`${tokensHoy.toLocaleString('es-AR')} tokens`}
-                    spark={serie.map((s) => s.costo_usd)}
-                    tone="warn"
-                />
-            </div>
-
-            {/* Kanban */}
-            <div className="ops-kanban">
-                <div className="k-col alerta">
-                    <div className="k-head">
-                        <h3>Esperando tu ok</h3>
-                        <span className="cnt">{acciones.length}</span>
-                    </div>
-                    {acciones.length === 0 ? (
-                        <p className="vacio-mini">Nada pendiente.</p>
-                    ) : (
-                        acciones.slice(0, 3).map((a) => (
-                            <div key={a.id} className="k-card-a">
-                                <div className="tag">{a.asistente_nombre ?? 'asistente'} · {a.accion}</div>
-                                <div className="title">{tituloAccion(a)}</div>
-                                <div className="snip">{snippetAccion(a)}</div>
-                                <div className="meta">Hace {haceCuanto(a.creado_en)}</div>
-                                <div className="btns">
-                                    <button
-                                        className="ok"
-                                        disabled={resolviendo === a.id}
-                                        onClick={() => resolver(a, 'aprobar')}
-                                    >
-                                        Aprobar
-                                    </button>
-                                    <button className="ed" onClick={() => irA('acciones')}>
-                                        Editar
-                                    </button>
-                                    <button
-                                        className="no"
-                                        disabled={resolviendo === a.id}
-                                        onClick={() => resolver(a, 'rechazar')}
-                                    >
-                                        Rechazar
-                                    </button>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                    {acciones.length > 3 && (
-                        <button className="ver-todas" onClick={() => irA('acciones')}>
-                            Ver las {acciones.length} →
-                        </button>
-                    )}
-                </div>
-
-                <div className="k-col">
-                    <div className="k-head">
-                        <h3>En curso</h3>
-                        <span className="cnt">{enCurso.length}</span>
-                    </div>
-                    {enCurso.length === 0 ? (
-                        <p className="vacio-mini">Sin actividad ahora.</p>
-                    ) : (
-                        enCurso.map((l) => (
-                            <div key={l.id} className="k-card-b">
-                                <div className={`tag ${slugArea(l.asistente_nombre)}`}>{l.asistente_nombre ?? '—'}</div>
-                                <div className="title">{textoDeLog(l)}</div>
-                                <div className="meta">
-                                    {new Date(l.creado_en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-
-                <div className="k-col">
-                    <div className="k-head">
-                        <h3>Hecho hoy</h3>
-                        <span className="cnt">{hechoHoy.length}</span>
-                    </div>
-                    {hechoHoy.slice(0, 4).map((l) => (
-                        <div key={l.id} className="k-card-b done">
-                            <div className={`tag ${slugArea(l.asistente_nombre)}`}>{l.asistente_nombre ?? '—'}</div>
-                            <div className="title">{textoDeLog(l)}</div>
-                            <div className="meta">
-                                {new Date(l.creado_en).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
-                                {l.costo_usd ? ` · $${l.costo_usd.toFixed(4)}` : ''}
-                            </div>
-                        </div>
-                    ))}
-                    {hechoHoy.length > 4 && (
-                        <button className="ver-todas" onClick={() => irA('bitacora')}>
-                            + {hechoHoy.length - 4} más
-                        </button>
-                    )}
-                </div>
-
-                <div className="k-col m-col">
-                    <div className="k-head">
-                        <h3>Métricas · hoy</h3>
-                        <span className="cnt">live</span>
-                    </div>
-                    <div className="m-row"><span className="l">Ventas</span><span className="v ok">{negocio?.ventas_cerradas ?? 0}</span></div>
-                    <div className="m-row"><span className="l">Propuestas</span><span className="v">{negocio?.propuestas_enviadas ?? 0}</span></div>
-                    <div className="m-row"><span className="l">Prospectos</span><span className="v">{negocio?.prospectos_calificados ?? 0}</span></div>
-                    <div className="m-row"><span className="l">Tokens</span><span className="v small">{tokensHoy.toLocaleString('es-AR')}</span></div>
-                    <div className="m-row"><span className="l">Costo IA</span><span className="v small accent">${costoHoy.toFixed(4)}</span></div>
-                    <button className="ver-todas" onClick={() => irA('dashboard')} style={{ marginTop: 8 }}>
-                        Editar métricas →
+                <div className="hoy-actualizado">
+                    {r && <span className="mono">Actualizado {hora(r.generado_en)}</span>}
+                    <button className="boton-fantasma" onClick={() => cargar(true)} disabled={cargando}>
+                        {cargando ? 'Actualizando…' : 'Actualizar'}
                     </button>
                 </div>
-            </div>
+            </header>
 
-            {/* Leads calientes: top prospectos activos por ICP */}
-            {leadsCalientes.length > 0 && (
-                <div className="ops-panel leads-panel">
-                    <div className="ph">
-                        <h4>Leads calientes</h4>
-                        <span className="sub">
-                            top {leadsCalientes.length} por ICP · click para ir a la Base
-                        </span>
-                    </div>
-                    <div className="leads-list">
-                        {leadsCalientes.map((p) => {
-                            const icp = p.metadata?.puntaje_icp ?? 0;
-                            const senial = p.metadata?.senial;
-                            return (
-                                <div key={p.id} className="lead-row" onClick={() => irA('prospeccion')}>
-                                    <div className={`lead-icp icp-${icpClass(icp)}`}>{icp}</div>
-                                    <div className="lead-body">
-                                        <div className="lead-name">{p.nombre}</div>
-                                        {senial && <div className="lead-senial">{senial.slice(0, 100)}{senial.length > 100 ? '…' : ''}</div>}
-                                    </div>
-                                    <div className="lead-mail">{p.email ?? 'sin email'}</div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    <button className="ver-todas" onClick={() => irA('prospeccion')}>
-                        Ver Base completa →
-                    </button>
-                </div>
-            )}
+            {error && <p className="error">{error}</p>}
+            {!r && !error && <p className="sub">Cargando el día…</p>}
 
-            {/* Mid: asistentes + chart */}
-            <div className="ops-mid">
-                <div className="ops-panel">
-                    <div className="ph">
-                        <h4>Asistentes</h4>
-                        <span className="sub">
-                            {asistentes.filter((a) => a.activo).length} activos · {asistentes.filter((a) => !a.activo).length} dormidos
-                        </span>
-                    </div>
-                    <div className="a-grid">
-                        {asistentesOrdenados.map((a) => {
-                            const est = estadoAsistente(a);
-                            const c = costoPorAsistente.get(a.id) ?? 0;
-                            return (
-                                <div key={a.id} className={`a-item ${est}`} onClick={() => irA('asistentes')}>
-                                    <span className={`d ${est}`}></span>
-                                    <span className="name">
-                                        {a.nombre}
-                                        {a.activo && <span className="model">{a.modelo}</span>}
-                                    </span>
-                                    <span className="cost">{c > 0 ? `$${c.toFixed(3)}` : est === 'off' ? '—' : '$0.000'}</span>
-                                </div>
-                            );
-                        })}
-                    </div>
-                    <div className="a-legend">
-                        <span><i className="lg busy"></i>trabajando</span>
-                        <span><i className="lg on"></i>activo</span>
-                        <span><i className="lg off"></i>dormido</span>
-                    </div>
-                </div>
+            {r && f && (
+                <>
+                    <Linea r={r} irA={irA} />
 
-                <div className="ops-panel">
-                    <div className="ph">
-                        <h4>Actividad · últimos 7 días</h4>
-                        <span className="sub">Tokens · costo USD</span>
-                    </div>
-                    <ChartSerie serie={serie} maxTokens={maxTokens} maxCosto={maxCosto} />
-                    <div className="chart-leg">
-                        <span><i className="l-costo"></i>Costo USD</span>
-                        <span><i className="l-tokens"></i>Tokens</span>
-                    </div>
-                </div>
-            </div>
-
-            {/* Alertas */}
-            {alertas.length > 0 && (
-                <div className="ops-alerts">
-                    {alertas.map((a, i) => (
-                        <div key={i} className={`ops-alert ${a.tipo}`}>
-                            <div className="txt">
-                                <strong>{a.titulo}</strong>
-                                <div className="who">{a.fuente}</div>
+                    <div className="hoy-grilla">
+                        {/* ---- Esperando tu OK ---- */}
+                        <section className="bloque bloque-ok">
+                            <div className="bloque-cabeza">
+                                <h2>Esperando tu OK</h2>
+                                {acciones.length > 0 && <button className="enlace" onClick={() => irA('acciones')}>Ver {acciones.length > 4 ? `las ${acciones.length}` : 'todo'} →</button>}
                             </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </section>
-    );
-}
+                            {acciones.length === 0 && (
+                                <p className="vacio-guia">No hay respuestas esperando. Cuando un asistente redacte algo, aparece acá para aprobarlo en un clic.</p>
+                            )}
+                            {acciones.slice(0, 4).map((a) => {
+                                const x = resumenAccion(a);
+                                return (
+                                    <article key={a.id} className="tarjeta-ok">
+                                        <div className="tarjeta-ok-top">
+                                            <span className={`canal canal-${a.accion}`}>{CANAL[a.accion] ?? a.accion}</span>
+                                            <strong>{x.destino || '—'}</strong>
+                                            <span className="mono tenue">{hace(a.creado_en)}</span>
+                                        </div>
+                                        <div className="tarjeta-ok-titulo">{x.titulo}</div>
+                                        <p className="tarjeta-ok-cuerpo">{x.cuerpo.replace(/\n{2,}/g, '\n')}</p>
+                                        <div className="tarjeta-ok-botones">
+                                            <button className="btn-aprobar" disabled={resolviendo === a.id} onClick={() => resolver(a, 'aprobar')}>
+                                                {resolviendo === a.id ? 'Enviando…' : 'Aprobar y enviar'}
+                                            </button>
+                                            <button className="boton-fantasma" onClick={() => irA('acciones')}>Revisar o editar</button>
+                                            <button className="boton-fantasma peligro" disabled={resolviendo === a.id} onClick={() => resolver(a, 'rechazar')}>Rechazar</button>
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </section>
 
-function KPI({
-    label,
-    val,
-    sub,
-    accent,
-    spark,
-    tone = 'ok',
-}: {
-    label: string;
-    val: string | number;
-    sub?: string;
-    accent?: 'ok' | 'warn';
-    spark?: number[];
-    tone?: 'ok' | 'warn';
-}) {
-    return (
-        <div className="ops-kpi">
-            <div className="lbl">{label}</div>
-            <div className="row">
-                <div className={`val ${accent ?? ''}`}>{val}</div>
-                {spark && spark.length > 1 && <Spark data={spark} tone={tone} />}
-            </div>
-            {sub && <div className="sub">{sub}</div>}
+                        {/* ---- Columna derecha ---- */}
+                        <div className="hoy-columna">
+                            <section className="bloque">
+                                <div className="bloque-cabeza">
+                                    <h2>Prioridades</h2>
+                                    <button className="enlace" onClick={() => irA('notion')}>Notion →</button>
+                                </div>
+                                {prioridades.length === 0 ? (
+                                    <p className="vacio-guia">El asistente de Notion arma las prioridades a las 8:30, 13 y 18 h. Podés pedírselas ahora desde Notion.</p>
+                                ) : (
+                                    <>
+                                        {!prioridadesDeHoy && r.prioridades && <p className="nota-tenue">Del {diaCorto(r.prioridades.fecha)} · todavía no hay de hoy</p>}
+                                        <ol className="prioridades">
+                                            {prioridades.map((p, i) => (
+                                                <li key={i}>
+                                                    <span className="prio-texto">{p.texto}</span>
+                                                    {p.por_que && <span className="prio-porque">{p.por_que}</span>}
+                                                </li>
+                                            ))}
+                                        </ol>
+                                    </>
+                                )}
+                            </section>
+
+                            <section className="bloque">
+                                <div className="bloque-cabeza">
+                                    <h2>Sin responder</h2>
+                                </div>
+                                {waPendientes.length === 0 && correosSinResp.length === 0 && tareasUrgentes.length === 0 && (
+                                    <p className="vacio-guia">Nadie esperando respuesta. Buen momento para prospectar o hacer seguimientos.</p>
+                                )}
+                                <ul className="lista-seca">
+                                    {waPendientes.map((w, i) => (
+                                        <li key={`w${i}`}>
+                                            <button className="fila-link" onClick={() => irA('whatsapp')}>
+                                                <span className="canal canal-enviar_whatsapp">WhatsApp</span>
+                                                <span className="fila-principal"><strong>{w.contacto}</strong> <span className="tenue">“{w.ultimo}”</span></span>
+                                                <span className={`mono ${w.hace_horas >= 18 ? 'urgente' : 'tenue'}`}>vence {hora(w.vence)}</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                    {correosSinResp.slice(0, 5).map((c, i) => (
+                                        <li key={`c${i}`}>
+                                            <div className="fila-link">
+                                                <span className="canal canal-enviar_correo">Correo</span>
+                                                <span className="fila-principal"><strong>{c.de}</strong> <span className="tenue">{c.asunto}</span></span>
+                                                <span className="mono tenue">{hace(c.fecha)}</span>
+                                            </div>
+                                        </li>
+                                    ))}
+                                    {tareasUrgentes.slice(0, 4).map((t) => (
+                                        <li key={t.id}>
+                                            <button className="fila-link" onClick={() => irA('notion')}>
+                                                <span className="canal canal-tarea">Tarea</span>
+                                                <span className="fila-principal"><strong>{t.titulo}</strong>{t.cliente && <span className="tenue"> · {t.cliente}</span>}</span>
+                                                <span className={`mono ${t.fecha_limite! < hoyIso ? 'urgente' : 'tenue'}`}>{t.fecha_limite! < hoyIso ? `venció ${diaCorto(t.fecha_limite!)}` : 'hoy'}</span>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </section>
+                        </div>
+                    </div>
+
+                    <div className="hoy-trio">
+                        <section className="bloque">
+                            <div className="bloque-cabeza">
+                                <h2>Cotizaciones</h2>
+                                <button className="enlace" onClick={() => irA('cotizador')}>Cotizar →</button>
+                            </div>
+                            {f.cotizaciones_14_dias.length === 0 ? (
+                                <p className="vacio-guia">Sin cotizaciones en las últimas 2 semanas.</p>
+                            ) : (
+                                <ul className="lista-seca">
+                                    {f.cotizaciones_14_dias.slice(0, 5).map((c, i) => (
+                                        <li key={i} className="fila-dato">
+                                            <span className="fila-2l">
+                                                <strong>{c.cliente}</strong>
+                                                <span className="tenue mono">{c.numero ? `N ${c.numero}` : 'sin PDF'} · {diaCorto(c.fecha)} · {c.renglones} ítem{c.renglones === 1 ? '' : 's'}</span>
+                                            </span>
+                                            <span className="monto">{usd(c.total_usd)}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </section>
+
+                        <section className="bloque">
+                            <div className="bloque-cabeza">
+                                <h2>Leads calientes</h2>
+                                <button className="enlace" onClick={() => irA('prospeccion')}>Prospección →</button>
+                            </div>
+                            {f.pipeline.leads_calientes.length === 0 ? (
+                                <p className="vacio-guia">Todavía no hay leads. Buscá prospectos desde Prospección.</p>
+                            ) : (
+                                <ul className="lista-seca">
+                                    {f.pipeline.leads_calientes.slice(0, 5).map((l, i) => (
+                                        <li key={i} className="fila-dato">
+                                            <span className="fila-2l">
+                                                <strong>{l.nombre}</strong>
+                                                <span className="tenue">{l.ultimo_contacto ? `último contacto ${diaCorto(l.ultimo_contacto)}` : 'sin contactar'}{l.intentos ? ` · ${l.intentos} intento${l.intentos === 1 ? '' : 's'}` : ''}</span>
+                                            </span>
+                                            {l.icp != null && (
+                                                <span className="icp" title={`ICP ${l.icp}/10`}>
+                                                    <span className="icp-barra"><span style={{ width: `${l.icp * 10}%` }} /></span>
+                                                    <span className="mono">{l.icp}</span>
+                                                </span>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <p className="nota-tenue">
+                                {f.pipeline.por_estado.lead ?? 0} leads · {f.pipeline.por_estado.cliente ?? 0} clientes · {f.pipeline.leads_sin_contacto_7d} sin contacto hace más de 7 días
+                            </p>
+                        </section>
+
+                        <section className="bloque">
+                            <div className="bloque-cabeza">
+                                <h2>Sistema</h2>
+                                <button className="enlace" onClick={() => irA('bitacora')}>Bitácora →</button>
+                            </div>
+                            <ul className="lista-seca">
+                                <li className="fila-dato">
+                                    <span className="fila-principal">Costo de IA hoy</span>
+                                    <span className="monto">US$ {r.costo_hoy_usd.toFixed(2)}</span>
+                                </li>
+                                {f.proveedores.map((p) => (
+                                    <li key={p.nombre} className="fila-dato">
+                                        <span className="fila-principal">
+                                            <span className={`semaforo ${p.estado === 'ok' ? 'verde' : p.estado ? 'rojo' : 'gris'}`} aria-hidden="true" />
+                                            {p.nombre}
+                                        </span>
+                                        <span className="tenue mono">
+                                            {p.estado === 'ok' ? `${(p.articulos ?? 0).toLocaleString('es-AR')} art.` : p.estado ?? 'sin conectar'}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    </div>
+                </>
+            )}
         </div>
     );
-}
-
-function Spark({ data, tone }: { data: number[]; tone: 'ok' | 'warn' }) {
-    const max = Math.max(0.0001, ...data);
-    const w = 70;
-    const h = 24;
-    const step = w / Math.max(1, data.length - 1);
-    const pts = data.map((v, i) => `${i * step},${h - (v / max) * (h - 4) - 2}`).join(' ');
-    const color = tone === 'warn' ? 'var(--acento)' : 'var(--ok)';
-    return (
-        <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} className="spark">
-            <polyline fill="none" stroke={color} strokeWidth="1.5" points={pts} />
-        </svg>
-    );
-}
-
-function ChartSerie({ serie, maxTokens, maxCosto }: { serie: PuntoSerie[]; maxTokens: number; maxCosto: number }) {
-    const w = 600;
-    const h = 180;
-    const step = w / Math.max(1, serie.length - 1);
-    if (serie.length === 0) {
-        // Placeholder: grid vacía para que el panel no colapse
-        return (
-            <svg viewBox={`0 0 ${w} ${h + 20}`} preserveAspectRatio="none" className="ops-chart">
-                {[0.25, 0.5, 0.75].map((f) => (
-                    <line key={f} x1="0" y1={h * f} x2={w} y2={h * f} stroke="var(--borde)" />
-                ))}
-                <text x={w / 2} y={h / 2 + 5} fontSize="12" fill="var(--sutil)" textAnchor="middle" fontStyle="italic">
-                    Sin datos de los últimos 7 días
-                </text>
-            </svg>
-        );
-    }
-    const pTokens = serie.map((s, i) => `${i * step},${h - (s.tokens / maxTokens) * (h - 20)}`).join(' ');
-    const pCosto = serie.map((s, i) => `${i * step},${h - (s.costo_usd / maxCosto) * (h - 20)}`).join(' ');
-    const areaCosto = `M0,${h} L${pCosto.split(' ').join(' L')} L${w},${h} Z`;
-    const last = serie[serie.length - 1]!;
-    return (
-        <svg viewBox={`0 0 ${w} ${h + 20}`} preserveAspectRatio="none" className="ops-chart">
-            <defs>
-                <linearGradient id="ops-grad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f0ad4e" stopOpacity="0.2" />
-                    <stop offset="100%" stopColor="#f0ad4e" stopOpacity="0" />
-                </linearGradient>
-            </defs>
-            {[0.25, 0.5, 0.75].map((f) => (
-                <line key={f} x1="0" y1={h * f} x2={w} y2={h * f} stroke="var(--borde)" />
-            ))}
-            <path d={areaCosto} fill="url(#ops-grad)" />
-            <polyline fill="none" stroke="var(--acento)" strokeWidth="2" points={pCosto} />
-            <polyline fill="none" stroke="var(--ok)" strokeWidth="2" strokeDasharray="3,3" points={pTokens} />
-            {serie.map((s, i) => (
-                <text
-                    key={s.fecha}
-                    x={i === serie.length - 1 ? i * step - 20 : i * step}
-                    y={h + 15}
-                    fontSize="10"
-                    fill="var(--sutil)"
-                    fontFamily="monospace"
-                >
-                    {s.fecha.slice(8, 10)}/{s.fecha.slice(5, 7)}
-                </text>
-            ))}
-            {last.costo_usd > 0 && (
-                <circle cx={(serie.length - 1) * step} cy={h - (last.costo_usd / maxCosto) * (h - 20)} r="4" fill="var(--acento)" />
-            )}
-        </svg>
-    );
-}
-
-// --- Helpers ---
-function tituloAccion(a: AccionPendiente): string {
-    const p = a.payload as Record<string, unknown>;
-    if (typeof p.asunto === 'string') return p.asunto;
-    if (typeof p.para === 'string') return `→ ${p.para}`;
-    return a.accion;
-}
-function snippetAccion(a: AccionPendiente): string {
-    const p = a.payload as Record<string, unknown>;
-    if (typeof p.cuerpo === 'string') return p.cuerpo.slice(0, 100) + (p.cuerpo.length > 100 ? '…' : '');
-    return '';
-}
-function haceCuanto(iso: string): string {
-    const ms = Date.now() - new Date(iso).getTime();
-    const min = Math.floor(ms / 60000);
-    if (min < 1) return 'un momento';
-    if (min < 60) return `${min} min`;
-    const h = Math.floor(min / 60);
-    if (h < 24) return `${h} h`;
-    return `${Math.floor(h / 24)} días`;
-}
-function icpClass(n: number): 'alta' | 'media' | 'baja' {
-    if (n >= 8) return 'alta';
-    if (n >= 5) return 'media';
-    return 'baja';
-}
-function slugArea(nombre: string | null): string {
-    if (!nombre) return '';
-    return nombre.toLowerCase().replace(/[^a-z]/g, '').slice(0, 8);
-}
-function limpiarTexto(t: string): string {
-    // Extrae el contenido de <respuesta>...</respuesta> si aparece; si no, deja el texto tal cual.
-    const m = /<respuesta>([\s\S]*?)<\/respuesta>/i.exec(t);
-    const s = m?.[1] ?? t;
-    return s.replace(/<[^>]+>/g, '').trim();
-}
-function textoDeLog(l: LogEntry): string {
-    if (l.error) return `Error: ${l.error.slice(0, 60)}`;
-    const s = (l.salida as { respuesta?: string; accion?: { tipo?: string } } | null)?.respuesta;
-    if (typeof s === 'string' && s.length > 0) {
-        const c = limpiarTexto(s);
-        return c.slice(0, 90) + (c.length > 90 ? '…' : '');
-    }
-    const e = (l.entrada as { texto?: string } | null)?.texto;
-    if (typeof e === 'string') return e.slice(0, 90);
-    return `${(l.tokens_in ?? 0) + (l.tokens_out ?? 0)} tokens procesados`;
 }

@@ -17,6 +17,7 @@ import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
+import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -768,6 +769,7 @@ const ResolucionSchema = z.object({
 });
 
 app.post('/acciones/:id/aprobar', async (req, res) => {
+    invalidarResumenHoy();
     const { id } = req.params as { id: string };
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
@@ -797,6 +799,7 @@ app.post('/acciones/:id/aprobar', async (req, res) => {
 });
 
 app.post('/acciones/:id/editar', async (req, res) => {
+    invalidarResumenHoy();
     const { id } = req.params as { id: string };
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
     if (!parseo.success || !parseo.data.payload) {
@@ -854,6 +857,7 @@ app.post('/acciones/:id/reintentar', async (req, res) => {
 });
 
 app.post('/acciones/:id/rechazar', async (req, res) => {
+    invalidarResumenHoy();
     const { id } = req.params as { id: string };
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
@@ -895,6 +899,11 @@ app.post('/metricas/negocio/hoy', async (req, res) => {
         .single();
     if (error) return res.status(500).send({ error: error.message });
     return { negocio: data };
+});
+
+app.get('/hoy', async (req) => {
+    const q = req.query as { refrescar?: string };
+    return resumenHoy(q.refrescar === '1');
 });
 
 app.get('/metricas/hoy', async () => {

@@ -158,8 +158,11 @@ export function Acciones() {
     return (
         <section className="acciones">
             <div className="acciones-header">
-                <h2>Acciones pendientes de aprobación</h2>
-                <button className="secundario" onClick={cargar} disabled={cargando}>
+                <div>
+                    <h2>Para aprobar</h2>
+                    <p className="sub">Lo que redactaron los asistentes. Nada sale sin tu OK: aprobalo tal cual, editalo o rechazalo.</p>
+                </div>
+                <button className="boton-fantasma" onClick={cargar} disabled={cargando}>
                     Actualizar
                 </button>
             </div>
@@ -177,7 +180,7 @@ export function Acciones() {
                         <div className="accion-head">
                             <div>
                                 <span className="tag">{a.asistente_nombre ?? 'asistente'}</span>
-                                <span className="tag tipo">{a.accion}</span>
+                                <span className={`canal canal-${a.accion}`}>{({ enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp' } as Record<string, string>)[a.accion] ?? a.accion}</span>
                             </div>
                             <span className="ts">{new Date(a.creado_en).toLocaleString('es-AR')}</span>
                         </div>
@@ -201,8 +204,8 @@ export function Acciones() {
                         <div className="accion-acciones">
                             {!esEditar ? (
                                 <>
-                                    <button onClick={() => ejecutar(a, 'aprobar')} disabled={cargando}>
-                                        Aprobar
+                                    <button className="btn-aprobar" onClick={() => ejecutar(a, 'aprobar')} disabled={cargando}>
+                                        Aprobar y enviar
                                     </button>
                                     <button
                                         className="secundario"
@@ -228,8 +231,8 @@ export function Acciones() {
                                 </>
                             ) : (
                                 <>
-                                    <button onClick={() => guardarEdicion(a)} disabled={cargando}>
-                                        Guardar y aprobar
+                                    <button className="btn-aprobar" onClick={() => guardarEdicion(a)} disabled={cargando}>
+                                        Guardar y enviar
                                     </button>
                                     <button className="secundario" onClick={() => setEditando(null)}>
                                         Cancelar

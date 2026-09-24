@@ -151,7 +151,7 @@ export function Dashboard() {
                             />
                         </label>
                         <div className="accion-acciones">
-                            <button onClick={guardar} disabled={guardando}>
+                            <button className="btn-primario" onClick={guardar} disabled={guardando}>
                                 {guardando ? 'Guardando…' : 'Guardar'}
                             </button>
                             <button className="secundario" onClick={() => setEditando(false)}>

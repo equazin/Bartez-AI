@@ -59,7 +59,7 @@ export function Buscar() {
                     onChange={(e) => setFoco(e.target.value)}
                     disabled={cargando}
                 />
-                <button onClick={() => buscar('focal')} disabled={cargando}>
+                <button className="btn-primario" onClick={() => buscar('focal')} disabled={cargando}>
                     {cargando ? 'Buscando…' : 'Buscar prospectos'}
                 </button>
                 <button
