@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { login } from '../api/client.ts';
+import { BACKEND_ES_DEMO, BACKEND_URL, login } from '../api/client.ts';
 
 export function Login({ onOk }: { onOk: () => void }) {
     const [password, setPassword] = useState('');
@@ -26,6 +26,7 @@ export function Login({ onOk }: { onOk: () => void }) {
             <form className="login" onSubmit={entrar}>
                 <h1>Bartez AI</h1>
                 <p className="sub">Ingresá la contraseña del panel.</p>
+                {BACKEND_ES_DEMO && <p className="sub">Conectando a <code>{new URL(BACKEND_URL).host}</code></p>}
                 <input
                     type="password"
                     autoFocus

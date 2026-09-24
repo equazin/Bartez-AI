@@ -1,7 +1,43 @@
 // Cliente HTTP mínimo al backend de Bartez AI.
 // La URL del backend se toma de VITE_BACKEND_URL en build; por defecto localhost.
 
-const BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+// Backend temporal para demos: ?backend=https://xxxx.trycloudflare.com en el link
+// lo guarda en este navegador; ?backend=local vuelve al default. Solo se aceptan
+// túneles de Cloudflare o localhost, para que un link ajeno no pueda mandar la
+// contraseña del panel a otro servidor.
+const CLAVE_BACKEND = 'bartez_backend';
+const DEFAULT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
+
+function backendPermitido(u: string): boolean {
+    try {
+        const url = new URL(u);
+        return (url.protocol === 'https:' && url.hostname.endsWith('.trycloudflare.com'))
+            || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname));
+    } catch {
+        return false;
+    }
+}
+
+function resolverBackend(): string {
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const pedido = params.get('backend');
+        if (pedido === 'local') localStorage.removeItem(CLAVE_BACKEND);
+        else if (pedido && backendPermitido(pedido)) localStorage.setItem(CLAVE_BACKEND, pedido.replace(/\/+$/, ''));
+        if (pedido) {
+            params.delete('backend');
+            const qs = params.toString();
+            window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash);
+        }
+        const guardado = localStorage.getItem(CLAVE_BACKEND);
+        if (guardado && backendPermitido(guardado)) return guardado;
+    } catch { /* sin storage: default */ }
+    return DEFAULT_BACKEND;
+}
+
+const BASE = resolverBackend();
+export const BACKEND_URL = BASE;
+export const BACKEND_ES_DEMO = BASE !== DEFAULT_BACKEND;
 
 // ---------- Login ----------
 // El token se guarda en el navegador; cada pedido lo manda en Authorization.
