@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react';
 import {
     Cotizacion,
+    CotizacionResumen,
     Proveedor,
     actualizarProveedor,
+    borrarCotizacion,
     crearCotizacion,
+    listarCotizaciones,
+    obtenerCotizacion,
+    renombrarCotizacion,
     importarCsvProveedor,
     listarProveedores,
     sincronizarProveedor,
@@ -11,6 +16,14 @@ import {
 
 const usd = (n: number) => `USD ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ars = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+const fecha = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+// La cotización abierta se recuerda en este navegador para reabrirla al volver a la pestaña.
+const CLAVE_ABIERTA = 'bartez_cotizacion_abierta';
+const recordarAbierta = (id: string | null) => {
+    try { if (id) localStorage.setItem(CLAVE_ABIERTA, id); else localStorage.removeItem(CLAVE_ABIERTA); } catch { /* sin storage */ }
+};
+const leerAbierta = () => { try { return localStorage.getItem(CLAVE_ABIERTA); } catch { return null; } };
 
 export function Cotizador() {
     const [pedido, setPedido] = useState('');
@@ -22,6 +35,50 @@ export function Cotizador() {
     const [ocupado, setOcupado] = useState<string | null>(null);
     const [msgProv, setMsgProv] = useState<string | null>(null);
 
+    const [historial, setHistorial] = useState<CotizacionResumen[]>([]);
+    const [titulo, setTitulo] = useState('');
+
+    async function cargarHistorial() {
+        try { setHistorial((await listarCotizaciones()).cotizaciones); } catch { /* el error principal ya se muestra arriba */ }
+    }
+
+    function mostrar(c: Cotizacion | null) {
+        setCot(c);
+        setTitulo(c?.titulo ?? '');
+        recordarAbierta(c?.id ?? null);
+    }
+
+    async function abrir(id: string) {
+        setError(undefined);
+        try { mostrar((await obtenerCotizacion(id)).cotizacion); } catch (e) {
+            if (id === leerAbierta()) recordarAbierta(null);
+            setError((e as Error).message);
+        }
+    }
+
+    async function guardarTitulo() {
+        if (!cot?.id || (cot.titulo ?? '') === titulo.trim()) return;
+        try {
+            await renombrarCotizacion(cot.id, titulo.trim() || null);
+            setCot({ ...cot, titulo: titulo.trim() || null });
+            await cargarHistorial();
+        } catch (e) { setError((e as Error).message); }
+    }
+
+    async function borrar(id: string) {
+        if (!window.confirm('¿Borrar esta cotización? No se puede deshacer.')) return;
+        try {
+            await borrarCotizacion(id);
+            if (cot?.id === id) mostrar(null);
+            await cargarHistorial();
+        } catch (e) { setError((e as Error).message); }
+    }
+
+    function nueva() {
+        mostrar(null);
+        setPedido('');
+    }
+
     async function cargarProvs() {
         try {
             const r = await listarProveedores();
@@ -29,7 +86,12 @@ export function Cotizador() {
             setTc(r.tipo_cambio);
         } catch (e) { setError((e as Error).message); }
     }
-    useEffect(() => { cargarProvs(); }, []);
+    useEffect(() => {
+        cargarProvs();
+        cargarHistorial();
+        const abierta = leerAbierta();
+        if (abierta) abrir(abierta);
+    }, []);
 
     async function cotizar() {
         if (!pedido.trim()) return;
@@ -38,7 +100,8 @@ export function Cotizador() {
         setCot(null);
         try {
             const { cotizacion } = await crearCotizacion(pedido.trim());
-            setCot(cotizacion);
+            mostrar(cotizacion);
+            await cargarHistorial();
         } catch (e) { setError((e as Error).message); }
         finally { setCotizando(false); }
     }
@@ -124,6 +187,21 @@ export function Cotizador() {
 
             {cot && (
                 <div className="cot-resultado">
+                    <div className="cot-cabecera">
+                        <input
+                            className="cot-titulo"
+                            value={titulo}
+                            onChange={(e) => setTitulo(e.target.value)}
+                            onBlur={guardarTitulo}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                            placeholder="Nombre de la cotización (ej. cliente)"
+                            disabled={!cot.id}
+                        />
+                        {cot.creado_en && <span className="mono">{fecha(cot.creado_en)}</span>}
+                        <button className="secundario" onClick={nueva}>Nueva</button>
+                        {cot.id && <button className="secundario peligro" onClick={() => borrar(cot.id!)}>Borrar</button>}
+                    </div>
+                    <div className="cot-pedido-original"><strong>Pedido:</strong> {cot.pedido}</div>
                     {cot.comentario && <div className="det-signal"><strong>Notas del asistente:</strong> {cot.comentario}</div>}
                     <table className="cot-tabla">
                         <thead>
@@ -173,6 +251,34 @@ export function Cotizador() {
                         <span className="mono">{cot.busquedas} búsquedas · USD {cot.costo_ia_usd.toFixed(4)} IA · {Math.round(cot.duracion_ms / 1000)}s</span>
                         <button className="secundario" onClick={copiarTexto}>Copiar como texto</button>
                     </div>
+                </div>
+            )}
+
+            <h4 className="section-h">Cotizaciones guardadas</h4>
+            {historial.length === 0 ? (
+                <p className="sub">Todavía no hay cotizaciones guardadas.</p>
+            ) : (
+                <div className="cot-historial">
+                    {historial.map((h) => (
+                        <div
+                            key={h.id}
+                            className={`cot-hist-fila ${cot?.id === h.id ? 'activa' : ''}`}
+                            onClick={() => abrir(h.id)}
+                        >
+                            <span className="mono">{fecha(h.creado_en)}</span>
+                            <span className="cot-hist-txt">
+                                {h.titulo && <strong>{h.titulo} · </strong>}
+                                {h.pedido}
+                            </span>
+                            <span className="mono">{h.renglones} renglón{h.renglones === 1 ? '' : 'es'}</span>
+                            <span className="num">{usd(h.total_usd)}</span>
+                            <button
+                                className="cot-hist-borrar"
+                                title="Borrar"
+                                onClick={(e) => { e.stopPropagation(); borrar(h.id); }}
+                            >×</button>
+                        </div>
+                    ))}
                 </div>
             )}
 

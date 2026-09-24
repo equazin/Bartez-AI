@@ -19,7 +19,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
-import { cotizar } from './orchestrator/cotizador.js';
+import { borrarCotizacion, cotizar, listarCotizaciones, obtenerCotizacion, renombrarCotizacion } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
@@ -303,13 +303,30 @@ app.post('/cotizaciones', async (req, res) => {
     return { cotizacion: r };
 });
 
-app.get('/cotizaciones', async () => {
-    const { data } = await supabase
-        .from('cotizaciones')
-        .select('id, pedido, total_usd, total_ars, tipo_cambio, creado_en')
-        .order('creado_en', { ascending: false })
-        .limit(30);
-    return { cotizaciones: data ?? [] };
+app.get('/cotizaciones', async () => ({ cotizaciones: await listarCotizaciones() }));
+
+app.get('/cotizaciones/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
+    const cot = await obtenerCotizacion(id);
+    if (!cot) return res.status(404).send({ error: 'cotización no encontrada' });
+    return { cotizacion: cot };
+});
+
+app.patch('/cotizaciones/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = z.object({ titulo: z.string().max(200).nullable() }).safeParse(req.body ?? {});
+    if (!z.string().uuid().safeParse(id).success || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    const titulo = parseo.data.titulo?.trim() || null;
+    if (!(await renombrarCotizacion(id, titulo))) return res.status(404).send({ error: 'cotización no encontrada' });
+    return { ok: true };
+});
+
+app.delete('/cotizaciones/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
+    if (!(await borrarCotizacion(id))) return res.status(404).send({ error: 'cotización no encontrada' });
+    return { ok: true };
 });
 
 app.post('/bartez/refresh-web', async () => {

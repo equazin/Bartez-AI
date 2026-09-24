@@ -283,8 +283,96 @@ export async function cotizar(pedido: string, opts: { cliente_id?: string } = {}
         total_ars: resultado.total_ars,
         tipo_cambio: tc.valor,
         costo_ia_usd: costoIa,
+        resultado: resultado as unknown as Record<string, unknown>,
     }).select('id').single();
     resultado.id = guardada?.id as string | undefined;
 
     return resultado;
+}
+
+// ---------- Historial ----------
+
+interface FilaCotizacion {
+    id: string;
+    titulo: string | null;
+    pedido: string;
+    cliente_id: string | null;
+    items: LineaCotizada[] | null;
+    resumen_md: string | null;
+    total_usd: number | string | null;
+    total_ars: number | string | null;
+    tipo_cambio: number | string | null;
+    costo_ia_usd: number | string | null;
+    resultado: ResultadoCotizacion | null;
+    creado_en: string;
+}
+
+export interface CotizacionGuardada extends ResultadoCotizacion {
+    titulo: string | null;
+    creado_en: string;
+}
+
+// Las cotizaciones anteriores a la columna `resultado` se rearman desde items + totales.
+function rearmar(f: FilaCotizacion): CotizacionGuardada {
+    const base: ResultadoCotizacion = f.resultado ?? (() => {
+        const lineas = f.items ?? [];
+        let subtotal = 0, iva = 0;
+        for (const l of lineas) {
+            if (!l.elegido) continue;
+            subtotal += l.elegido.precio_unit_usd * l.cantidad;
+            iva += (l.elegido.precio_unit_final_usd - l.elegido.precio_unit_usd) * l.cantidad;
+        }
+        return {
+            ok: true,
+            pedido: f.pedido,
+            lineas,
+            comentario: f.resumen_md ?? '',
+            tipo_cambio: Number(f.tipo_cambio ?? 0),
+            fuente_tc: '',
+            subtotal_usd: r2(subtotal),
+            iva_usd: r2(iva),
+            total_usd: Number(f.total_usd ?? 0),
+            total_ars: Number(f.total_ars ?? 0),
+            busquedas: 0,
+            costo_ia_usd: Number(f.costo_ia_usd ?? 0),
+            duracion_ms: 0,
+        };
+    })();
+    return { ...base, id: f.id, titulo: f.titulo, creado_en: f.creado_en };
+}
+
+export async function listarCotizaciones(limite = 50) {
+    const { data, error } = await supabase
+        .from('cotizaciones')
+        .select('id, titulo, pedido, total_usd, total_ars, creado_en, items')
+        .order('creado_en', { ascending: false })
+        .limit(limite);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((f) => ({
+        id: f.id as string,
+        titulo: (f.titulo as string | null) ?? null,
+        pedido: f.pedido as string,
+        total_usd: Number(f.total_usd ?? 0),
+        total_ars: Number(f.total_ars ?? 0),
+        renglones: Array.isArray(f.items) ? f.items.length : 0,
+        creado_en: f.creado_en as string,
+    }));
+}
+
+export async function obtenerCotizacion(id: string): Promise<CotizacionGuardada | null> {
+    const { data, error } = await supabase.from('cotizaciones').select('*').eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? rearmar(data as FilaCotizacion) : null;
+}
+
+export async function renombrarCotizacion(id: string, titulo: string | null): Promise<boolean> {
+    const { data, error } = await supabase.from('cotizaciones').update({ titulo }).eq('id', id).select('id');
+    if (error) throw new Error(error.message);
+    return (data ?? []).length > 0;
+}
+
+export async function borrarCotizacion(id: string): Promise<boolean> {
+    const { data, error } = await supabase.from('cotizaciones').delete().eq('id', id).select('id');
+    if (error) throw new Error(error.message);
+    return (data ?? []).length > 0;
 }
