@@ -555,7 +555,8 @@ export interface CorreoHistorico {
 }
 
 export interface DetalleEmpresa {
-    cliente: Prospecto & {
+    cliente: Omit<Prospecto, 'estado'> & {
+        estado: EmpresaSeguimiento['estado'];
         intentos_contacto: number | null;
         ultimo_contacto_en: string | null;
     };

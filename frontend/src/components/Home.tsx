@@ -1,52 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AccionPendiente, Pulso, ResumenHoy, listarAcciones, resolverAccion, resumenHoy } from '../api/client.ts';
+import { useCallback, useEffect, useState } from 'react';
+import { AccionPendiente, Pulso, ResumenHoy, listarAcciones, resumenHoy } from '../api/client.ts';
 import { Chat } from './Chat.tsx';
+import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
+import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 import { BarrasEmbudo, ColumnasApiladas, Sparkline } from './graficos.tsx';
 
 type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard' | 'chat';
 
 const TZ = 'America/Argentina/Buenos_Aires';
-// Tiempo para arrepentirse antes de que se envíe o rechace de verdad.
-const DESHACER_MS = 5000;
 
 const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const usdCorto = (n: number) => (n >= 10_000 ? `US$ ${(n / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 })} k` : usd(n));
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 const diaCorto = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ, day: '2-digit', month: '2-digit' });
-
-function hace(iso: string): string {
-    const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
-    if (min < 1) return 'recién';
-    if (min < 60) return `hace ${min} min`;
-    const h = Math.floor(min / 60);
-    if (h < 24) return `hace ${h} h`;
-    const d = Math.floor(h / 24);
-    return `hace ${d} día${d > 1 ? 's' : ''}`;
-}
-
-const CANAL: Record<string, string> = { enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp' };
-
-function resumenAccion(a: AccionPendiente): { destino: string; titulo: string; cuerpo: string } {
-    const p = a.payload ?? {};
-    if (a.accion === 'enviar_whatsapp') {
-        return {
-            destino: String(p.nombreCliente || p.nombreContacto || `+${p.waId ?? ''}`),
-            titulo: 'Respuesta de WhatsApp',
-            cuerpo: String(p.cuerpo ?? ''),
-        };
-    }
-    if (a.accion === 'enviar_correo') {
-        return {
-            destino: String(p.nombreCliente || p.para || ''),
-            titulo: String(p.asunto ?? '(sin asunto)'),
-            cuerpo: String(p.cuerpo ?? ''),
-        };
-    }
-    return { destino: a.asistente_nombre ?? '', titulo: a.accion, cuerpo: JSON.stringify(p).slice(0, 200) };
-}
-
-const escribiendo = (el: EventTarget | null) =>
-    el instanceof HTMLElement && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
 
 // ---------- Chips: lo que pide atención, cada uno lleva a resolverlo ----------
 
@@ -193,8 +159,6 @@ function Esqueleto() {
     );
 }
 
-interface EnCola { id: string; tipo: 'aprobar' | 'rechazar'; destino: string; timer: number }
-
 export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [r, setR] = useState<ResumenHoy | null>(null);
     const [acciones, setAcciones] = useState<AccionPendiente[]>([]);
@@ -202,10 +166,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [cargando, setCargando] = useState(false);
     const [abierta, setAbierta] = useState<string | null>(null);
     const [sel, setSel] = useState<number | null>(null);
-    const [enCola, setEnCola] = useState<EnCola[]>([]);
     const [, setTic] = useState(0);
-    const colaRef = useRef<EnCola[]>([]);
-    colaRef.current = enCola;
 
     const cargar = useCallback(async (forzar = false) => {
         setCargando(true);
@@ -229,48 +190,15 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     }, [cargar]);
 
     // Aprobar o rechazar espera unos segundos con opción de deshacer.
-    const ejecutar = useCallback(async (id: string, tipo: 'aprobar' | 'rechazar') => {
-        setEnCola((c) => c.filter((x) => x.id !== id));
-        try {
-            const res = await resolverAccion(id, tipo);
-            if (tipo === 'aprobar' && res.ejecucion && !res.ejecucion.ok) {
-                setError(`Se aprobó pero no se pudo enviar: ${res.ejecucion.detalle ?? 'error desconocido'}`);
-            }
-        } catch (e) {
-            setError((e as Error).message);
-        } finally {
-            cargar(true);
-        }
-    }, [cargar]);
-
+    const cola = useColaDeshacer(async (err) => {
+        await cargar(true);
+        if (err) setError(err);
+    });
+    const enCola = cola.enCola;
     const encolar = useCallback((a: AccionPendiente, tipo: 'aprobar' | 'rechazar') => {
-        if (colaRef.current.some((x) => x.id === a.id)) return;
-        const timer = window.setTimeout(() => ejecutar(a.id, tipo), DESHACER_MS);
-        const item = { id: a.id, tipo, destino: resumenAccion(a).destino || 'sin destinatario', timer };
-        colaRef.current = [...colaRef.current, item];
-        setEnCola((c) => [...c, item]);
+        cola.encolar(a.id, tipo, resumenAccion(a).destino);
         setAbierta(null);
-    }, [ejecutar]);
-
-    function deshacer(id: string) {
-        const x = colaRef.current.find((c) => c.id === id);
-        if (x) clearTimeout(x.timer);
-        setEnCola((c) => c.filter((y) => y.id !== id));
-    }
-
-    // Si se sale del Inicio con algo en cola, se ejecuta igual: ya lo decidiste.
-    useEffect(() => () => {
-        for (const x of colaRef.current) {
-            clearTimeout(x.timer);
-            resolverAccion(x.id, x.tipo).catch(() => { /* queda en Para aprobar */ });
-        }
-    }, []);
-    useEffect(() => {
-        if (!enCola.length) return;
-        const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-        window.addEventListener('beforeunload', avisar);
-        return () => window.removeEventListener('beforeunload', avisar);
-    }, [enCola.length]);
+    }, [cola.encolar]);
 
     const visibles = acciones.filter((a) => !enCola.some((x) => x.id === a.id));
     const mostradas = visibles.slice(0, 8);
@@ -353,7 +281,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                 {visibles.length > mostradas.length && <button className="enlace" onClick={() => irA('acciones')}>Ver las {visibles.length} →</button>}
                             </div>
                             {visibles.length === 0 ? (
-                                <div className="vacio">
+                                <div className="hoy-vacio">
                                     <p>Nada para aprobar. Lo que redacten los asistentes aparece acá.</p>
                                     <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Buscar prospectos →</button>
                                 </div>
@@ -379,7 +307,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                     <h2>Sin responder <span className="cuenta">{sinResponder}</span></h2>
                                 </div>
                                 {sinResponder === 0 ? (
-                                    <div className="vacio">
+                                    <div className="hoy-vacio">
                                         <p>Nadie esperando respuesta.</p>
                                         <button className="boton-fantasma" onClick={() => irA('seguimientos')}>Hacer seguimientos →</button>
                                     </div>
@@ -422,7 +350,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                     <button className="enlace" onClick={() => irA('notion')}>Notion →</button>
                                 </div>
                                 {prioridades.length === 0 ? (
-                                    <div className="vacio">
+                                    <div className="hoy-vacio">
                                         <p>El asistente de Notion las arma a las 8:30, 13 y 18 h.</p>
                                         <button className="boton-fantasma" onClick={() => irA('notion')}>Pedirlas ahora →</button>
                                     </div>
@@ -478,7 +406,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                         <div className="grafico">
                             <h3>Cotizaciones recientes <button className="enlace" onClick={() => irA('cotizador')}>Cotizar →</button></h3>
                             {f.cotizaciones_14_dias.length === 0 ? (
-                                <div className="vacio">
+                                <div className="hoy-vacio">
                                     <p>Sin cotizaciones en las últimas 2 semanas.</p>
                                     <button className="boton-fantasma" onClick={() => irA('cotizador')}>Armar una cotización →</button>
                                 </div>
@@ -496,7 +424,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                         <div className="grafico">
                             <h3>Leads calientes <button className="enlace" onClick={() => irA('prospeccion')}>Prospección →</button></h3>
                             {f.pipeline.leads_calientes.length === 0 ? (
-                                <div className="vacio">
+                                <div className="hoy-vacio">
                                     <p>Todavía no hay leads.</p>
                                     <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Buscar prospectos →</button>
                                 </div>
@@ -532,17 +460,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
             )}
 
             <div className="hoy-dock">
-                {enCola.length > 0 && (
-                    <div className="avisos" role="status" aria-live="polite">
-                        {enCola.map((x) => (
-                            <div key={x.id} className={`aviso aviso-${x.tipo}`}>
-                                <span>{x.tipo === 'aprobar' ? <>Enviando a <strong>{x.destino}</strong>…</> : <>Rechazando la respuesta a <strong>{x.destino}</strong>…</>}</span>
-                                <button className="aviso-deshacer" onClick={() => deshacer(x.id)}>Deshacer</button>
-                                <span className="aviso-tiempo" style={{ animationDuration: `${DESHACER_MS}ms` }} aria-hidden="true" />
-                            </div>
-                        ))}
-                    </div>
-                )}
+                <AvisosDeshacer enCola={enCola} deshacer={cola.deshacer} />
                 <Chat modo="barra" alAbrirChat={() => irA('chat')} />
             </div>
         </div>

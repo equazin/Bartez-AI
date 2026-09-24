@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AccionPendiente, listarAcciones, resolverAccion } from '../api/client.ts';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AccionPendiente, listarAcciones } from '../api/client.ts';
+import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
+import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 
 function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
     const [verCrudo, setVerCrudo] = useState(false);
@@ -99,150 +101,230 @@ function VistaWhatsapp({ payload }: { payload: Record<string, unknown> }) {
     );
 }
 
-type Editando = { id: string; payloadTexto: string } | null;
+// Edición en formulario: correo (para, asunto, cuerpo), WhatsApp (texto);
+// cualquier otra acción, como JSON.
+type Edicion =
+    | { id: string; tipo: 'correo'; para: string; asunto: string; cuerpo: string }
+    | { id: string; tipo: 'whatsapp'; cuerpo: string }
+    | { id: string; tipo: 'json'; texto: string };
+
+function empezarEdicion(a: AccionPendiente): Edicion {
+    const p = a.payload ?? {};
+    if (a.accion === 'enviar_correo') return { id: a.id, tipo: 'correo', para: String(p.para ?? ''), asunto: String(p.asunto ?? ''), cuerpo: String(p.cuerpo ?? '') };
+    if (a.accion === 'enviar_whatsapp') return { id: a.id, tipo: 'whatsapp', cuerpo: String(p.cuerpo ?? '') };
+    return { id: a.id, tipo: 'json', texto: JSON.stringify(p, null, 2) };
+}
+
+function payloadEditado(a: AccionPendiente, e: Edicion): Record<string, unknown> {
+    if (e.tipo === 'correo') return { ...a.payload, para: e.para.trim(), asunto: e.asunto, cuerpo: e.cuerpo };
+    if (e.tipo === 'whatsapp') return { ...a.payload, cuerpo: e.cuerpo };
+    return JSON.parse(e.texto) as Record<string, unknown>;
+}
+
+function Editor({ e, cambiar, guardar, cancelar }: { e: Edicion; cambiar: (e: Edicion) => void; guardar: () => void; cancelar: () => void }) {
+    const primero = useRef<HTMLTextAreaElement>(null);
+    useEffect(() => { primero.current?.focus(); }, []);
+    const teclas = (ev: React.KeyboardEvent) => {
+        if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); guardar(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); cancelar(); }
+    };
+    return (
+        <div className="apr-editor" onKeyDown={teclas}>
+            {e.tipo === 'correo' && (
+                <>
+                    <label><span>Para</span><input value={e.para} onChange={(x) => cambiar({ ...e, para: x.target.value })} /></label>
+                    <label><span>Asunto</span><input value={e.asunto} onChange={(x) => cambiar({ ...e, asunto: x.target.value })} /></label>
+                </>
+            )}
+            <label className="apr-editor-cuerpo">
+                <span>{e.tipo === 'json' ? 'Datos (JSON)' : 'Mensaje'}</span>
+                <textarea
+                    ref={primero}
+                    className={e.tipo === 'json' ? 'mono' : ''}
+                    value={e.tipo === 'json' ? e.texto : e.cuerpo}
+                    onChange={(x) => cambiar(e.tipo === 'json' ? { ...e, texto: x.target.value } : { ...e, cuerpo: x.target.value })}
+                />
+            </label>
+        </div>
+    );
+}
 
 export function Acciones() {
     const [acciones, setAcciones] = useState<AccionPendiente[]>([]);
-    const [editando, setEditando] = useState<Editando>(null);
+    const [cargado, setCargado] = useState(false);
+    const [selId, setSelId] = useState<string | null>(null);
+    const [edicion, setEdicion] = useState<Edicion | null>(null);
+    const [verDetalle, setVerDetalle] = useState(false); // celular: lista o detalle
     const [error, setError] = useState<string>();
     const [cargando, setCargando] = useState(false);
 
     const cargar = useCallback(async () => {
+        setCargando(true);
         try {
-            setError(undefined);
             const { acciones } = await listarAcciones('pendiente');
             setAcciones(acciones);
+            setError(undefined);
         } catch (e) {
             setError((e as Error).message);
+        } finally {
+            setCargando(false);
+            setCargado(true);
         }
     }, []);
 
+    useEffect(() => { cargar(); }, [cargar]);
+
+    const cola = useColaDeshacer(async (err) => {
+        await cargar();
+        if (err) setError(err);
+    });
+
+    const visibles = acciones.filter((a) => !cola.estaEnCola(a.id));
+    const idxSel = Math.max(visibles.findIndex((a) => a.id === selId), 0);
+    const sel = visibles[idxSel] ?? null;
+
+    const seleccionar = useCallback((a: AccionPendiente | undefined) => {
+        if (!a) return;
+        setSelId(a.id);
+        setEdicion(null);
+        document.querySelector(`[data-apr-id="${a.id}"]`)?.scrollIntoView({ block: 'nearest' });
+    }, []);
+
+    // Al resolver una, queda seleccionada la siguiente.
+    const resolver = useCallback((a: AccionPendiente, tipo: 'aprobar' | 'rechazar' | 'editar', payload?: Record<string, unknown>) => {
+        const i = visibles.findIndex((x) => x.id === a.id);
+        const siguiente = visibles[i + 1] ?? visibles[i - 1];
+        cola.encolar(a.id, tipo, resumenAccion(a).destino, payload);
+        setEdicion(null);
+        setSelId(siguiente?.id ?? null);
+        if (!siguiente) setVerDetalle(false);
+    }, [visibles, cola.encolar]);
+
+    function guardarEdicion() {
+        if (!sel || !edicion) return;
+        try {
+            resolver(sel, 'editar', payloadEditado(sel, edicion));
+        } catch {
+            setError('El JSON no es válido: revisalo antes de enviar.');
+        }
+    }
+
+    // Teclado: J/K moverse, A aprobar, R rechazar, E editar.
     useEffect(() => {
-        cargar();
-    }, [cargar]);
-
-    async function ejecutar(a: AccionPendiente, tipo: 'aprobar' | 'rechazar') {
-        setCargando(true);
-        try {
-            const r = await resolverAccion(a.id, tipo);
-            await cargar(); // limpia el error: el aviso de envío fallido va después
-            if (tipo === 'aprobar' && r.ejecucion && !r.ejecucion.ok) {
-                setError(`Se aprobó pero no se pudo enviar: ${r.ejecucion.detalle ?? 'error desconocido'}`);
-            }
-        } catch (e) {
-            setError((e as Error).message);
-        } finally {
-            setCargando(false);
-        }
-    }
-
-    async function guardarEdicion(a: AccionPendiente) {
-        if (!editando) return;
-        setCargando(true);
-        try {
-            // WhatsApp se edita como texto plano; el resto, como JSON.
-            const payload = a.accion === 'enviar_whatsapp'
-                ? { ...a.payload, cuerpo: editando.payloadTexto }
-                : JSON.parse(editando.payloadTexto);
-            const r = await resolverAccion(a.id, 'editar', { payload });
-            setEditando(null);
-            await cargar();
-            if (r.ejecucion && !r.ejecucion.ok) setError(`Se guardó pero no se pudo enviar: ${r.ejecucion.detalle ?? 'error desconocido'}`);
-        } catch (e) {
-            setError((e as Error).message);
-        } finally {
-            setCargando(false);
-        }
-    }
+        const tecla = (e: KeyboardEvent) => {
+            if (e.ctrlKey || e.metaKey || e.altKey || escribiendo(e.target) || edicion || !sel) return;
+            const k = e.key.toLowerCase();
+            if (k === 'j') seleccionar(visibles[Math.min(idxSel + 1, visibles.length - 1)]);
+            else if (k === 'k') seleccionar(visibles[Math.max(idxSel - 1, 0)]);
+            else if (k === 'a') resolver(sel, 'aprobar');
+            else if (k === 'r') resolver(sel, 'rechazar');
+            else if (k === 'e') setEdicion(empezarEdicion(sel));
+            else return;
+            e.preventDefault();
+        };
+        window.addEventListener('keydown', tecla);
+        return () => window.removeEventListener('keydown', tecla);
+    }, [visibles, idxSel, sel, edicion, seleccionar, resolver]);
 
     return (
-        <section className="acciones">
-            <div className="acciones-header">
+        <section className={`apr ${verDetalle ? 'ver-detalle' : ''}`}>
+            <header className="apr-cabecera">
                 <div>
-                    <h2>Para aprobar</h2>
-                    <p className="sub">Lo que redactaron los asistentes. Nada sale sin tu OK: aprobalo tal cual, editalo o rechazalo.</p>
+                    <h2>Para aprobar {cargado && <span className={`cuenta ${visibles.length ? 'cuenta-espera' : ''}`}>{visibles.length}</span>}</h2>
+                    <p className="sub">Lo que redactaron los asistentes. Nada sale sin tu OK.</p>
                 </div>
-                <button className="boton-fantasma" onClick={cargar} disabled={cargando}>
-                    Actualizar
-                </button>
-            </div>
+                <div className="apr-cabecera-der">
+                    <p className="atajos" aria-hidden="true"><kbd>J</kbd> <kbd>K</kbd> moverse · <kbd>A</kbd> aprobar · <kbd>E</kbd> editar · <kbd>R</kbd> rechazar</p>
+                    <button className={`icono-btn ${cargando ? 'girando' : ''}`} onClick={cargar} disabled={cargando} aria-label="Actualizar" title="Actualizar">↻</button>
+                </div>
+            </header>
 
-            {error && <p className="error">Error: {error}</p>}
+            {error && <p className="error" role="alert">{error}</p>}
 
-            {acciones.length === 0 && !error && (
-                <p className="vacio">No hay nada esperando tu aprobación. Todo bajo control.</p>
+            {!cargado && (
+                <div className="apr-cuerpo" aria-busy="true">
+                    <div className="apr-lista">{[1, 2, 3, 4].map((i) => <span key={i} className="esq apr-esq-fila" />)}</div>
+                    <span className="esq apr-esq-detalle" />
+                </div>
             )}
 
-            {acciones.map((a) => {
-                const esEditar = editando?.id === a.id;
-                return (
-                    <div key={a.id} className="accion-card">
-                        <div className="accion-head">
-                            <div>
-                                <span className="tag">{a.asistente_nombre ?? 'asistente'}</span>
-                                <span className={`canal canal-${a.accion}`}>{({ enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp' } as Record<string, string>)[a.accion] ?? a.accion}</span>
-                            </div>
-                            <span className="ts">{new Date(a.creado_en).toLocaleString('es-AR')}</span>
+            {cargado && visibles.length === 0 && (
+                <div className="apr-vacio">
+                    <span className="apr-vacio-icono" aria-hidden="true">✓</span>
+                    <strong>Nada esperando tu OK</strong>
+                    <p>Cuando un asistente redacte una respuesta, aparece acá para aprobarla, editarla o rechazarla.</p>
+                </div>
+            )}
+
+            {cargado && sel && (
+                <div className="apr-cuerpo">
+                    <ul className="apr-lista" aria-label="Propuestas pendientes">
+                        {visibles.map((a) => {
+                            const x = resumenAccion(a);
+                            const activa = a.id === sel.id;
+                            return (
+                                <li key={a.id}>
+                                    <button
+                                        className={`apr-item ${activa ? 'activa' : ''}`}
+                                        data-apr-id={a.id}
+                                        aria-current={activa ? 'true' : undefined}
+                                        onClick={() => { seleccionar(a); setVerDetalle(true); }}
+                                    >
+                                        <span className="apr-item-top">
+                                            <span className={`canal canal-${a.accion}`}>{CANAL[a.accion] ?? a.accion}</span>
+                                            <strong title={x.destino}>{x.destino || '—'}</strong>
+                                            <span className="hora">{hace(a.creado_en)}</span>
+                                        </span>
+                                        <span className="apr-item-titulo" title={x.titulo}>{x.titulo}</span>
+                                        <span className="apr-item-vista">{x.cuerpo.replace(/\s+/g, ' ').trim()}</span>
+                                    </button>
+                                </li>
+                            );
+                        })}
+                    </ul>
+
+                    <article className="apr-detalle" aria-label="Propuesta seleccionada">
+                        <button className="enlace apr-volver" onClick={() => setVerDetalle(false)}>← Volver a la lista</button>
+                        <div className="apr-detalle-cab">
+                            <span className={`canal canal-${sel.accion}`}>{CANAL[sel.accion] ?? sel.accion}</span>
+                            <h3>{resumenAccion(sel).destino || '—'}</h3>
+                            <span className="hora">
+                                {sel.asistente_nombre ?? 'asistente'} · {new Date(sel.creado_en).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                            </span>
                         </div>
 
-                        {!esEditar ? (
-                            a.accion === 'enviar_correo'
-                                ? <VistaCorreo payload={a.payload} />
-                                : a.accion === 'enviar_whatsapp'
-                                    ? <VistaWhatsapp payload={a.payload} />
-                                    : <pre className="payload">{JSON.stringify(a.payload, null, 2)}</pre>
-                        ) : (
-                            <textarea
-                                className="payload editable"
-                                value={editando!.payloadTexto}
-                                onChange={(e) =>
-                                    setEditando({ id: a.id, payloadTexto: e.target.value })
-                                }
-                            />
-                        )}
+                        <div className="apr-detalle-contenido">
+                            {edicion && edicion.id === sel.id ? (
+                                <Editor e={edicion} cambiar={setEdicion} guardar={guardarEdicion} cancelar={() => setEdicion(null)} />
+                            ) : sel.accion === 'enviar_correo' ? (
+                                <VistaCorreo payload={sel.payload} />
+                            ) : sel.accion === 'enviar_whatsapp' ? (
+                                <VistaWhatsapp payload={sel.payload} />
+                            ) : (
+                                <pre className="payload">{JSON.stringify(sel.payload, null, 2)}</pre>
+                            )}
+                        </div>
 
-                        <div className="accion-acciones">
-                            {!esEditar ? (
+                        <div className="apr-barra">
+                            {edicion && edicion.id === sel.id ? (
                                 <>
-                                    <button className="btn-aprobar" onClick={() => ejecutar(a, 'aprobar')} disabled={cargando}>
-                                        Aprobar y enviar
-                                    </button>
-                                    <button
-                                        className="secundario"
-                                        onClick={() =>
-                                            setEditando({
-                                                id: a.id,
-                                                payloadTexto: a.accion === 'enviar_whatsapp'
-                                                    ? String(a.payload.cuerpo ?? '')
-                                                    : JSON.stringify(a.payload, null, 2),
-                                            })
-                                        }
-                                        disabled={cargando}
-                                    >
-                                        Editar
-                                    </button>
-                                    <button
-                                        className="peligro"
-                                        onClick={() => ejecutar(a, 'rechazar')}
-                                        disabled={cargando}
-                                    >
-                                        Rechazar
-                                    </button>
+                                    <button className="btn-aprobar" onClick={guardarEdicion}>Guardar y enviar</button>
+                                    <button className="boton-fantasma" onClick={() => setEdicion(null)}>Cancelar</button>
+                                    <span className="atajos"><kbd>Ctrl</kbd> <kbd>Enter</kbd> envía · <kbd>Esc</kbd> cancela</span>
                                 </>
                             ) : (
                                 <>
-                                    <button className="btn-aprobar" onClick={() => guardarEdicion(a)} disabled={cargando}>
-                                        Guardar y enviar
-                                    </button>
-                                    <button className="secundario" onClick={() => setEditando(null)}>
-                                        Cancelar
-                                    </button>
+                                    <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>Aprobar y enviar</button>
+                                    <button className="boton-fantasma" onClick={() => setEdicion(empezarEdicion(sel))}>Editar</button>
+                                    <button className="boton-fantasma peligro" onClick={() => resolver(sel, 'rechazar')}>Rechazar</button>
                                 </>
                             )}
                         </div>
-                    </div>
-                );
-            })}
+                    </article>
+                </div>
+            )}
+
+            <div className="apr-dock"><AvisosDeshacer enCola={cola.enCola} deshacer={cola.deshacer} /></div>
         </section>
     );
 }

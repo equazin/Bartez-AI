@@ -12,6 +12,7 @@ import { Cotizador } from './components/Cotizador.tsx';
 import { Login } from './components/Login.tsx';
 import { WhatsApp } from './components/WhatsApp.tsx';
 import { NotionPanel } from './components/NotionPanel.tsx';
+import { EVENTO_RESUELTA } from './components/Deshacer.tsx';
 import { BACKEND_ES_DEMO, BACKEND_URL, EVENTO_LOGOUT, estadoAuth, logout, resumenHoy, volverAlBackendNormal } from './api/client.ts';
 
 export type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
@@ -121,6 +122,11 @@ export function App() {
     }, [listo, cargarContadores]);
     // Al cambiar de pantalla (por ejemplo, después de aprobar algo) se refrescan.
     useEffect(() => { if (listo) cargarContadores(); }, [tab, listo, cargarContadores]);
+    // Y apenas se aprueba o rechaza algo, desde cualquier pantalla.
+    useEffect(() => {
+        window.addEventListener(EVENTO_RESUELTA, cargarContadores);
+        return () => window.removeEventListener(EVENTO_RESUELTA, cargarContadores);
+    }, [cargarContadores]);
 
     if (errorConexion) {
         return (
