@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Home } from './components/Home.tsx';
 import { Chat } from './components/Chat.tsx';
 import { Dashboard } from './components/Dashboard.tsx';
@@ -9,6 +9,8 @@ import { Prospeccion } from './components/Prospeccion.tsx';
 import { Analitica } from './components/Analitica.tsx';
 import { Seguimientos } from './components/Seguimientos.tsx';
 import { Cotizador } from './components/Cotizador.tsx';
+import { Login } from './components/Login.tsx';
+import { EVENTO_LOGOUT, estadoAuth, logout } from './api/client.ts';
 
 type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador';
 
@@ -27,6 +29,39 @@ const TABS: { id: Tab; label: string }[] = [
 
 export function App() {
     const [tab, setTab] = useState<Tab>('home');
+    // null = verificando; la app no se muestra hasta saber si hace falta login.
+    const [auth, setAuth] = useState<{ requerida: boolean; valido: boolean } | null>(null);
+    const [errorConexion, setErrorConexion] = useState<string>();
+
+    async function verificar() {
+        setErrorConexion(undefined);
+        try {
+            setAuth(await estadoAuth());
+        } catch (e) {
+            setErrorConexion((e as Error).message);
+        }
+    }
+
+    useEffect(() => {
+        verificar();
+        const alSalir = () => setAuth((a) => (a ? { ...a, valido: false } : a));
+        window.addEventListener(EVENTO_LOGOUT, alSalir);
+        return () => window.removeEventListener(EVENTO_LOGOUT, alSalir);
+    }, []);
+
+    if (errorConexion) {
+        return (
+            <div className="login-wrap">
+                <div className="login">
+                    <h1>Bartez AI</h1>
+                    <p className="error">No se pudo conectar con el backend ({errorConexion}).</p>
+                    <button className="primario" onClick={verificar}>Reintentar</button>
+                </div>
+            </div>
+        );
+    }
+    if (!auth) return null;
+    if (auth.requerida && !auth.valido) return <Login onOk={() => setAuth({ requerida: true, valido: true })} />;
 
     return (
         <div className="app">
@@ -42,6 +77,7 @@ export function App() {
                             {t.label}
                         </button>
                     ))}
+                    {auth.requerida && <button className="salir" onClick={logout}>Salir</button>}
                 </nav>
             </header>
             <main>

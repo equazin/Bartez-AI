@@ -1384,3 +1384,15 @@ textarea.payload.editable {
 .prov-btns .file { position: relative; overflow: hidden; display: inline-flex; align-items: center; }
 .prov-btns .file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 @media (max-width: 700px) { .cot-pedido { flex-direction: column; } .cot-pedido button.primario { padding: 10px; } }
+
+/* ---------- Login ---------- */
+.login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.login { background: var(--panel); border: 1px solid var(--borde); border-radius: 10px; padding: 28px; width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; }
+.login h1 { margin: 0; font-size: 22px; }
+.login .sub { margin: 0; color: var(--sutil); font-size: 14px; }
+.login .error { margin: 0; color: var(--peligro); font-size: 13px; }
+.login input { padding: 10px 12px; border: 1px solid var(--borde); border-radius: 6px; font-size: 15px; background: var(--bg); color: var(--texto); }
+.login input:focus { outline: 2px solid var(--acento-soft); border-color: var(--acento); }
+.login button.primario { background: var(--acento); color: #fff; border: 0; padding: 10px 18px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 15px; }
+.login button.primario:disabled { opacity: 0.5; cursor: default; }
+nav button.salir { color: var(--peligro); }

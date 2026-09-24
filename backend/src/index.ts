@@ -5,6 +5,7 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import cron from 'node-cron';
+import { registrarAuth } from './auth.js';
 import { z } from 'zod';
 import { catalogo } from './orchestrator/catalog.js';
 import { enrutar } from './orchestrator/router.js';
@@ -22,7 +23,24 @@ import { cotizar } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
-const app = Fastify({ logger: true });
+// trustProxy: detrás del proxy de Railway, req.ip es la IP real del cliente.
+const app = Fastify({ logger: true, trustProxy: true });
+
+// Solo el panel (local o GitHub Pages) puede llamar al backend: evita que
+// cualquier web que abras en el navegador use tu backend local.
+const origenesPermitidos = [
+    /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+    'https://equazin.github.io',
+    ...(process.env.FRONTEND_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+];
+await app.register(cors, { origin: origenesPermitidos });
+// Chrome pide permiso explícito para que un sitio público hable con localhost.
+app.addHook('onSend', async (req, reply) => {
+    if (req.method === 'OPTIONS' && req.headers['access-control-request-private-network']) {
+        reply.header('Access-Control-Allow-Private-Network', 'true');
+    }
+});
+registrarAuth(app);
 
 const TareaSchema = z.object({
     canal: z.enum(['correo', 'whatsapp', 'panel']),
@@ -871,20 +889,6 @@ app.get('/metricas/hoy', async () => {
 });
 
 async function main() {
-    // Solo el panel (local o GitHub Pages) puede llamar al backend: evita que
-    // cualquier web que abras en el navegador use tu backend local.
-    const origenesPermitidos = [
-        /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
-        'https://equazin.github.io',
-        ...(process.env.FRONTEND_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-    ];
-    await app.register(cors, { origin: origenesPermitidos });
-    // Chrome pide permiso explícito para que un sitio público hable con localhost.
-    app.addHook('onSend', async (req, reply) => {
-        if (req.method === 'OPTIONS' && req.headers['access-control-request-private-network']) {
-            reply.header('Access-Control-Allow-Private-Network', 'true');
-        }
-    });
     try {
         await catalogo.cargar();
     } catch (err) {

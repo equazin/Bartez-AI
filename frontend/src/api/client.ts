@@ -3,6 +3,58 @@
 
 const BASE = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
+// ---------- Login ----------
+// El token se guarda en el navegador; cada pedido lo manda en Authorization.
+// Si el backend responde 401, se borra y la app vuelve a pedir la contraseña.
+
+const CLAVE_TOKEN = 'bartez_token';
+export const EVENTO_LOGOUT = 'bartez:logout';
+
+function leerToken(): string | null {
+    try { return localStorage.getItem(CLAVE_TOKEN); } catch { return null; }
+}
+
+function guardarToken(t: string | null): void {
+    try {
+        if (t) localStorage.setItem(CLAVE_TOKEN, t);
+        else localStorage.removeItem(CLAVE_TOKEN);
+    } catch { /* sin storage: la sesión dura lo que la pestaña */ }
+}
+
+async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
+    const token = leerToken();
+    const headers = new Headers(init.headers);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(url, { ...init, headers });
+    if (res.status === 401 && !url.endsWith('/auth/login')) {
+        guardarToken(null);
+        window.dispatchEvent(new Event(EVENTO_LOGOUT));
+    }
+    return res;
+}
+
+export async function estadoAuth(): Promise<{ requerida: boolean; valido: boolean }> {
+    const res = await apiFetch(`${BASE}/auth/estado`);
+    if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
+    return res.json();
+}
+
+export async function login(password: string): Promise<void> {
+    const res = await apiFetch(`${BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error ?? `Backend respondió ${res.status}`);
+    guardarToken(data.token || null);
+}
+
+export function logout(): void {
+    guardarToken(null);
+    window.dispatchEvent(new Event(EVENTO_LOGOUT));
+}
+
 export interface TareaEntrada {
     canal: 'correo' | 'whatsapp' | 'panel';
     texto: string;
@@ -17,7 +69,7 @@ export interface RespuestaTarea {
 }
 
 export async function enviarTarea(t: TareaEntrada): Promise<{ resultado: RespuestaTarea }> {
-    const res = await fetch(`${BASE}/tareas`, {
+    const res = await apiFetch(`${BASE}/tareas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(t),
@@ -56,7 +108,7 @@ export interface PuntoSerie {
 }
 
 export async function serieMetricas(dias = 7): Promise<{ serie: PuntoSerie[] }> {
-    const res = await fetch(`${BASE}/metricas/serie?dias=${dias}`);
+    const res = await apiFetch(`${BASE}/metricas/serie?dias=${dias}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
@@ -65,20 +117,20 @@ export async function listarLogs(params: { asistente_id?: string; limit?: number
     const qs = new URLSearchParams();
     if (params.asistente_id) qs.set('asistente_id', params.asistente_id);
     if (params.limit) qs.set('limit', String(params.limit));
-    const res = await fetch(`${BASE}/logs?${qs.toString()}`);
+    const res = await apiFetch(`${BASE}/logs?${qs.toString()}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function cargarMensajes(conversacionId: string): Promise<MensajePersistido[]> {
-    const res = await fetch(`${BASE}/conversaciones/${conversacionId}/mensajes`);
+    const res = await apiFetch(`${BASE}/conversaciones/${conversacionId}/mensajes`);
     if (!res.ok) return [];
     const data = await res.json();
     return data.mensajes ?? [];
 }
 
 export async function metricasHoy(): Promise<{ sistema: unknown[]; negocio: unknown }> {
-    const res = await fetch(`${BASE}/metricas/hoy`);
+    const res = await apiFetch(`${BASE}/metricas/hoy`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
@@ -126,13 +178,13 @@ export interface Prospecto {
 }
 
 export async function listarProspectos(estado = 'todos'): Promise<{ prospectos: Prospecto[] }> {
-    const res = await fetch(`${BASE}/prospectos?estado=${estado}`);
+    const res = await apiFetch(`${BASE}/prospectos?estado=${estado}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function actualizarCliente(id: string, cambios: Partial<Pick<Prospecto, 'estado' | 'nombre' | 'email' | 'whatsapp'>>): Promise<Prospecto> {
-    const res = await fetch(`${BASE}/clientes/${id}`, {
+    const res = await apiFetch(`${BASE}/clientes/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cambios),
@@ -146,7 +198,7 @@ export async function actualizarCliente(id: string, cambios: Partial<Pick<Prospe
 }
 
 export async function contactarProspecto(id: string, area: 'correo' | 'whatsapp' = 'correo', contexto?: string): Promise<{ mensaje: string }> {
-    const res = await fetch(`${BASE}/clientes/${id}/contactar`, {
+    const res = await apiFetch(`${BASE}/clientes/${id}/contactar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ area, contexto }),
@@ -177,7 +229,7 @@ export interface ResultadoNotionAgent {
 }
 
 export async function registrarCatalogoNotion(databaseId: string): Promise<{ ok: boolean; catalogo_id: string }> {
-    const res = await fetch(`${BASE}/notion/catalogo/registrar`, {
+    const res = await apiFetch(`${BASE}/notion/catalogo/registrar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ database_id: databaseId }),
@@ -190,13 +242,13 @@ export async function registrarCatalogoNotion(databaseId: string): Promise<{ ok:
 }
 
 export async function estadoCatalogoNotion(): Promise<{ registrado: boolean; id: string | null }> {
-    const res = await fetch(`${BASE}/notion/catalogo`);
+    const res = await apiFetch(`${BASE}/notion/catalogo`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function organizarNotion(): Promise<{ resultado: ResultadoNotionAgent }> {
-    const res = await fetch(`${BASE}/notion/organizar`, { method: 'POST' });
+    const res = await apiFetch(`${BASE}/notion/organizar`, { method: 'POST' });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
@@ -205,7 +257,7 @@ export async function organizarNotion(): Promise<{ resultado: ResultadoNotionAge
 }
 
 export async function pedirANotion(texto: string): Promise<{ resultado: ResultadoNotionAgent }> {
-    const res = await fetch(`${BASE}/notion/pedir`, {
+    const res = await apiFetch(`${BASE}/notion/pedir`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ texto }),
@@ -241,19 +293,19 @@ export interface InformeAnalitica {
 }
 
 export async function listarInformesAnalitica(): Promise<{ informes: InformeAnalitica[] }> {
-    const res = await fetch(`${BASE}/analitica/informes`);
+    const res = await apiFetch(`${BASE}/analitica/informes`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function obtenerInformeAnalitica(id: string): Promise<{ informe: InformeAnalitica }> {
-    const res = await fetch(`${BASE}/analitica/informes/${id}`);
+    const res = await apiFetch(`${BASE}/analitica/informes/${id}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function correrAnaliticaAhora(dias = 7): Promise<{ resultado: InformeAnalitica }> {
-    const res = await fetch(`${BASE}/analitica/correr?dias=${dias}`, { method: 'POST' });
+    const res = await apiFetch(`${BASE}/analitica/correr?dias=${dias}`, { method: 'POST' });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
@@ -323,11 +375,11 @@ async function jsonOError<T>(res: Response): Promise<T> {
 }
 
 export async function listarProveedores(): Promise<{ proveedores: Proveedor[]; tipo_cambio: { valor: number; fuente: string } | null }> {
-    return jsonOError(await fetch(`${BASE}/proveedores`));
+    return jsonOError(await apiFetch(`${BASE}/proveedores`));
 }
 
 export async function actualizarProveedor(codigo: string, cambios: { activo?: boolean; margen_pct?: number }): Promise<{ proveedor: Proveedor }> {
-    return jsonOError(await fetch(`${BASE}/proveedores/${codigo}`, {
+    return jsonOError(await apiFetch(`${BASE}/proveedores/${codigo}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cambios),
     }));
 }
@@ -335,17 +387,17 @@ export async function actualizarProveedor(codigo: string, cambios: { activo?: bo
 export interface ResultadoSync { proveedor: string; ok: boolean; items: number; detalle?: string; duracion_ms: number }
 
 export async function sincronizarProveedor(codigo: string): Promise<{ resultado: ResultadoSync }> {
-    return jsonOError(await fetch(`${BASE}/proveedores/${codigo}/sincronizar`, { method: 'POST' }));
+    return jsonOError(await apiFetch(`${BASE}/proveedores/${codigo}/sincronizar`, { method: 'POST' }));
 }
 
 export async function importarCsvProveedor(codigo: string, csv: string, moneda: 'USD' | 'ARS'): Promise<{ resultado: ResultadoSync }> {
-    return jsonOError(await fetch(`${BASE}/proveedores/${codigo}/importar-csv`, {
+    return jsonOError(await apiFetch(`${BASE}/proveedores/${codigo}/importar-csv`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ csv, moneda }),
     }));
 }
 
 export async function crearCotizacion(pedido: string): Promise<{ cotizacion: Cotizacion }> {
-    return jsonOError(await fetch(`${BASE}/cotizaciones`, {
+    return jsonOError(await apiFetch(`${BASE}/cotizaciones`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pedido }),
     }));
 }
@@ -414,19 +466,19 @@ export interface InformeCliente {
 }
 
 export async function listarEmpresasSeguimiento(): Promise<{ empresas: EmpresaSeguimiento[] }> {
-    const res = await fetch(`${BASE}/seguimientos/empresas`);
+    const res = await apiFetch(`${BASE}/seguimientos/empresas`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function detalleEmpresaSeguimiento(id: string): Promise<DetalleEmpresa> {
-    const res = await fetch(`${BASE}/seguimientos/empresas/${id}`);
+    const res = await apiFetch(`${BASE}/seguimientos/empresas/${id}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
 
 export async function descartarContactoDetectado(dominio: string): Promise<{ ok: boolean; borrados: number }> {
-    const res = await fetch(`${BASE}/seguimientos/detectado/${encodeURIComponent(dominio)}`, { method: 'DELETE' });
+    const res = await apiFetch(`${BASE}/seguimientos/detectado/${encodeURIComponent(dominio)}`, { method: 'DELETE' });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
@@ -435,7 +487,7 @@ export async function descartarContactoDetectado(dominio: string): Promise<{ ok:
 }
 
 export async function promoverContactoDetectado(dominio: string, nombre: string, email: string | null): Promise<{ ok: boolean; cliente: { id: string; nombre: string }; vinculados: number }> {
-    const res = await fetch(`${BASE}/seguimientos/promover`, {
+    const res = await apiFetch(`${BASE}/seguimientos/promover`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dominio, nombre, email }),
@@ -454,7 +506,7 @@ export async function redactarSeguimiento(
     const body: Record<string, string> = {};
     if (opts.informe_previo) body.informe_previo = opts.informe_previo;
     if (opts.contexto_extra) body.contexto_extra = opts.contexto_extra;
-    const res = await fetch(`${BASE}/seguimientos/empresas/${id}/redactar`, {
+    const res = await apiFetch(`${BASE}/seguimientos/empresas/${id}/redactar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -467,7 +519,7 @@ export async function redactarSeguimiento(
 }
 
 export async function generarInformeCliente(id: string, contexto_extra?: string): Promise<{ informe: InformeCliente }> {
-    const res = await fetch(`${BASE}/seguimientos/empresas/${id}/informe`, {
+    const res = await apiFetch(`${BASE}/seguimientos/empresas/${id}/informe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(contexto_extra ? { contexto_extra } : {}),
@@ -504,7 +556,7 @@ export interface JobImportCorreos {
 
 // Arranca el job. Devuelve el jobId; el import corre en background.
 export async function arrancarImportCorreos(dias = 90): Promise<{ ok: boolean; jobId: string; mensaje?: string; detalle?: string }> {
-    const res = await fetch(`${BASE}/correos/importar?dias=${dias}`, { method: 'POST' });
+    const res = await apiFetch(`${BASE}/correos/importar?dias=${dias}`, { method: 'POST' });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
@@ -513,7 +565,7 @@ export async function arrancarImportCorreos(dias = 90): Promise<{ ok: boolean; j
 }
 
 export async function estadoImportCorreos(jobId: string): Promise<JobImportCorreos> {
-    const res = await fetch(`${BASE}/correos/importar/${jobId}`);
+    const res = await apiFetch(`${BASE}/correos/importar/${jobId}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
@@ -541,7 +593,7 @@ export async function importarCorreosHistoricos(
 }
 
 export async function correrSeguimientos(): Promise<{ resultado: ResultadoBarrido }> {
-    const res = await fetch(`${BASE}/seguimientos/correr`, { method: 'POST' });
+    const res = await apiFetch(`${BASE}/seguimientos/correr`, { method: 'POST' });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
@@ -552,7 +604,7 @@ export async function correrSeguimientos(): Promise<{ resultado: ResultadoBarrid
 export async function buscarProspectos(foco?: string, modo: 'focal' | 'sweep' = 'focal'): Promise<ResultadoProspeccion> {
     const body: Record<string, string> = { modo };
     if (foco) body.foco = foco;
-    const res = await fetch(`${BASE}/prospeccion/buscar`, {
+    const res = await apiFetch(`${BASE}/prospeccion/buscar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -565,7 +617,7 @@ export async function buscarProspectos(foco?: string, modo: 'focal' | 'sweep' = 
 }
 
 export async function guardarMetricasNegocio(m: MetricaNegocioInput): Promise<void> {
-    const res = await fetch(`${BASE}/metricas/negocio/hoy`, {
+    const res = await apiFetch(`${BASE}/metricas/negocio/hoy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(m),
@@ -588,7 +640,7 @@ export interface AccionPendiente {
 }
 
 export async function listarAcciones(estado = 'pendiente'): Promise<{ acciones: AccionPendiente[] }> {
-    const res = await fetch(`${BASE}/acciones?estado=${estado}`);
+    const res = await apiFetch(`${BASE}/acciones?estado=${estado}`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
@@ -605,7 +657,7 @@ export interface AsistenteEditable {
 }
 
 export async function listarAsistentes(): Promise<{ asistentes: AsistenteEditable[] }> {
-    const res = await fetch(`${BASE}/asistentes`);
+    const res = await apiFetch(`${BASE}/asistentes`);
     if (!res.ok) throw new Error(`Backend respondió ${res.status}`);
     return res.json();
 }
@@ -614,7 +666,7 @@ export async function actualizarAsistente(
     id: string,
     cambios: Partial<Pick<AsistenteEditable, 'prompt' | 'modelo' | 'autonomia' | 'activo'>>,
 ): Promise<AsistenteEditable> {
-    const res = await fetch(`${BASE}/asistentes/${id}`, {
+    const res = await apiFetch(`${BASE}/asistentes/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(cambios),
@@ -632,7 +684,7 @@ export async function resolverAccion(
     resolucion: 'aprobar' | 'editar' | 'rechazar',
     body: { payload?: Record<string, unknown>; nota?: string } = {},
 ): Promise<void> {
-    const res = await fetch(`${BASE}/acciones/${id}/${resolucion}`, {
+    const res = await apiFetch(`${BASE}/acciones/${id}/${resolucion}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
