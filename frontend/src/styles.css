@@ -62,7 +62,10 @@
     /* Escala fija: 12 / 13 / 15 / 19 / 24 / 30 */
     --t-xs: 12px; --t-sm: 13px; --t-md: 15px; --t-lg: 19px; --t-xl: 24px; --t-2xl: 30px;
     --elevada: 0 1px 2px rgba(14, 17, 22, 0.06), 0 12px 32px -16px rgba(14, 17, 22, 0.28);
-    color-scheme: light;
+    /* "only": que el navegador no lo oscurezca por su cuenta (Opera GX "Force dark
+       pages", Chrome "Auto Dark Mode"): el oscuro es el del panel (abajo), no uno
+       inventado por el navegador. */
+    color-scheme: only light;
 }
 
 /* Oscuro: sigue al sistema salvo que se elija claro a mano; o a mano. */
@@ -337,6 +340,9 @@ a { color: var(--acento); }
     border-collapse: collapse;
     font-size: 13px;
 }
+/* Tablas anchas: en el celular se desplazan dentro de su tarjeta, no la página entera */
+.tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.tabla-scroll table { min-width: 520px; }
 
 .metrica-sistema th, .metrica-sistema td {
     padding: 8px 10px;
@@ -779,6 +785,15 @@ textarea.payload.editable {
 }
 .prosp-row:hover { background: var(--hover); }
 .prosp-name { display: flex; align-items: center; gap: 8px; }
+/* Celular: nombre, ICP y flecha arriba; el correo (recortado) y la fecha abajo */
+@media (max-width: 640px) {
+    .prosp-row { grid-template-columns: minmax(0, 1fr) auto 16px; gap: 4px 10px; padding: 10px 12px; }
+    .prosp-row > .prosp-name { grid-column: 1; grid-row: 1; min-width: 0; flex-wrap: wrap; }
+    .prosp-row > .icp { grid-column: 2; grid-row: 1; }
+    .prosp-row > :last-child { grid-column: 3; grid-row: 1; }
+    .prosp-row > .prosp-mail { grid-column: 1; grid-row: 2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .prosp-row > .ts { grid-column: 2 / 4; grid-row: 2; text-align: right; }
+}
 .estado-chip {
     font-family: var(--f-mono);
     font-size: 10px;

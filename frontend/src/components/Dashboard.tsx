@@ -174,34 +174,36 @@ export function Dashboard() {
                 {sistema.length === 0 ? (
                     <p className="vacio">Sin actividad registrada.</p>
                 ) : (
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Asistente</th>
-                                <th>Conv.</th>
-                                <th>Msgs</th>
-                                <th>Aprob.</th>
-                                <th>Editadas</th>
-                                <th>Rechaz.</th>
-                                <th className="num">Tokens</th>
-                                <th className="num">USD</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {sistema.map((m) => (
-                                <tr key={m.asistente_id}>
-                                    <td>{m.nombre ?? m.asistente_id.slice(0, 8)}</td>
-                                    <td>{m.conversaciones}</td>
-                                    <td>{m.mensajes}</td>
-                                    <td>{m.acciones_aprobadas}</td>
-                                    <td>{m.acciones_editadas}</td>
-                                    <td>{m.acciones_rechazadas}</td>
-                                    <td className="num">{m.tokens_totales.toLocaleString('es-AR')}</td>
-                                    <td className="num">{m.costo_usd_total.toFixed(4)}</td>
+                    <div className="tabla-scroll">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Asistente</th>
+                                    <th>Conv.</th>
+                                    <th>Msgs</th>
+                                    <th>Aprob.</th>
+                                    <th>Editadas</th>
+                                    <th>Rechaz.</th>
+                                    <th className="num">Tokens</th>
+                                    <th className="num">USD</th>
                                 </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                {sistema.map((m) => (
+                                    <tr key={m.asistente_id}>
+                                        <td>{m.nombre ?? m.asistente_id.slice(0, 8)}</td>
+                                        <td>{m.conversaciones}</td>
+                                        <td>{m.mensajes}</td>
+                                        <td>{m.acciones_aprobadas}</td>
+                                        <td>{m.acciones_editadas}</td>
+                                        <td>{m.acciones_rechazadas}</td>
+                                        <td className="num">{m.tokens_totales.toLocaleString('es-AR')}</td>
+                                        <td className="num">{m.costo_usd_total.toFixed(4)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
                 )}
             </div>
         </section>

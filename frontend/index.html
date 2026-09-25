@@ -4,6 +4,14 @@
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <meta name="theme-color" content="#0B5CED" />
+        <script>
+            // El tema elegido se aplica antes de pintar: si elegiste claro con el
+            // sistema en oscuro (o al revés), no parpadea el otro al cargar.
+            try {
+                var tema = localStorage.getItem('bartez_tema');
+                if (tema === 'claro' || tema === 'oscuro') document.documentElement.dataset.theme = tema === 'claro' ? 'light' : 'dark';
+            } catch (e) { /* sin storage: sigue al sistema */ }
+        </script>
         <title>Bartez AI</title>
         <link rel="icon" type="image/png" href="./favicon.png" />
         <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
