@@ -314,7 +314,12 @@ app.post('/seguimientos/documentos/:id/reprocesar', async (req) => {
 });
 
 // Presupuesto del documento: contarlo o no en Cotizado, o elegir qué opción cuenta.
-const CotizadoDocSchema = z.object({ contar: z.boolean().optional(), opcion: z.number().int().min(0).optional() });
+const CotizadoDocSchema = z.object({
+    contar: z.boolean().optional(),
+    opcion: z.number().int().min(0).optional(),
+    nuestro: z.boolean().optional(),
+    total: z.object({ monto: z.number().positive().max(1e11), moneda: z.enum(['USD', 'ARS']) }).optional(),
+});
 app.post('/seguimientos/documentos/:id/cotizado', async (req, res) => {
     const parseo = CotizadoDocSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: 'Pedido inválido' });

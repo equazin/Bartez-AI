@@ -17,6 +17,7 @@ import {
     importarCsvProveedor,
     listarProveedores,
     sincronizarProveedor,
+    tipoArchivo,
     urlDocumentoCliente,
 } from '../api/client.ts';
 import { CLAVE_COTIZACION_ABIERTA } from '../lib/cotizador.ts';
@@ -25,7 +26,7 @@ import { formatearMarkdown } from './seguimientos/MemoriaCliente.tsx';
 const usd = (n: number) => `USD ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ars = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-// Los presupuestos que vinieron de un PDF solo tienen fecha (la hora no dice nada).
+// Los presupuestos que vinieron de la ficha (PDF, foto…) solo tienen fecha (la hora no dice nada).
 const fechaDe = (c: { creado_en: string; origen?: string }) =>
     c.origen === 'documento' ? new Date(c.creado_en).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : fecha(c.creado_en);
 
@@ -39,6 +40,7 @@ const leerAbierta = () => { try { return localStorage.getItem(CLAVE_ABIERTA); } 
 const ESTADO: Record<EstadoVenta, string> = { abierta: 'Borrador', enviada: 'Enviada', ganada: 'Ganada', perdida: 'Perdida' };
 const MOTIVOS_PERDIDA = ['Precio', 'Plazo de entrega', 'Eligió otro proveedor', 'No respondió', 'Se canceló la compra'];
 const diasDesde = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+const haceDias = (iso: string) => { const d = diasDesde(iso); return d <= 0 ? 'hoy' : d === 1 ? 'ayer' : `hace ${d} días`; };
 
 // ¿Cómo terminó? Marca el presupuesto como ganado o perdido (con motivo).
 function CierreVenta({ cot, alCambiar }: { cot: Cotizacion; alCambiar: (estado: EstadoVenta, motivo: string | null, aviso?: string) => void }) {
@@ -73,7 +75,7 @@ function CierreVenta({ cot, alCambiar }: { cot: Cotizacion; alCambiar: (estado: 
         <div className="cierre">
             <span className="cierre-pregunta">
                 {estado === 'enviada'
-                    ? <>¿Cómo terminó? <span className="tenue">Enviada {cot.enviada_en ? `hace ${diasDesde(cot.enviada_en)} días` : ''}</span></>
+                    ? <>¿Cómo terminó? <span className="tenue">Enviada {cot.enviada_en ? haceDias(cot.enviada_en) : ''}</span></>
                     : <>¿Cómo terminó? <span className="tenue">Todavía es un borrador (no suma a Cotizado): pasa a enviada al descargar el PDF, mandarlo por correo o copiarlo como texto.</span></>}
             </span>
             {!perdiendo ? (
@@ -170,7 +172,7 @@ export function Cotizador() {
     async function borrar(id: string) {
         const deDocumento = cot?.id === id ? cot.origen === 'documento' : historial.find((h) => h.id === id)?.origen === 'documento';
         const aviso = deDocumento
-            ? '¿Borrar este presupuesto? Deja de sumar a Cotizado. El PDF sigue en la ficha del cliente, marcado para no sumar.'
+            ? '¿Borrar este presupuesto? Deja de sumar a Cotizado. El archivo sigue en la ficha del cliente, marcado para no sumar.'
             : '¿Borrar esta cotización? No se puede deshacer.';
         if (!window.confirm(aviso)) return;
         try {
@@ -321,7 +323,19 @@ export function Cotizador() {
         });
     }
 
-    async function abrirPdfOriginal() {
+    // La foto del presupuesto se ve acá mismo (link temporal del archivo).
+    const docFoto = cot?.origen === 'documento' && cot.documento && tipoArchivo(cot.documento.tipo_mime, cot.documento.nombre).etiqueta === 'FOTO' ? cot.documento.id : null;
+    const [foto, setFoto] = useState<{ id: string; url: string | null }>();
+    useEffect(() => {
+        if (!docFoto) return;
+        let vivo = true;
+        urlDocumentoCliente(docFoto)
+            .then(({ url }) => { if (vivo) setFoto({ id: docFoto, url }); })
+            .catch(() => { if (vivo) setFoto({ id: docFoto, url: null }); });
+        return () => { vivo = false; };
+    }, [docFoto]);
+
+    async function abrirOriginal() {
         if (!cot?.documento) return;
         const w = window.open('', '_blank');
         try {
@@ -379,7 +393,7 @@ export function Cotizador() {
                                     <span className="cot-item-pedido">{h.pedido}</span>
                                     <span className="cot-item-pie">
                                         <span className="hora">
-                                            {h.origen === 'documento' && <span className="cot-de-pdf" title="Presupuesto subido como PDF a la ficha del cliente">PDF</span>}
+                                            {h.origen === 'documento' && <span className="cot-de-pdf" title={`Presupuesto subido como ${tipoArchivo(h.documento_mime).de} a la ficha del cliente`}>{tipoArchivo(h.documento_mime).etiqueta}</span>}
                                             {fechaDe(h)}{h.numero ? ` · N° ${h.numero}` : h.numero_externo ? ` · N° ${h.numero_externo}` : ''}
                                         </span>
                                         <span className={`estado-venta ev-${h.estado}`} title={h.motivo_cierre ?? undefined}>
@@ -468,17 +482,22 @@ export function Cotizador() {
                     {deDocumento && (
                         <div className="cot-doc">
                             <div className="cot-doc-cab">
-                                <span className="cot-doc-etq">Presupuesto cargado desde un PDF de la ficha del cliente</span>
+                                <span className="cot-doc-etq">Presupuesto cargado desde {tipoArchivo(cot.documento?.tipo_mime, cot.documento?.nombre).de} de la ficha del cliente</span>
                                 {cot.numero_externo && <span className="mono">N° {cot.numero_externo}</span>}
                             </div>
+                            {docFoto && foto?.id === docFoto && foto.url && (
+                                <button type="button" className="cot-doc-foto" onClick={abrirOriginal} title="Ver la foto en grande">
+                                    <img src={foto.url} alt={`Foto del presupuesto (${cot.documento!.nombre})`} loading="lazy" onError={() => setFoto({ id: docFoto, url: null })} />
+                                </button>
+                            )}
                             {cot.comentario && <div className="markdown-simple">{formatearMarkdown(cot.comentario)}</div>}
                             <div className="cot-totales">
                                 <div className="total"><span>Suma a Cotizado</span><strong>{usd(cot.total_usd)}</strong></div>
                                 {cot.total_ars > 0 && <div className="ars"><span>En pesos (TC {cot.tipo_cambio})</span><strong>{ars(cot.total_ars)}</strong></div>}
                             </div>
                             <div className="cot-pie">
-                                <span className="tenue">Si tiene varias opciones, la que suma se elige en la ficha del cliente (Documentos).</span>
-                                {cot.documento && <button className="secundario" onClick={abrirPdfOriginal}>Abrir PDF</button>}
+                                <span className="tenue">El total y la opción que suma se corrigen en la ficha del cliente (Documentos).</span>
+                                {cot.documento && <button className="secundario" onClick={abrirOriginal}>{tipoArchivo(cot.documento.tipo_mime, cot.documento.nombre).abrir}</button>}
                             </div>
                         </div>
                     )}

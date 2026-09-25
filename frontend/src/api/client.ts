@@ -479,7 +479,7 @@ export interface Cotizacion {
     // 'documento': presupuesto hecho fuera del Cotizador, subido a la ficha del cliente
     origen?: 'cotizador' | 'documento';
     numero_externo?: string | null;
-    documento?: { id: string; nombre: string } | null;
+    documento?: { id: string; nombre: string; tipo_mime?: string | null } | null;
     motivo_cierre?: string | null;
 }
 
@@ -538,6 +538,21 @@ export interface CotizacionResumen {
     cliente_id: string | null;
     origen?: 'cotizador' | 'documento';
     numero_externo?: string | null;
+    // Tipo del archivo si vino de la ficha (PDF, foto…)
+    documento_mime?: string | null;
+}
+
+// Cómo se nombra el archivo de un presupuesto que vino de la ficha. Sin tipo
+// (backend viejo), se deduce del nombre del archivo.
+export function tipoArchivo(mime: string | null | undefined, nombre?: string | null): { etiqueta: string; de: string; abrir: string } {
+    const ext = (nombre ?? '').toLowerCase().split('.').pop() ?? '';
+    const deExt: Record<string, string> = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif', xlsx: 'excel', csv: 'csv', docx: 'word' };
+    const m = mime || deExt[ext] || '';
+    if (m.startsWith('image/')) return { etiqueta: 'FOTO', de: 'una foto', abrir: 'Ver foto' };
+    if (m === 'application/pdf') return { etiqueta: 'PDF', de: 'un PDF', abrir: 'Abrir PDF' };
+    if (/sheet|excel|csv/.test(m)) return { etiqueta: 'EXCEL', de: 'un Excel', abrir: 'Abrir Excel' };
+    if (/word/.test(m)) return { etiqueta: 'WORD', de: 'un Word', abrir: 'Abrir Word' };
+    return { etiqueta: 'DOC', de: 'un documento', abrir: 'Abrir archivo' };
 }
 
 export type EstadoVenta = 'abierta' | 'enviada' | 'ganada' | 'perdida';
@@ -782,7 +797,8 @@ export interface OpcionPresupuesto { nombre: string; total: number }
 export interface DatosDocumento {
     version: number;
     presupuesto: {
-        emisor: 'bartez' | 'otro';
+        // 'desconocido': no dice de quién es (foto, lista suelta); cuenta como de Bartez
+        emisor: 'bartez' | 'otro' | 'desconocido';
         emisor_nombre: string | null;
         para: string | null;
         numero: string | null;
@@ -795,10 +811,22 @@ export interface DatosDocumento {
     } | null;
     // Opción que cuenta en Cotizado; si no se eligió, la más baja
     opcion?: number;
+    // Andrés dijo que es nuestro aunque la IA leyó otro emisor
+    nuestro?: boolean;
+    // Total cargado a mano (pisa lo que leyó la IA)
+    total_manual?: { monto: number; moneda: 'USD' | 'ARS' };
 }
 
-// Contar o no el presupuesto del documento en Cotizado, o elegir qué opción cuenta.
-export async function cotizadoDocumento(docId: string, cambios: { contar?: boolean; opcion?: number }): Promise<{ documento: DocumentoCliente }> {
+export interface CambioCotizadoDoc {
+    contar?: boolean;
+    opcion?: number;
+    nuestro?: boolean;
+    total?: { monto: number; moneda: 'USD' | 'ARS' };
+}
+
+// Lo que se corrige desde la ficha: contarlo o no en Cotizado, qué opción
+// cuenta, que es nuestro, o el total a mano.
+export async function cotizadoDocumento(docId: string, cambios: CambioCotizadoDoc): Promise<{ documento: DocumentoCliente }> {
     return jsonOError(await apiFetch(`${BASE}/seguimientos/documentos/${docId}/cotizado`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cambios),
     }));

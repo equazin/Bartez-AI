@@ -8,7 +8,8 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import { supabase } from '../connectors/supabase.js';
 import {
-    DatosDocumento, VERSION_DATOS, normalizarPresupuesto, soltarCotizacion, sincronizarPresupuestoDeDocumento,
+    DatosDocumento, TotalManual, VERSION_DATOS, aplicarTotalManual, necesitaRelectura, normalizarPresupuesto,
+    soltarCotizacion, sincronizarPresupuestoDeDocumento,
 } from './presupuestos_documentos.js';
 
 export const BUCKET_DOCUMENTOS = 'documentos-clientes';
@@ -284,33 +285,41 @@ un resumen que después usan los asistentes (correo, WhatsApp, seguimientos, inf
 Respondé SOLO con un JSON válido, sin texto antes ni después:
 {"tipo_documento": "...", "resumen": "...", "presupuesto": null}
 
-- tipo_documento: 2 a 4 palabras (ej. "Presupuesto de competencia", "Orden de compra",
-  "Pliego de licitación", "Lista de precios", "Factura", "Nota de pedido", "Foto de equipo").
+- tipo_documento: 2 a 4 palabras (ej. "Presupuesto de Bartez", "Presupuesto de competencia",
+  "Lista de componentes", "Orden de compra", "Pliego de licitación", "Factura", "Foto de equipo").
 - resumen: markdown corto (máximo 12 líneas) con lo que sirve para vender y hacer
   seguimiento: quién lo emite y para quién, fecha, número si tiene, productos con
   cantidades y precios, total y moneda, condiciones (pago, entrega, validez),
   plazos y cualquier compromiso o pedido concreto. Solo datos que estén en el
   documento; si algo no está, no lo inventes.
-- presupuesto: solo si el documento es un presupuesto o una cotización con precios
-  (de Bartez o de otra empresa). Para cualquier otra cosa (orden de compra, factura,
-  lista de precios, pliego, foto) va null. Si es un presupuesto:
+- presupuesto: va siempre que el documento le ofrezca productos o servicios CON PRECIOS
+  a este cliente, aunque sea informal: un presupuesto o cotización en PDF, una lista de
+  componentes o de un armado con su total, una foto o captura de pantalla de un
+  presupuesto (de WhatsApp, de un correo, de una pantalla), una planilla con precios,
+  algo escrito a mano. No hace falta membrete, número ni fecha. Va null solo si no hay
+  precios (una foto de un equipo, un pliego, un pedido del cliente sin precios) o si es
+  otra cosa: factura, orden de compra, remito, o la lista de precios general o el
+  catálogo de un proveedor. Si es un presupuesto:
   {
-    "emisor": "bartez" si lo emite Bartez Tecnología (o Andrés Benítez en su nombre); "otro" si lo emite otra empresa,
-    "emisor_nombre": "nombre de quien lo emite",
-    "para": "empresa o persona a la que va dirigido",
+    "emisor": "bartez" si lo emite Bartez Tecnología (su nombre o logo, un correo @bartez.com.ar, Andrés Benítez);
+              "otro" solo si se ve que lo emite otra empresa (su membrete o su nombre como emisor, o va dirigido a Bartez: es de un proveedor);
+              "desconocido" si no dice quién lo emite (una lista suelta, una foto, una captura),
+    "emisor_nombre": "nombre de quien lo emite" o null,
+    "para": "empresa o persona a la que va dirigido" o null,
     "numero": "número tal como figura (ej. \"2026-0215\")" o null,
     "fecha": "AAAA-MM-DD" o null,
-    "objeto": "qué se cotiza, en una línea (ej. \"Servidor Dell R7715 para IA\")",
-    "moneda": "USD" o "ARS",
-    "iva_incluido": true si los totales incluyen IVA,
+    "objeto": "qué se cotiza, en una línea (ej. \"Servidor Dell R7715 para IA\", \"PC Ryzen 5 con RTX 4060\")",
+    "moneda": "USD" o "ARS" (si el signo es ambiguo, deducilo por los montos: en pesos un equipo cuesta cientos de miles o millones),
+    "iva_incluido": true si los totales incluyen IVA (o si no lo aclara),
     "tipo_cambio": número si el documento fija un tipo de cambio, si no null,
     "opciones": [{"nombre": "Opción A (uplink simple)", "total": 74851.90}]
   }
   En "opciones" va el TOTAL FINAL de cada alternativa que se ofrece (lo que pagaría el
   cliente, con IVA si el documento lo da), como número con punto decimal y sin
-  separadores de miles. Si hay un solo total, una sola opción llamada "Total". No
-  sumes los ítems opcionales que no forman parte del total, no uses anticipos ni
-  subtotales, y no inventes montos: si no hay un total claro, "opciones" va vacío.`;
+  separadores de miles. Si hay un solo total, una sola opción llamada "Total". Si es una
+  lista de un solo armado o compra sin el total escrito, sumá cantidad × precio de los
+  ítems. No sumes los ítems opcionales que no forman parte del total, no uses anticipos
+  ni subtotales, y no inventes montos: si no hay un total claro, "opciones" va vacío.`;
 
 export async function procesarDocumento(id: string, bufferDado?: Buffer): Promise<void> {
     const { data: doc } = await supabase.from('cliente_documentos').select('id, nombre, tipo_mime, ruta, cliente_id').eq('id', id).maybeSingle();
@@ -348,9 +357,16 @@ export async function procesarDocumento(id: string, bufferDado?: Buffer): Promis
             resumen = salida; // si no vino JSON, el texto igual sirve como resumen
         }
         if (!resumen) throw new Error('La IA no devolvió un resumen');
-        // La opción que eligió Andrés se respeta si se vuelve a leer el documento.
-        const opcionPrevia = (previo?.datos as DatosDocumento | null)?.opcion;
-        const datos: DatosDocumento = { version: VERSION_DATOS, presupuesto: normalizarPresupuesto(presupuesto), ...(typeof opcionPrevia === 'number' ? { opcion: opcionPrevia } : {}) };
+        // Lo que decidió Andrés (opción, "es nuestro", total a mano) se respeta si
+        // se vuelve a leer el documento.
+        const antes = (previo?.datos as DatosDocumento | null) ?? null;
+        const datos: DatosDocumento = {
+            version: VERSION_DATOS,
+            presupuesto: aplicarTotalManual(normalizarPresupuesto(presupuesto), antes?.total_manual),
+            ...(typeof antes?.opcion === 'number' ? { opcion: antes.opcion } : {}),
+            ...(antes?.nuestro ? { nuestro: true } : {}),
+            ...(antes?.total_manual ? { total_manual: antes.total_manual } : {}),
+        };
         await supabase.from('cliente_documentos').update({
             estado: 'listo', tipo_documento: tipoDoc, resumen: resumen.slice(0, 4000), error: null, datos,
             costo_usd: calcularCosto(modelo, r.usage.input_tokens, r.usage.output_tokens), procesado_en: new Date().toISOString(),
@@ -363,17 +379,38 @@ export async function procesarDocumento(id: string, bufferDado?: Buffer): Promis
     try { await sincronizarPresupuestoDeDocumento(id); } catch (err) { console.warn('[memoria] presupuesto del documento', id, (err as Error).message); }
 }
 
-// Contar o no el documento en Cotizado, o elegir qué opción cuenta.
-export async function cambiarCotizadoDocumento(id: string, cambios: { contar?: boolean; opcion?: number }): Promise<Documento | null> {
+// Lo que Andrés corrige desde la ficha: contarlo o no en Cotizado, qué opción
+// cuenta, que es nuestro (aunque la IA leyó otro emisor) o el total a mano
+// (también para un documento que la IA no tomó como presupuesto).
+export async function cambiarCotizadoDocumento(
+    id: string,
+    cambios: { contar?: boolean; opcion?: number; nuestro?: boolean; total?: TotalManual },
+): Promise<Documento | null> {
     const { data: doc } = await supabase.from('cliente_documentos').select('datos').eq('id', id).maybeSingle();
     if (!doc) return null;
     const upd: Record<string, unknown> = {};
     if (typeof cambios.contar === 'boolean') upd.sin_cotizado = !cambios.contar;
-    const datos = doc.datos as DatosDocumento | null;
-    if (typeof cambios.opcion === 'number' && datos?.presupuesto) {
-        if (cambios.opcion < 0 || cambios.opcion >= datos.presupuesto.opciones.length) throw new Error('Esa opción no existe');
-        upd.datos = { ...datos, opcion: cambios.opcion };
+    let datos: DatosDocumento = (doc.datos as DatosDocumento | null) ?? { version: 0, presupuesto: null };
+    const antes = datos;
+    if (typeof cambios.opcion === 'number') {
+        const ops = datos.presupuesto?.opciones ?? [];
+        if (!Number.isInteger(cambios.opcion) || cambios.opcion < 0 || cambios.opcion >= ops.length) throw new Error('Esa opción no existe');
+        datos = { ...datos, opcion: cambios.opcion };
     }
+    if (typeof cambios.nuestro === 'boolean') {
+        datos = { ...datos, nuestro: cambios.nuestro };
+        if (cambios.nuestro) upd.sin_cotizado = false;
+    }
+    if (cambios.total) {
+        const monto = Math.round(cambios.total.monto * 100) / 100;
+        if (!(monto > 0)) throw new Error('Poné un total mayor a cero');
+        const total_manual: TotalManual = { monto, moneda: cambios.total.moneda === 'ARS' ? 'ARS' : 'USD' };
+        // Un total propio es una sola opción: la elegida antes ya no aplica.
+        const { opcion: _opcion, ...resto } = datos;
+        datos = { ...resto, nuestro: true, total_manual, presupuesto: aplicarTotalManual(datos.presupuesto, total_manual) };
+        upd.sin_cotizado = false;
+    }
+    if (datos !== antes) upd.datos = datos;
     if (Object.keys(upd).length) {
         const { error } = await supabase.from('cliente_documentos').update(upd).eq('id', id);
         if (error) throw new Error(error.message);
@@ -382,15 +419,20 @@ export async function cambiarCotizadoDocumento(id: string, cambios: { contar?: b
     return documento(id);
 }
 
-// Documentos leídos antes de que se sacaran los datos de presupuesto (o con una
-// versión vieja): se vuelven a leer de a uno. Corre al arrancar el servidor.
+// Documentos leídos con una versión vieja de la extracción: se vuelven a leer
+// de a uno los que cambian con la versión nueva; al resto solo se le sube la
+// versión. Corre al arrancar el servidor.
 export async function completarDatosDocumentos(limite = 30): Promise<number> {
     const { data, error } = await supabase.from('cliente_documentos').select('id, datos').eq('estado', 'listo')
         .order('creado_en', { ascending: false }).limit(300);
     if (error) throw new Error(error.message);
-    const pendientes = (data ?? []).filter((d) => ((d.datos as DatosDocumento | null)?.version ?? 0) < VERSION_DATOS).slice(0, limite);
-    for (const d of pendientes) await procesarDocumento(d.id as string);
-    return pendientes.length;
+    const viejos = (data ?? []).filter((d) => ((d.datos as DatosDocumento | null)?.version ?? 0) < VERSION_DATOS);
+    for (const d of viejos.filter((x) => !necesitaRelectura(x.datos as DatosDocumento | null))) {
+        await supabase.from('cliente_documentos').update({ datos: { ...(d.datos as DatosDocumento), version: VERSION_DATOS } }).eq('id', d.id);
+    }
+    const releer = viejos.filter((d) => necesitaRelectura(d.datos as DatosDocumento | null)).slice(0, limite);
+    for (const d of releer) await procesarDocumento(d.id as string);
+    return releer.length;
 }
 
 // Vuelve a leer un documento (p. ej. si falló). Queda en "procesando" ya, para

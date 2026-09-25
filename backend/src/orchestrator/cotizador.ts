@@ -339,7 +339,7 @@ export interface CotizacionGuardada extends ResultadoCotizacion {
     // 'documento': presupuesto hecho fuera del Cotizador y subido a la ficha del cliente.
     origen: 'cotizador' | 'documento';
     numero_externo: string | null;
-    documento?: { id: string; nombre: string } | null;
+    documento?: { id: string; nombre: string; tipo_mime: string | null } | null;
 }
 
 // Las cotizaciones anteriores a la columna `resultado` se rearman desde items + totales.
@@ -382,6 +382,13 @@ export async function listarCotizaciones(limite = 50) {
         .order('creado_en', { ascending: false })
         .limit(limite);
     if (error) throw new Error(error.message);
+    // Qué archivo es cada presupuesto que vino de la ficha (PDF, foto…), para la etiqueta.
+    const deDocs = (data ?? []).filter((f) => f.origen === 'documento').map((f) => f.id as string);
+    const mimes = new Map<string, string | null>();
+    if (deDocs.length) {
+        const { data: docs } = await supabase.from('cliente_documentos').select('cotizacion_id, tipo_mime').in('cotizacion_id', deDocs);
+        for (const d of docs ?? []) if (!mimes.has(d.cotizacion_id as string)) mimes.set(d.cotizacion_id as string, (d.tipo_mime as string | null) ?? null);
+    }
     return (data ?? []).map((f) => ({
         id: f.id as string,
         titulo: (f.titulo as string | null) ?? null,
@@ -398,6 +405,7 @@ export async function listarCotizaciones(limite = 50) {
         cliente_id: (f.cliente_id as string | null) ?? null,
         origen: (f.origen as string | null) === 'documento' ? 'documento' as const : 'cotizador' as const,
         numero_externo: (f.numero_externo as string | null) ?? null,
+        documento_mime: mimes.get(f.id as string) ?? null,
     }));
 }
 
@@ -406,10 +414,10 @@ export async function obtenerCotizacion(id: string): Promise<CotizacionGuardada 
     if (error) throw new Error(error.message);
     if (!data) return null;
     const cot = rearmar(data as FilaCotizacion);
-    // El PDF original, si el presupuesto vino de un documento de la ficha.
-    const { data: docs } = await supabase.from('cliente_documentos').select('id, nombre').eq('cotizacion_id', id)
+    // El archivo original (PDF, foto…), si el presupuesto vino de un documento de la ficha.
+    const { data: docs } = await supabase.from('cliente_documentos').select('id, nombre, tipo_mime').eq('cotizacion_id', id)
         .order('creado_en', { ascending: false }).limit(1);
-    cot.documento = docs?.[0] ? { id: docs[0].id as string, nombre: docs[0].nombre as string } : null;
+    cot.documento = docs?.[0] ? { id: docs[0].id as string, nombre: docs[0].nombre as string, tipo_mime: (docs[0].tipo_mime as string | null) ?? null } : null;
     return cot;
 }
 
@@ -431,7 +439,7 @@ export async function borrarCotizacion(id: string): Promise<boolean> {
     return (data ?? []).length > 0;
 }
 
-export const DE_DOCUMENTO = 'Este presupuesto se cargó desde un documento de la ficha del cliente: tiene su propio PDF y su número. Abrilo desde acá o desde la ficha.';
+export const DE_DOCUMENTO = 'Este presupuesto se cargó desde un documento de la ficha del cliente (un PDF, una foto o un archivo): el presupuesto es ese archivo. Abrilo desde acá o desde la ficha.';
 
 // Número de presupuesto: se asigna la primera vez que se genera el PDF.
 // Los que vienen de un documento conservan su número y no usan la numeración.

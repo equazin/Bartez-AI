@@ -1,8 +1,10 @@
-// Presupuestos que llegan como documento (un PDF armado fuera del Cotizador y
-// subido a la ficha del cliente). La IA saca emisor, número, fecha y el total de
-// cada opción; si lo emitió Bartez, queda como una cotización más (origen
+// Presupuestos que llegan como documento (un PDF armado fuera del Cotizador, una
+// foto o captura de una lista con precios, un Excel…) subido a la ficha del
+// cliente. La IA saca emisor, número, fecha y el total de cada opción; si es de
+// Bartez o no dice de quién es, queda como una cotización más (origen
 // "documento"): suma a Cotizado, aparece en el Cotizador y en el mapa, se marca
 // ganada o perdida y entra en los seguimientos de presupuestos sin respuesta.
+// Andrés puede corregir: "es nuestro", el total a mano o "no sumarlo".
 
 import { supabase } from '../connectors/supabase.js';
 import { tipoDeCambio } from './catalogo_proveedores.js';
@@ -10,7 +12,9 @@ import { tipoDeCambio } from './catalogo_proveedores.js';
 export interface OpcionPresupuesto { nombre: string; total: number }
 
 export interface DatosPresupuesto {
-    emisor: 'bartez' | 'otro';
+    // 'desconocido': no dice de quién es (una foto, una lista suelta). Como lo
+    // subió Andrés a la ficha del cliente, cuenta como de Bartez.
+    emisor: 'bartez' | 'otro' | 'desconocido';
     emisor_nombre: string | null;
     para: string | null;
     numero: string | null;
@@ -28,11 +32,27 @@ export interface DatosDocumento {
     presupuesto: DatosPresupuesto | null;
     // Opción que cuenta en Cotizado (índice). Si no se eligió, la más baja.
     opcion?: number;
+    // Andrés dijo que es un presupuesto de Bartez aunque la IA leyó otro emisor.
+    nuestro?: boolean;
+    // Total que cargó Andrés a mano: pisa lo que leyó la IA (también al releer).
+    total_manual?: TotalManual;
 }
 
+export interface TotalManual { monto: number; moneda: 'USD' | 'ARS' }
+
 // Sube cuando cambia lo que se extrae: los documentos con una versión anterior
-// se vuelven a leer solos (ver documentosSinDatos).
-export const VERSION_DATOS = 1;
+// se vuelven a leer solos (ver necesitaRelectura).
+// 2: fotos y listas con precios cuentan como presupuesto; emisor "desconocido".
+export const VERSION_DATOS = 2;
+
+// ¿Hay que volver a leer el documento? La versión 2 solo cambia los que no se
+// habían tomado como presupuesto de Bartez; los que ya lo eran quedan como están.
+export function necesitaRelectura(datos: DatosDocumento | null): boolean {
+    const v = datos?.version ?? 0;
+    if (v >= VERSION_DATOS) return false;
+    if (v < 1) return true;
+    return datos?.presupuesto?.emisor !== 'bartez';
+}
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -69,8 +89,9 @@ export function normalizarPresupuesto(raw: unknown): DatosPresupuesto | null {
     }
     const fecha = typeof p.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p.fecha) && !Number.isNaN(Date.parse(p.fecha)) ? p.fecha : null;
     const tc = numeroDe(p.tipo_cambio);
+    const emisor = String(p.emisor ?? '').toLowerCase();
     return {
-        emisor: String(p.emisor ?? '').toLowerCase() === 'bartez' ? 'bartez' : 'otro',
+        emisor: emisor === 'bartez' ? 'bartez' : emisor === 'otro' ? 'otro' : 'desconocido',
         emisor_nombre: texto(p.emisor_nombre, 120),
         para: texto(p.para, 120),
         numero: texto(p.numero, 40),
@@ -91,9 +112,23 @@ export function opcionQueCuenta(p: DatosPresupuesto, elegida?: number): number {
     return min;
 }
 
+// Lo que cargó Andrés a mano sobre lo que leyó la IA: un total propio
+// reemplaza las opciones (y arma el presupuesto si la IA no vio uno).
+export function aplicarTotalManual(p: DatosPresupuesto | null, manual: TotalManual | undefined): DatosPresupuesto | null {
+    if (!manual) return p;
+    const base: DatosPresupuesto = p ?? {
+        emisor: 'desconocido', emisor_nombre: null, para: null, numero: null, fecha: null,
+        objeto: null, moneda: manual.moneda, iva_incluido: true, tipo_cambio: null, opciones: [],
+    };
+    return { ...base, moneda: manual.moneda, opciones: [{ nombre: 'Total', total: r2(manual.monto) }] };
+}
+
+// Suma a Cotizado si tiene un total, no lo emitió otra empresa (o Andrés dijo
+// que es nuestro) y no se marcó "no sumarlo".
 export function cuentaEnCotizado(datos: DatosDocumento | null, sinCotizado: boolean): boolean {
     const p = datos?.presupuesto;
-    return !!p && p.emisor === 'bartez' && p.opciones.length > 0 && !sinCotizado;
+    if (!p || !p.opciones.length || sinCotizado) return false;
+    return p.emisor !== 'otro' || datos?.nuestro === true;
 }
 
 // Fecha del presupuesto para Cotizado: la del documento (si es creíble) o la de subida.
@@ -101,6 +136,14 @@ function fechaDelPresupuesto(fecha: string | null, subido: string): string {
     if (!fecha || fecha < '2015-01-01' || fecha > hoyAr()) return subido;
     if (fecha === hoyAr()) return new Date().toISOString();
     return new Date(`${fecha}T12:00:00-03:00`).toISOString();
+}
+
+// Qué se cotiza, cuando la IA no lo dijo: "Presupuesto (lista de componentes)".
+// Nunca el nombre del archivo (las fotos de WhatsApp tienen nombres como "6dc5e097….jpg").
+function descripcionSinObjeto(tipoDocumento: string | null): string {
+    const t = tipoDocumento?.trim();
+    if (!t) return 'Presupuesto';
+    return /presupuesto|cotizaci/i.test(t) ? t : `Presupuesto (${t.charAt(0).toLowerCase()}${t.slice(1)})`;
 }
 
 const cerca = (a: number, b: number, tolerancia: number) => Math.abs(a - b) <= Math.max(a, b) * tolerancia;
@@ -151,7 +194,7 @@ export async function soltarCotizacion(docId: string, cotId: string): Promise<vo
 // se cambia algo desde la ficha.
 export async function sincronizarPresupuestoDeDocumento(docId: string): Promise<void> {
     const { data: doc } = await supabase.from('cliente_documentos')
-        .select('id, cliente_id, nombre, resumen, datos, cotizacion_id, sin_cotizado, creado_en').eq('id', docId).maybeSingle();
+        .select('id, cliente_id, nombre, resumen, tipo_documento, datos, cotizacion_id, sin_cotizado, creado_en').eq('id', docId).maybeSingle();
     if (!doc) return;
     const datos = doc.datos as DatosDocumento | null;
     const p = datos?.presupuesto ?? null;
@@ -182,7 +225,7 @@ export async function sincronizarPresupuestoDeDocumento(docId: string): Promise<
     const campos = {
         cliente_id: doc.cliente_id as string,
         titulo: (p.para || (cliente?.nombre as string | undefined) || (doc.nombre as string)).slice(0, 120),
-        pedido: (p.objeto || `Presupuesto ${p.numero ?? ''} (${doc.nombre as string})`).slice(0, 500),
+        pedido: (p.objeto || [descripcionSinObjeto(doc.tipo_documento as string | null), p.numero && `N° ${p.numero}`].filter(Boolean).join(' ')).slice(0, 500),
         total_usd: r2(totalUsd),
         total_ars: totalArs != null ? r2(totalArs) : null,
         tipo_cambio: tc,

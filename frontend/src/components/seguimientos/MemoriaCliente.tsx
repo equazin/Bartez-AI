@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+    CambioCotizadoDoc,
     DatosDocumento,
     DocumentoCliente,
     InformeCliente,
@@ -402,7 +403,7 @@ function PestanaDocumentos(p: {
                                         <button type="button" className="enlace" onClick={() => reprocesar(d)}>Reintentar</button>
                                     </div>
                                 )}
-                                {d.estado === 'listo' && (
+                                {(d.estado === 'listo' || d.estado === 'error') && (
                                     <BloquePresupuesto
                                         d={d}
                                         irA={p.irA}
@@ -441,8 +442,68 @@ function opcionQueCuenta(datos: DatosDocumento): number {
 const plata = (n: number, moneda: 'USD' | 'ARS' = 'USD') =>
     `${moneda === 'ARS' ? '$' : 'US$'} ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Lo que escribe Andrés como total: "1.212", "1.212,50", "1212.5", "US$ 74.851,90".
+export function numeroEscrito(v: string): number | null {
+    let s = v.replace(/[^\d.,]/g, '');
+    if (!s) return null;
+    const coma = s.lastIndexOf(','), punto = s.lastIndexOf('.');
+    if (coma > punto) s = s.replace(/\./g, '').replace(',', '.');          // 74.851,90
+    else if (punto > coma && coma >= 0) s = s.replace(/,/g, '');             // 74,851.90
+    else if (coma < 0 && /^\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, ''); // 1.212
+    const n = Number(s);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+}
+
+type TotalManual = NonNullable<DatosDocumento['total_manual']>;
+
+// Total a mano: para un presupuesto que Bartez no tomó como tal (una foto, una
+// lista), uno sin total claro, o para corregir el que leyó.
+function FormTotal({ inicial, ocupado, onGuardar, onCancelar }: {
+    inicial?: TotalManual;
+    ocupado: boolean;
+    onGuardar: (t: TotalManual) => void;
+    onCancelar: () => void;
+}) {
+    const [monto, setMonto] = useState(inicial ? inicial.monto.toLocaleString('es-AR', { maximumFractionDigits: 2 }) : '');
+    const [moneda, setMoneda] = useState<'USD' | 'ARS'>(inicial?.moneda ?? 'USD');
+    const valor = numeroEscrito(monto);
+    return (
+        <form
+            className="mem-total"
+            aria-label="Total del presupuesto"
+            onSubmit={(e) => { e.preventDefault(); if (valor) onGuardar({ monto: valor, moneda }); }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancelar(); } }}
+        >
+            <label className="mem-total-campo">
+                <span>Total final (lo que paga el cliente)</span>
+                <input
+                    value={monto}
+                    onChange={(e) => setMonto(e.target.value)}
+                    inputMode="decimal"
+                    autoFocus
+                    placeholder="ej. 1.212"
+                    aria-invalid={monto.trim() !== '' && !valor}
+                />
+            </label>
+            <div className="segmentos" role="radiogroup" aria-label="Moneda">
+                {(['USD', 'ARS'] as const).map((m) => (
+                    <button key={m} type="button" role="radio" aria-checked={moneda === m} className={moneda === m ? 'on' : ''} onClick={() => setMoneda(m)}>
+                        {m === 'USD' ? 'US$' : '$'}
+                    </button>
+                ))}
+            </div>
+            <div className="mem-total-acc">
+                <button type="submit" className="btn-primario chico" disabled={!valor || ocupado}>{ocupado ? 'Guardando…' : 'Sumar a Cotizado'}</button>
+                <button type="button" className="enlace" onClick={onCancelar} disabled={ocupado}>Cancelar</button>
+            </div>
+            {valor != null && <span className="mem-total-eco">Queda en el Cotizador por {plata(valor, moneda)}</span>}
+        </form>
+    );
+}
+
 // Si el documento es un presupuesto: si suma a Cotizado, cuánto, qué opción
-// cuenta y cómo va (enviado, ganado, perdido).
+// cuenta y cómo va (enviado, ganado, perdido). Si Bartez no lo tomó como
+// presupuesto de Bartez, se puede corregir: "es nuestro" o el total a mano.
 function BloquePresupuesto({ d, irA, onCambio, onError }: {
     d: DocumentoCliente;
     irA?: (tab: string) => void;
@@ -450,20 +511,43 @@ function BloquePresupuesto({ d, irA, onCambio, onError }: {
     onError: (e: unknown) => void;
 }) {
     const [ocupado, setOcupado] = useState(false);
-    const datos = d.datos;
-    const pres = datos?.presupuesto;
-    if (!datos || !pres) return null;
+    const [cargando, setCargando] = useState(false);
+    const datos = d.datos ?? null;
+    const pres = datos?.presupuesto ?? null;
 
-    async function cambiar(c: { contar?: boolean; opcion?: number }) {
+    async function cambiar(c: CambioCotizadoDoc) {
         setOcupado(true);
-        try { onCambio((await cotizadoDocumento(d.id, c)).documento); } catch (e) { onError(e); } finally { setOcupado(false); }
+        try {
+            onCambio((await cotizadoDocumento(d.id, c)).documento);
+            setCargando(false);
+        } catch (e) { onError(e); } finally { setOcupado(false); }
     }
 
-    if (pres.emisor !== 'bartez') {
-        return <div className="mem-cot aparte">Presupuesto de {pres.emisor_nombre ?? 'otra empresa'}: queda como referencia, no suma a Cotizado.</div>;
+    const form = (inicial?: TotalManual) => (
+        <div className="mem-cot aparte">
+            <FormTotal inicial={inicial} ocupado={ocupado} onGuardar={(total) => cambiar({ total })} onCancelar={() => setCargando(false)} />
+        </div>
+    );
+    const cargar = (texto: string) => (
+        <button type="button" className="enlace" onClick={() => setCargando(true)} disabled={ocupado}>{texto}</button>
+    );
+
+    // Bartez no lo tomó como presupuesto (o no lo pudo leer).
+    if (!pres) {
+        if (cargando) return form();
+        return <div className="mem-cot-registrar">¿Es un presupuesto? {cargar('Registrarlo en el Cotizador')}</div>;
+    }
+    if (pres.emisor === 'otro' && !datos?.nuestro) {
+        return (
+            <div className="mem-cot aparte">
+                Presupuesto de {pres.emisor_nombre ?? 'otra empresa'}: queda como referencia, no suma a Cotizado.{' '}
+                <button type="button" className="enlace" onClick={() => cambiar({ nuestro: true })} disabled={ocupado}>Es nuestro: sumarlo</button>
+            </div>
+        );
     }
     if (!pres.opciones.length) {
-        return <div className="mem-cot aparte">Presupuesto de Bartez sin un total claro: no suma a Cotizado.</div>;
+        if (cargando) return form();
+        return <div className="mem-cot aparte">Presupuesto sin un total claro: todavía no suma a Cotizado. {cargar('Cargar el total')}</div>;
     }
     if (d.sin_cotizado || !d.cotizacion) {
         return (
@@ -480,14 +564,18 @@ function BloquePresupuesto({ d, irA, onCambio, onError }: {
     const cerrado = q.estado === 'ganada' || q.estado === 'perdida';
     const delCotizador = q.origen !== 'documento';
     const numero = q.numero_externo ?? pres.numero;
-    const elegida = opcionQueCuenta(datos);
+    const elegida = opcionQueCuenta(datos!);
     const fecha = pres.fecha ? new Date(`${pres.fecha}T12:00:00`).toLocaleDateString('es-AR') : null;
+    const enPesos = pres.moneda === 'ARS' ? plata(pres.opciones[elegida]!.total, 'ARS') : null;
+    if (cargando && !delCotizador && !cerrado) {
+        return form(datos?.total_manual ?? { monto: pres.opciones[elegida]!.total, moneda: pres.moneda });
+    }
     return (
         <div className={`mem-cot ev-${q.estado}`}>
             <div className="mem-cot-fila">
                 <span className="mem-cot-marca">{q.estado === 'ganada' ? '✓ Ganado' : q.estado === 'perdida' ? 'Perdido' : 'Suma a Cotizado'}</span>
                 {q.total_usd != null && <strong className="mem-cot-monto">{plata(q.total_usd)}</strong>}
-                <span className="mem-cot-dato">{[numero && `N° ${numero}`, fecha].filter(Boolean).join(' · ')}</span>
+                <span className="mem-cot-dato">{[enPesos, numero && `N° ${numero}`, fecha, datos?.total_manual && 'total cargado a mano'].filter(Boolean).join(' · ')}</span>
             </div>
             {delCotizador && <div className="mem-ayuda">Es el presupuesto N° {q.numero} que armaste en el Cotizador.</div>}
             {!delCotizador && pres.opciones.length > 1 && (
@@ -500,6 +588,7 @@ function BloquePresupuesto({ d, irA, onCambio, onError }: {
             )}
             <div className="mem-cot-acc">
                 {irA && <button type="button" className="enlace" onClick={() => { abrirEnCotizador(q.id); irA('cotizador'); }}>Ver en el Cotizador</button>}
+                {!delCotizador && !cerrado && cargar('Corregir total')}
                 {!delCotizador && !cerrado && (
                     <button type="button" className="enlace mem-cot-quitar" onClick={() => cambiar({ contar: false })} disabled={ocupado}>No sumarlo</button>
                 )}
