@@ -7,6 +7,8 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import nodemailer, { Transporter } from 'nodemailer';
+import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import { randomUUID } from 'node:crypto';
 
 const email = process.env.FEROZO_EMAIL ?? '';
 const password = process.env.FEROZO_PASSWORD ?? '';
@@ -56,6 +58,9 @@ export interface CorreoAEnviar {
     adjuntos?: Array<{ nombre: string; contenido: Buffer; tipo?: string }>;
 }
 
+// Remitente con nombre: "Bartez Tecnología <ventas@…>" (se puede cambiar con CORREO_REMITENTE).
+const remitente = () => process.env.CORREO_REMITENTE || (email ? `Bartez Tecnología <${email}>` : '');
+
 async function enviarPorResend(c: CorreoAEnviar): Promise<{ messageId: string }> {
     const headers: Record<string, string> = {};
     if (c.inReplyTo) headers['In-Reply-To'] = c.inReplyTo;
@@ -64,7 +69,7 @@ async function enviarPorResend(c: CorreoAEnviar): Promise<{ messageId: string }>
         method: 'POST',
         headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            from: process.env.CORREO_REMITENTE || email,
+            from: remitente(),
             to: [c.para],
             reply_to: email || undefined,
             subject: c.asunto,
@@ -75,8 +80,43 @@ async function enviarPorResend(c: CorreoAEnviar): Promise<{ messageId: string }>
         signal: AbortSignal.timeout(30_000),
     });
     const r = await res.json().catch(() => ({})) as { id?: string; message?: string; name?: string };
-    if (!res.ok || !r.id) throw new Error(`No se pudo enviar por Resend: ${r.message ?? r.name ?? res.status}`);
-    return { messageId: `<${r.id}@resend.dev>` };
+    if (!res.ok || !r.id) {
+        const m = String(r.message ?? r.name ?? '');
+        if (/verif/i.test(m)) throw new Error('Resend todavía no tiene verificado el dominio del remitente: revisalo en resend.com/domains.');
+        if (res.status === 401 || /api key/i.test(m)) throw new Error('La clave RESEND_API_KEY no es válida: revisala en las variables de Railway.');
+        if (res.status === 429) throw new Error('Resend: se llegó al límite de envíos (el plan gratis permite 100 por día). Reintentá más tarde.');
+        throw new Error(`No se pudo enviar por Resend: ${m || res.status}`);
+    }
+    // Copia en "Enviados" de la casilla, para verlo como siempre en el programa de
+    // correo. El mismo Message-ID va a la historia del panel, así la importación
+    // de Enviados no lo duplica.
+    const messageId = `<${randomUUID()}@${email.split('@')[1] || 'bartez.local'}>`;
+    void copiarAEnviados(c, messageId);
+    return { messageId };
+}
+
+const CARPETAS_ENVIADOS = ['Sent', 'INBOX.Sent', 'Enviados', 'INBOX.Enviados', 'Sent Items', 'INBOX.Sent Items'];
+
+async function copiarAEnviados(c: CorreoAEnviar, messageId: string): Promise<void> {
+    if (!ferozoConfigurado) return;
+    const imap = new ImapFlow({ host: imapHost, port: imapPort, secure: true, auth: { user: email, pass: password }, logger: false });
+    try {
+        const crudo = await new MailComposer({
+            from: remitente(), to: c.para, subject: c.asunto, text: c.cuerpo, messageId, date: new Date(),
+            inReplyTo: c.inReplyTo, references: c.references ?? c.inReplyTo,
+            attachments: c.adjuntos?.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo ?? 'application/pdf' })),
+        }).compile().build();
+        await imap.connect();
+        const carpetas = await imap.list();
+        const enviados = carpetas.find((f) => f.specialUse === '\\Sent')
+            ?? carpetas.find((f) => CARPETAS_ENVIADOS.includes(f.path) || CARPETAS_ENVIADOS.includes(f.name));
+        if (enviados) await imap.append(enviados.path, crudo, ['\\Seen'], new Date());
+        else console.warn('[correo] no encontré la carpeta de Enviados para guardar la copia');
+    } catch (err) {
+        console.warn('[correo] no se pudo guardar la copia en Enviados:', (err as Error).message);
+    } finally {
+        await imap.logout().catch(() => {});
+    }
 }
 
 // Errores de conexión al servidor de correo: se explican en castellano.

@@ -92,3 +92,24 @@ Cada vez que se sube un cambio a `main`, Railway redespliega solo el backend
   borrarlo.
 - **El backend se reinicia seguido:** mirá **Deploy Logs**; casi siempre es
   una variable mal copiada (por ejemplo, la clave de Supabase cortada).
+
+
+## Correos salientes: Resend (Railway Hobby bloquea el SMTP)
+
+Railway solo permite SMTP en el plan Pro. En Hobby, los correos que aprobás
+fallan con "No se pudo conectar al servidor de correo" y quedan en *Para aprobar*
+para reintentar. Para enviarlos por HTTPS:
+
+1. En [resend.com](https://resend.com) → **Domains**: `bartez.com.ar` tiene que
+   figurar como **Verified** (los registros DNS ya están cargados en Hostmar:
+   `resend._domainkey`, y `send` con MX y SPF).
+2. **API Keys** → *Create API Key* → permiso **Sending access**, dominio
+   `bartez.com.ar`. Copiala (se muestra una sola vez).
+3. En Railway → servicio → **Variables**: `RESEND_API_KEY` = la clave. Opcional:
+   `CORREO_REMITENTE` = `Bartez Tecnología <ventas@bartez.com.ar>`. Aplicá el
+   cambio (Deploy).
+4. En el panel → *Para aprobar* → **Reintentar** en los envíos que no salieron.
+
+La lectura de correos sigue por IMAP (Ferozo) y cada enviado se guarda también
+en la carpeta Enviados de la casilla. Plan gratis de Resend: 3.000 correos por
+mes, 100 por día.
