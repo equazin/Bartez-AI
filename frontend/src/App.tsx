@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Home } from './components/Home.tsx';
+import logoOscuro from './assets/bartez-marca-oscura.webp';
+import logoBlanco from './assets/bartez-marca-blanca.webp';
 import { Chat } from './components/Chat.tsx';
 import { Acciones } from './components/Acciones.tsx';
 import { Asistentes } from './components/Asistentes.tsx';
@@ -59,11 +61,12 @@ function aplicarTema(t: Tema) {
     else raiz.dataset.theme = t === 'claro' ? 'light' : 'dark';
 }
 
+// Logo de Bartez Tecnología: letras oscuras en el tema claro, blancas en el oscuro.
 function Marca() {
     return (
         <span className="marca">
-            <span className="marca-punto" aria-hidden="true" />
-            <span className="marca-nombre">Bartez</span>
+            <img className="marca-logo marca-logo-claro" src={logoOscuro} alt="Bartez Tecnología" />
+            <img className="marca-logo marca-logo-oscuro" src={logoBlanco} alt="" aria-hidden="true" />
             <span className="marca-ai">AI</span>
         </span>
     );

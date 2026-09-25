@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AccionPendiente, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, mapaNegocio, resumenHoy } from '../api/client.ts';
+import { CSSProperties, useCallback, useEffect, useState } from 'react';
+import { AccionPendiente, SIN_MAPA, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, mapaNegocio, resumenHoy } from '../api/client.ts';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 import { preguntarABartez } from '../lib/bartez.ts';
+import { useContar } from '../lib/animar.ts';
 import { ListaNegocio, MapaNegocio, Seleccion, metricaAsistente } from './inicio/MapaNegocio.tsx';
 
 type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard' | 'chat';
@@ -30,23 +31,42 @@ function Delta({ actual, anterior }: { actual: number; anterior: number }) {
     return <span className="g-delta" title={`El mes pasado a esta altura: ${usd(anterior)}`}>{pct > 0 ? '+' : '−'}{Math.abs(pct)}%</span>;
 }
 
-// ---------- Tarjeta verde: lo ganado ----------
+// ---------- Tarjeta del mes: Ganado o Cotizado como número principal ----------
 
-function TarjetaGanado({ p, cierre, irA }: { p: Pulso; cierre: number | null; irA: (t: IrA) => void }) {
+type Principal = 'ganado' | 'cotizado';
+const CLAVE_PRINCIPAL = 'bartez_mes_principal';
+function leerPrincipal(): Principal {
+    try { return localStorage.getItem(CLAVE_PRINCIPAL) === 'cotizado' ? 'cotizado' : 'ganado'; } catch { return 'ganado'; }
+}
+
+function TarjetaMes({ p, cierre, irA }: { p: Pulso; cierre: number | null; irA: (t: IrA) => void }) {
     const k = p.kpis;
+    const [principal, setPrincipal] = useState<Principal>(leerPrincipal);
+    const elegirPrincipal = (x: Principal) => {
+        setPrincipal(x);
+        try { localStorage.setItem(CLAVE_PRINCIPAL, x); } catch { /* sin storage: solo esta vez */ }
+    };
+    const ganado = k.ganado_mes_usd ?? 0, cotizado = k.cotizado_mes_usd;
+    const valor = principal === 'ganado' ? ganado : cotizado;
+    const anterior = principal === 'ganado' ? k.ganado_mes_anterior_usd ?? 0 : k.cotizado_mes_anterior_usd;
+    const animado = useContar(valor);
     return (
-        <section className="g-ganado" aria-label="Ganado este mes">
+        <section className="g-ganado" aria-label={principal === 'ganado' ? 'Ganado este mes' : 'Cotizado este mes'}>
             <div className="g-ganado-cab">
-                <div>
-                    <span className="g-ganado-etq">Ganado este mes</span>
-                    <strong className="g-ganado-num">{usd(k.ganado_mes_usd ?? 0)}</strong>
+                <div className="g-mes-elegir" role="group" aria-label="Número principal">
+                    <button className="g-b" aria-pressed={principal === 'ganado'} onClick={() => elegirPrincipal('ganado')}>Ganado</button>
+                    <button className="g-b" aria-pressed={principal === 'cotizado'} onClick={() => elegirPrincipal('cotizado')}>Cotizado</button>
                 </div>
-                <Delta actual={k.ganado_mes_usd ?? 0} anterior={k.ganado_mes_anterior_usd ?? 0} />
+                <Delta actual={valor} anterior={anterior} />
             </div>
+            <span className="g-ganado-etq">{principal === 'ganado' ? 'Ganado este mes' : `Cotizado este mes · ${plural(k.presupuestos_mes, 'presupuesto', 'presupuestos')}`}</span>
+            <strong className="g-ganado-num" key={principal}>{usd(Math.round(animado))}</strong>
             <div className="g-ganado-mini">
-                <button onClick={() => irA('cotizador')}><span>Cotizado</span><strong>{usdCorto(k.cotizado_mes_usd)}</strong></button>
-                <button onClick={() => irA('cotizador')}><span>Cierre · 90 d</span><strong>{cierre != null ? `${cierre}%` : '—'}</strong></button>
-                <button onClick={() => irA('whatsapp')}><span>Consultas · 30 d</span><strong>{k.consultas_30d.toLocaleString('es-AR')}</strong></button>
+                {principal === 'ganado'
+                    ? <button className="g-b" onClick={() => elegirPrincipal('cotizado')} title="Ver lo cotizado como número principal"><span>Cotizado</span><strong>{usdCorto(cotizado)}</strong></button>
+                    : <button className="g-b" onClick={() => elegirPrincipal('ganado')} title="Ver lo ganado como número principal"><span>Ganado</span><strong>{usdCorto(ganado)}</strong></button>}
+                <button className="g-b" onClick={() => irA('cotizador')}><span>Cierre · 90 d</span><strong>{cierre != null ? `${cierre}%` : '—'}</strong></button>
+                <button className="g-b" onClick={() => irA('whatsapp')}><span>Consultas · 30 d</span><strong>{k.consultas_30d.toLocaleString('es-AR')}</strong></button>
             </div>
         </section>
     );
@@ -129,7 +149,7 @@ function DetalleAsistente({ a, tareas, elegir, irA, cerrar }: {
                     <ul className="g-det-lista">
                         {a.nodos.map((n) => (
                             <li key={n.id}>
-                                <button onClick={() => elegir({ tipo: 'nodo', area: a.area, id: n.id })}>
+                                <button className="g-b" onClick={() => elegir({ tipo: 'nodo', area: a.area, id: n.id })}>
                                     <span className={`g-orbe chico ${n.tipo}`} aria-hidden="true" />
                                     <span><strong>{n.nombre}</strong><span>{n.subtitulo}</span></span>
                                 </button>
@@ -141,7 +161,7 @@ function DetalleAsistente({ a, tareas, elegir, irA, cerrar }: {
                 tareas.length === 0 ? <p className="g-det-vacio">Sin tareas pendientes en Notion.</p> : (
                     <ul className="g-det-lista">
                         {tareas.slice(0, 5).map((t) => (
-                            <li key={t.id}><button onClick={() => irA('notion')}><span className="g-orbe chico tarea" aria-hidden="true" /><span><strong>{t.titulo}</strong><span>{t.cliente}{t.fecha_limite ? ` · vence ${diaCorto(t.fecha_limite)}` : ''}</span></span></button></li>
+                            <li key={t.id}><button className="g-b" onClick={() => irA('notion')}><span className="g-orbe chico tarea" aria-hidden="true" /><span><strong>{t.titulo}</strong><span>{t.cliente}{t.fecha_limite ? ` · vence ${diaCorto(t.fecha_limite)}` : ''}</span></span></button></li>
                         ))}
                     </ul>
                 )
@@ -176,9 +196,9 @@ function PanelHoy({ r, irA }: { r: ResumenHoy; irA: (t: IrA) => void }) {
                 </ol>
             )}
             <div className="g-hoy-chips">
-                <button onClick={() => irA('whatsapp')} disabled={!wa.length}><strong>{wa.length}</strong> WhatsApp sin responder</button>
-                <button onClick={() => irA('acciones')} disabled={!correos.length}><strong>{correos.length}</strong> {correos.length === 1 ? 'correo' : 'correos'} sin respuesta</button>
-                {tareasHoy.length > 0 && <button onClick={() => irA('notion')}><strong>{tareasHoy.length}</strong> {tareasHoy.length === 1 ? 'tarea' : 'tareas'} para hoy</button>}
+                <button className="g-b" onClick={() => irA('whatsapp')} disabled={!wa.length}><strong>{wa.length}</strong> WhatsApp sin responder</button>
+                <button className="g-b" onClick={() => irA('acciones')} disabled={!correos.length}><strong>{correos.length}</strong> {correos.length === 1 ? 'correo' : 'correos'} sin respuesta</button>
+                {tareasHoy.length > 0 && <button className="g-b" onClick={() => irA('notion')}><strong>{tareasHoy.length}</strong> {tareasHoy.length === 1 ? 'tarea' : 'tareas'} para hoy</button>}
             </div>
             <p className="g-pista">Tocá un cliente o un asistente del mapa para ver su detalle.</p>
         </section>
@@ -194,12 +214,13 @@ function Flujo({ meses }: { meses: Mapa['meses'] }) {
     const vacio = meses.every((m) => !m.ganado_usd && !m.perdido_usd);
     const ancho = 540, alto = 150, medio = 72, col = ancho / Math.max(meses.length, 1), barra = Math.min(26, col * 0.5);
     const m = foco != null ? meses[foco] : null;
+    const totalAnimado = useContar(total);
     return (
         <section className="g-flujo" aria-label="Ganado y perdido por mes">
             <div className="g-flujo-resumen">
                 <h2>Flujo de presupuestos</h2>
                 <span className="g-flujo-etq">Ganado en el año</span>
-                <strong className="g-flujo-num">{usd(total)}</strong>
+                <strong className="g-flujo-num">{usd(Math.round(totalAnimado))}</strong>
                 <span className="g-leyenda"><span><i className="gan" />Ganado</span><span><i className="per" />Perdido</span></span>
                 <p className="g-flujo-foco" aria-live="polite">
                     {m ? <>{MESES_LARGOS[Number(m.mes.slice(5)) - 1]}: ganado <b>{usd(m.ganado_usd)}</b> · perdido <b>{usd(m.perdido_usd)}</b></> : vacio ? 'Se completa cuando marcás presupuestos como ganados o perdidos en el Cotizador.' : 'Pasá por un mes para ver el detalle.'}
@@ -211,7 +232,7 @@ function Flujo({ meses }: { meses: Mapa['meses'] }) {
                     const cx = col * i + col / 2;
                     const hg = (x.ganado_usd / max) * (medio - 8), hp = (x.perdido_usd / max) * (medio - 22);
                     return (
-                        <g key={x.mes} onMouseEnter={() => setFoco(i)} onMouseLeave={() => setFoco(null)} className={foco === i ? 'foco' : undefined}>
+                        <g key={x.mes} onMouseEnter={() => setFoco(i)} onMouseLeave={() => setFoco(null)} className={foco === i ? 'foco' : undefined} style={{ '--i': i } as CSSProperties}>
                             <rect x={cx - col / 2} y={0} width={col} height={alto} fill="transparent" />
                             {hg > 0 && <rect x={cx - barra / 2} y={medio - 2 - hg} width={barra} height={hg} rx={5} className="gan" />}
                             {hp > 0 && <rect x={cx - barra / 2} y={medio + 2} width={barra} height={hp} rx={5} className="per" />}
@@ -421,8 +442,8 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                 </div>
                                 <div className="g-mapa-herr">
                                     <div className="g-seg" role="group" aria-label="Vista">
-                                        <button aria-pressed={modo === 'mapa'} onClick={() => setModo('mapa')}>Mapa</button>
-                                        <button aria-pressed={modo === 'lista'} onClick={() => setModo('lista')}>Lista</button>
+                                        <button className="g-b" aria-pressed={modo === 'mapa'} onClick={() => setModo('mapa')}>Mapa</button>
+                                        <button className="g-b" aria-pressed={modo === 'lista'} onClick={() => setModo('lista')}>Lista</button>
                                     </div>
                                     <button className="g-urgente" aria-pressed={soloUrgente} onClick={() => setSoloUrgente((v) => !v)} disabled={!hayUrgente && !soloUrgente} title={hayUrgente ? 'Resaltar solo lo urgente' : 'No hay nada urgente'}>
                                         Solo lo urgente
@@ -430,7 +451,16 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                 </div>
                             </div>
                             {!mapa ? (
-                                <p className="g-mapa-error">{errorMapa ? `No se pudo armar el mapa: ${errorMapa}` : 'Armando el mapa…'}</p>
+                                errorMapa === SIN_MAPA || errorMapa?.startsWith('el servidor') ? (
+                                    <div className="g-mapa-error">
+                                        <strong>El servidor todavía no tiene el mapa</strong>
+                                        <p>El panel ya está actualizado, pero el backend que está corriendo es anterior. En la PC donde corre:</p>
+                                        <code>git pull</code><code>cd backend</code><code>npm install</code><code>npm start</code>
+                                        <button className="g-btn-sec" onClick={() => cargar(true)}>Probar de nuevo</button>
+                                    </div>
+                                ) : (
+                                    <p className="g-mapa-error">{errorMapa ? `No se pudo armar el mapa: ${errorMapa}` : 'Armando el mapa…'}</p>
+                                )
                             ) : modo === 'mapa' ? (
                                 <MapaNegocio mapa={mapa} tareasNotion={tareasNotion.length} seleccion={seleccion} elegir={elegir} soloUrgente={soloUrgente} />
                             ) : (
@@ -444,13 +474,13 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                 )}
                                 <form className="g-preguntar" onSubmit={(e) => { e.preventDefault(); enviarPregunta(); }}>
                                     <input value={pregunta} onChange={(e) => setPregunta(e.target.value)} placeholder="Preguntale al mapa… ¿quién me debe respuesta?" aria-label="Preguntale a Bartez AI" />
-                                    <button type="submit" disabled={!pregunta.trim()}>↑ Enviar</button>
+                                    <button className="g-b" type="submit" disabled={!pregunta.trim()}>↑ Enviar</button>
                                 </form>
                             </div>
                         </section>
 
                         <div className="g-lado">
-                            {p && <TarjetaGanado p={p} cierre={mapa?.cierre_pct ?? null} irA={irA} />}
+                            {p && <TarjetaMes p={p} cierre={mapa?.cierre_pct ?? null} irA={irA} />}
                             {nodoSel && asistenteSel ? (
                                 <DetalleNodo key={nodoSel.id} n={nodoSel} area={asistenteSel} irA={irA} cerrar={() => setSeleccion(null)} />
                             ) : seleccion?.tipo === 'asistente' ? (
@@ -462,7 +492,11 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                     </div>
 
                     <div className="g-abajo">
-                        {mapa ? <Flujo meses={mapa.meses} /> : <section className="g-flujo" />}
+                        {mapa ? <Flujo meses={mapa.meses} /> : (
+                            <section className="g-flujo g-flujo-vacio" aria-label="Ganado y perdido por mes">
+                                <p>El flujo de presupuestos aparece junto con el mapa.</p>
+                            </section>
+                        )}
                         <section className="g-aprobar" id="para-aprobar" aria-label="Para aprobar">
                             <div className="bloque-cabeza">
                                 <h2>Para aprobar <span className="g-cuenta">{visibles.length}</span></h2>

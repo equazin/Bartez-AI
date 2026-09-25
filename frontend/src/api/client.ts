@@ -1076,8 +1076,13 @@ export interface Mapa {
     generado_en: string;
 }
 
+export const SIN_MAPA = 'SIN_MAPA';
+
 export async function mapaNegocio(refrescar = false): Promise<Mapa> {
-    return jsonOError(await apiFetch(`${BASE}/mapa${refrescar ? '?refrescar=1' : ''}`));
+    const res = await apiFetch(`${BASE}/mapa${refrescar ? '?refrescar=1' : ''}`);
+    // 404: el backend que está corriendo es anterior al mapa.
+    if (res.status === 404) throw new Error(SIN_MAPA);
+    return jsonOError(res);
 }
 
 export async function sugerenciasBartez(): Promise<{ sugerencias: Sugerencia[] }> {

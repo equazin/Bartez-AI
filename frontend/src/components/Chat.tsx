@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Sugerencia, cargarMensajes, enviarTarea, sugerenciasBartez } from '../api/client.ts';
 import { EVENTO_PREGUNTAR, Pregunta } from '../lib/bartez.ts';
+import emblema from '../assets/bartez-emblema.webp';
 
 interface Mensaje {
     rol: 'usuario' | 'sistema';
@@ -228,7 +229,7 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
             return (
                 <div className="bartez-fab-zona">
                     {idea && (
-                        <div className="bartez-globo" role="status">
+                        <div className="bartez-globo" role="status" key={idea.texto}>
                             <button className="bartez-globo-texto" data-abre-bartez onClick={() => { setAbierto(true); setEntrada(idea.pedido); setTimeout(() => entradaRef.current?.focus(), 30); }}>
                                 <span className="bartez-globo-etq">Bartez AI sugiere{vivas.length > 1 ? ` · ${(idx % vivas.length) + 1} de ${vivas.length}` : ''}</span>
                                 {idea.texto}
@@ -236,8 +237,8 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
                             <button className="bartez-globo-cerrar" onClick={() => cerrarIdea(idea.texto)} aria-label="Descartar esta sugerencia">×</button>
                         </div>
                     )}
-                    <button className="bartez-fab" data-abre-bartez onClick={() => setAbierto(true)} aria-label="Hablar con Bartez AI" title="Hablar con Bartez AI (Ctrl+K)">
-                        <span className="bartez-orbe" aria-hidden="true">✦</span>
+                    <button className={`bartez-fab ${cargando ? 'pensando' : ''}`} data-abre-bartez onClick={() => setAbierto(true)} aria-label="Hablar con Bartez AI" title="Hablar con Bartez AI (Ctrl+K)">
+                        <img className="bartez-orbe" src={emblema} alt="" aria-hidden="true" />
                         {cargando && <span className="chat-fab-punto" aria-label="respondiendo" />}
                         {!cargando && vivas.length > 0 && <span className="bartez-fab-cuenta" aria-label={`${vivas.length} sugerencias`}>{vivas.length}</span>}
                     </button>
@@ -247,7 +248,7 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
         return (
             <section ref={cajaRef} className="chat chat-flotante" role="dialog" aria-label="Chat con Bartez AI">
                 <div className="barra-cab">
-                    <strong className="barra-cab-titulo"><span className="bartez-orbe chico" aria-hidden="true">✦</span>Bartez AI</strong>
+                    <strong className="barra-cab-titulo"><img className="bartez-orbe chico" src={emblema} alt="" aria-hidden="true" />Bartez AI</strong>
                     <span className="barra-cab-acciones">
                         {historial.length > 0 && <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva</button>}
                         {alAbrirChat && <button className="enlace" onClick={() => { setAbierto(false); alAbrirChat(); }} title="Abrir en pantalla completa">Ampliar</button>}
@@ -257,7 +258,7 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
                 <div className="chat-flotante-cuerpo">
                     {historial.length === 0 && !cargando ? (
                         <div className="chat-bienvenida">
-                            <span className="bartez-orbe grande" aria-hidden="true">✦</span>
+                            <img className="bartez-orbe grande" src={emblema} alt="" aria-hidden="true" />
                             <strong>¿En qué te ayudo?</strong>
                             {vivas.length > 0 && (
                                 <ul className="chat-ideas">
