@@ -6,6 +6,7 @@ import { casillaCorreo, enviarCorreo, envioPorApi, ferozoConfigurado } from '../
 import { registrarCorreoEnHistoria } from '../inbound/registro_correos.js';
 import { enviarPlantillaWa, enviarWhatsapp } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
+import { urlWeb } from './clientes.js';
 import { numeroPresupuesto, obtenerCotizacion } from './cotizador.js';
 import { generarPresupuestoPdf } from '../pdf/presupuesto.js';
 import { actualizarProspectoEnNotion, crearNotaEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
@@ -195,7 +196,7 @@ async function ejecutarProspectos(payload: Record<string, unknown>): Promise<Res
                 origen: 'prospeccion',
                 estado: 'lead',
                 metadata: {
-                    sitio_web: p.sitio_web,
+                    sitio_web: urlWeb(p.sitio_web),
                     fuente_email: p.fuente_email,
                     telefono: p.telefono,
                     senial: p.señal,

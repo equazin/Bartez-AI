@@ -361,7 +361,7 @@ export async function promoverContactoDetectado(params: { dominio: string; nombr
         .from('clientes')
         .insert({
             nombre: params.nombre,
-            email: params.email,
+            email: params.email?.trim().toLowerCase() || null,
             origen: 'correo_historico',
             estado: 'lead',
             metadata: { dominio: params.dominio },

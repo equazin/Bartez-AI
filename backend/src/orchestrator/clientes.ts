@@ -66,6 +66,21 @@ export function nombreComparable(s: string): string {
 
 const limpiar = (v: string | null | undefined, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
 
+// Sitio web de un cliente o prospecto: solo http(s). "empresa.com.ar" pasa a
+// https://empresa.com.ar; otro esquema (javascript:, data:…) no se acepta, así
+// un dato de la IA o de afuera nunca se vuelve un link peligroso en el panel.
+export function urlWeb(v: unknown): string | null {
+    if (typeof v !== 'string' || !v.trim()) return null;
+    const t = v.trim().slice(0, 200);
+    if (!/^https?:\/\//i.test(t) && /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(t)) return null;
+    try {
+        const url = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`);
+        return url.hostname.includes('.') ? url.href : null;
+    } catch {
+        return null;
+    }
+}
+
 // Valida y ordena lo que llega del panel o del chat.
 export function normalizarDatos(d: DatosCliente): { ok: true; datos: Required<DatosCliente> } | { ok: false; detalle: string } {
     const nombre = limpiar(d.nombre, 120);
@@ -81,8 +96,8 @@ export function normalizarDatos(d: DatosCliente): { ok: true; datos: Required<Da
         }
         whatsapp = canonico;
     }
-    let sitio = limpiar(d.sitio_web, 200);
-    if (sitio && !/^https?:\/\//i.test(sitio)) sitio = `https://${sitio}`;
+    const sitio = urlWeb(d.sitio_web);
+    if (limpiar(d.sitio_web, 200) && !sitio) return { ok: false, detalle: `El sitio web "${limpiar(d.sitio_web, 60)}" no es válido: poné algo como empresa.com.ar` };
     const estado: EstadoCliente = d.estado && ['lead', 'cliente', 'inactivo', 'descartado'].includes(d.estado) ? d.estado : 'lead';
     return { ok: true, datos: { nombre, email, whatsapp, estado, contacto: limpiar(d.contacto, 120), sitio_web: sitio, cuit: limpiar(d.cuit, 20) } };
 }

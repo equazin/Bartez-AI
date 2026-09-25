@@ -1,18 +1,18 @@
 // Cliente HTTP mínimo al backend de Bartez AI.
 // La URL del backend se toma de VITE_BACKEND_URL en build; por defecto localhost.
 
-// Backend temporal para demos: ?backend=https://xxxx.trycloudflare.com en el link
-// lo guarda en este navegador; ?backend=local vuelve al default. Solo se aceptan
-// túneles de Cloudflare o localhost, para que un link ajeno no pueda mandar la
-// contraseña del panel a otro servidor.
+// Backend de esta PC para desarrollo: ?backend=http://localhost:3000 en el link lo
+// guarda en este navegador; ?backend=local vuelve al default. Solo se acepta
+// localhost: un link ajeno no puede mandar el token ni la contraseña del panel a
+// otro servidor (antes se aceptaba cualquier túnel *.trycloudflare.com, y
+// cualquiera puede crear uno).
 const CLAVE_BACKEND = 'bartez_backend';
 const DEFAULT_BACKEND = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3000';
 
 function backendPermitido(u: string): boolean {
     try {
         const url = new URL(u);
-        return (url.protocol === 'https:' && url.hostname.endsWith('.trycloudflare.com'))
-            || (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname));
+        return url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
     } catch {
         return false;
     }
@@ -41,17 +41,33 @@ export const BACKEND_ES_DEMO = BASE !== DEFAULT_BACKEND;
 // El backend "normal" es el servidor en internet (Railway) o, sin él, el de esta PC.
 export const BACKEND_NORMAL_ES_LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)/.test(DEFAULT_BACKEND);
 
-// Olvida el túnel guardado y vuelve al backend normal (el de esta PC o el publicado).
+// Olvida el backend guardado y vuelve al normal (el de esta PC o el publicado).
 export function volverAlBackendNormal(): void {
     try { localStorage.removeItem(CLAVE_BACKEND); } catch { /* sin storage */ }
     window.location.reload();
+}
+
+// Links a sitios de afuera (web de un cliente o prospecto, Notion): solo http(s).
+// Un "javascript:" que venga de la IA o de un dato cargado no se vuelve un link.
+export function urlSegura(u: string | null | undefined): string | undefined {
+    const t = (u ?? '').trim();
+    if (!t) return undefined;
+    // "javascript:", "data:"… no; "empresa.com.ar:8080" es un sitio con puerto.
+    if (!/^https?:\/\//i.test(t) && /^[a-z][a-z0-9+.-]*:(?!\d)/i.test(t)) return undefined;
+    try {
+        const url = new URL(/^https?:\/\//i.test(t) ? t : `https://${t}`);
+        return url.hostname.includes('.') ? url.href : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 // ---------- Login ----------
 // El token se guarda en el navegador; cada pedido lo manda en Authorization.
 // Si el backend responde 401, se borra y la app vuelve a pedir la contraseña.
 
-const CLAVE_TOKEN = 'bartez_token';
+// El token queda atado al backend que lo emitió: nunca se manda a otro.
+const CLAVE_TOKEN = BACKEND_ES_DEMO ? `bartez_token:${BASE}` : 'bartez_token';
 export const EVENTO_LOGOUT = 'bartez:logout';
 
 function leerToken(): string | null {

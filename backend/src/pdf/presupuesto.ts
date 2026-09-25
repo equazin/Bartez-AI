@@ -61,7 +61,7 @@ export function nombreArchivo(cliente: string, numero: string): string {
 
 export function generarPresupuestoPdf(c: Cotizacion, numero?: number | null): { pdf: Buffer; archivo: string } {
     const logo = cargarLogo();
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     const W = doc.internal.pageSize.getWidth();
     const H = doc.internal.pageSize.getHeight();
     const M = 18;

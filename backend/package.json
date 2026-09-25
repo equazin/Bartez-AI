@@ -22,19 +22,22 @@
     "exceljs": "^4.4.0",
     "fastify": "^5.0.0",
     "imapflow": "^1.0.164",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.4",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "mailparser": "^3.7.2",
     "mammoth": "^1.12.3",
     "node-cron": "^4.6.0",
-    "nodemailer": "^6.9.15",
+    "nodemailer": "^10.0.10",
     "tsx": "^4.19.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.5",
     "@types/node": "^22.0.0",
-    "@types/nodemailer": "^6.4.16",
+    "@types/nodemailer": "^8.0.2",
     "typescript": "^5.6.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

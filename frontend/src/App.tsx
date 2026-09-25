@@ -144,10 +144,10 @@ export function App() {
                     {BACKEND_ES_DEMO ? (
                         <>
                             <p className="error">
-                                No responde el túnel guardado ({new URL(BACKEND_URL).host}). Si era de una demo que ya cerraste, volvé al {BACKEND_NORMAL_ES_LOCAL ? 'backend de esta PC' : 'servidor principal'}.
+                                No responde el backend guardado ({new URL(BACKEND_URL).host}). Si ya lo cerraste, volvé al {BACKEND_NORMAL_ES_LOCAL ? 'backend de esta PC' : 'servidor principal'}.
                             </p>
                             <button className="primario" onClick={volverAlBackendNormal}>{BACKEND_NORMAL_ES_LOCAL ? 'Usar el backend de esta PC' : 'Usar el servidor principal'}</button>
-                            <button className="secundario-login" onClick={verificar}>Reintentar el túnel</button>
+                            <button className="secundario-login" onClick={verificar}>Reintentar</button>
                         </>
                     ) : (
                         <>

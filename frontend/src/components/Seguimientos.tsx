@@ -12,6 +12,7 @@ import {
     memoriaCliente,
     promoverContactoDetectado,
     redactarSeguimiento,
+    urlSegura,
 } from '../api/client.ts';
 import { MemoriaCliente, PestanaMemoria, fechaHora, notaResumiendose } from './seguimientos/MemoriaCliente.tsx';
 import { EnviosFallidos } from './EnviosFallidos.tsx';
@@ -274,7 +275,7 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
                                         <span className={`badge-estado est-${seleccionada.cliente.estado}`}>{seleccionada.cliente.estado}</span>
                                         {seleccionada.cliente.email && <span>· {seleccionada.cliente.email}</span>}
                                         {seleccionada.cliente.metadata?.sitio_web && (
-                                            <> · <a href={seleccionada.cliente.metadata.sitio_web} target="_blank" rel="noreferrer">{seleccionada.cliente.metadata.sitio_web}</a></>
+                                            <> · <a href={urlSegura(seleccionada.cliente.metadata.sitio_web)} target="_blank" rel="noreferrer">{seleccionada.cliente.metadata.sitio_web}</a></>
                                         )}
                                         {typeof seleccionada.cliente.metadata?.puntaje_icp === 'number' && (
                                             <> · <strong>ICP {seleccionada.cliente.metadata.puntaje_icp}/10</strong></>

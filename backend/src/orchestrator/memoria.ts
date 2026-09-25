@@ -419,6 +419,25 @@ export async function cambiarCotizadoDocumento(
     return documento(id);
 }
 
+// Lo que quedó a medias por un reinicio del servidor (cada publicación lo
+// reinicia): documentos que se estaban leyendo (quedaban "leyendo…" para
+// siempre) y notas largas que no llegaron a resumirse. Corre al arrancar.
+const ARRANQUE = new Date().toISOString();
+export async function retomarPendientes(): Promise<{ documentos: number; notas: number }> {
+    // Solo lo anterior al arranque: lo que se sube ahora ya se está leyendo.
+    const { data: docs } = await supabase.from('cliente_documentos').select('id').eq('estado', 'procesando')
+        .lt('creado_en', ARRANQUE).order('creado_en', { ascending: true }).limit(20);
+    for (const d of docs ?? []) await procesarDocumento(d.id as string);
+    const { data: notas } = await supabase.from('cliente_notas').select('id, texto, cliente_id').is('resumen', null)
+        .lt('creado_en', ARRANQUE).order('creado_en', { ascending: false }).limit(60);
+    const largas = (notas ?? []).filter((n) => String(n.texto ?? '').length > NOTA_LARGA).slice(0, 20);
+    for (const n of largas) {
+        await resumirNota(n.id as string, n.texto as string, n.cliente_id as string)
+            .catch((err) => console.warn('[memoria] resumir nota pendiente', n.id, (err as Error).message));
+    }
+    return { documentos: docs?.length ?? 0, notas: largas.length };
+}
+
 // Documentos leídos con una versión vieja de la extracción: se vuelven a leer
 // de a uno los que cambian con la versión nueva; al resto solo se le sube la
 // versión. Corre al arrancar el servidor.

@@ -9,6 +9,7 @@ import { textoWebBartez } from '../connectors/bartez_web.js';
 import { conMemoria } from '../orchestrator/memoria.js';
 import { conLecciones } from '../orchestrator/aprendizaje.js';
 import { historicoConCliente, historicoConEmail } from '../inbound/importar_historico.js';
+import { EMPRESA } from '../config/empresa.js';
 
 const PROMPT_PANEL = `
 Estás hablando con el operador de Bartez Tecnología (el dueño) desde el
@@ -75,6 +76,30 @@ Formato de tu respuesta (obligatorio, respetá los tags):
 // Categorías que se pueden autoresponder si la autonomía lo permite.
 // El resto (cotizacion_detalle, queja, soporte, otro) SIEMPRE requiere aprobación.
 const CATEGORIAS_AUTORESPONDIBLES = new Set(['consulta_simple', 'cotizacion_vaga']);
+
+const RE_CORREO = /[a-z0-9._%+'-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi;
+const DOMINIO_PROPIO = /(^|\.)bartez\.com\.ar$/i;
+const NUMEROS_PROPIOS = [EMPRESA.telefono, EMPRESA.cuit].map((n) => n.replace(/\D/g, ''));
+
+// Una respuesta automática solo puede llevar links, correos y teléfonos de Bartez
+// (o el correo de quien escribió). Si trae otros —porque el correo que entró pidió
+// incluirlos o porque la IA los agregó—, va a Para aprobar: así nadie usa el
+// autorespondedor para mandar sus links o datos desde la casilla de Bartez.
+export function seguroParaAutoenvio(cuerpo: string, para: string): boolean {
+    for (const c of cuerpo.match(RE_CORREO) ?? []) {
+        if (c.toLowerCase() !== para.trim().toLowerCase() && !DOMINIO_PROPIO.test(c.split('@')[1] ?? '')) return false;
+    }
+    const sinCorreos = cuerpo.replace(RE_CORREO, ' ');
+    for (const l of sinCorreos.match(/\b(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:[/?#][^\s]*)?/gi) ?? []) {
+        const host = l.replace(/^https?:\/\//i, '').split(/[/?#:]/)[0]!.toLowerCase().replace(/^www\./, '');
+        if (!DOMINIO_PROPIO.test(host)) return false;
+    }
+    for (const t of sinCorreos.match(/\+?\d[\d\s().-]{6,}\d/g) ?? []) {
+        const digitos = t.replace(/\D/g, '');
+        if (digitos.length >= 8 && !NUMEROS_PROPIOS.some((n) => digitos.endsWith(n) || n.endsWith(digitos))) return false;
+    }
+    return true;
+}
 
 export class AsistenteCorreo extends AsistenteBase {
     protected override async construirSystem(tarea: TareaEntrante): Promise<string> {
@@ -200,14 +225,17 @@ export class AsistenteCorreo extends AsistenteBase {
         };
     }
 
-    protected override decidirAprobacion(_accion: NonNullable<ResultadoAsistente['accionPropuesta']>, tarea: TareaEntrante): boolean {
+    protected override decidirAprobacion(accion: NonNullable<ResultadoAsistente['accionPropuesta']>, tarea: TareaEntrante): boolean {
         // Queja o cotización con detalle → SIEMPRE aprobación (por más autonomía que haya).
         const clasif = tarea.metadata?.clasificacion as { categoria?: string } | undefined;
         const cat = clasif?.categoria ?? '';
         if (cat === 'queja' || cat === 'cotizacion_detalle') return true;
 
-        // Consulta simple o cotización vaga: si la autonomía es >= 50, autoresponde.
-        if (CATEGORIAS_AUTORESPONDIBLES.has(cat) && this.config.autonomia >= 50) return false;
+        // Consulta simple o cotización vaga: si la autonomía es >= 50, autoresponde,
+        // salvo que la respuesta traiga links, correos o teléfonos ajenos.
+        if (CATEGORIAS_AUTORESPONDIBLES.has(cat) && this.config.autonomia >= 50) {
+            return !seguroParaAutoenvio(String(accion.payload.cuerpo ?? ''), String(accion.payload.para ?? ''));
+        }
 
         // Cualquier otra cosa: sigue la regla estándar de autonomía.
         return this.config.autonomia < 100;

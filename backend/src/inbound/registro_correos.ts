@@ -21,7 +21,7 @@ export interface CorreoParaHistoria {
 }
 
 async function clientePorEmail(email: string): Promise<string | null> {
-    const { data } = await supabase.from('clientes').select('id').ilike('email', email).limit(2);
+    const { data } = await supabase.from('clientes').select('id').eq('email', email).limit(2);
     return data && data.length === 1 ? (data[0]!.id as string) : null;
 }
 

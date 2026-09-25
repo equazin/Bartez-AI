@@ -14,7 +14,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import { idsNotion, notion, notionConfigurado } from '../connectors/notion.js';
-import { supabase } from '../connectors/supabase.js';
+import { likeLiteral, supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import type { ModeloClaude } from './types.js';
 
@@ -144,7 +144,7 @@ export async function fotoNegocio(): Promise<FotoNegocio> {
     const relevantes = (correos.data ?? []).filter((c) => ['consulta', 'cotizacion', 'queja', 'soporte'].includes(String(c.categoria ?? ''))).slice(0, 8);
     const respondidos = await Promise.all(relevantes.map(async (c) => {
         const { count } = await supabase.from('correos_historicos').select('id', { count: 'exact', head: true })
-            .eq('direccion', 'saliente').ilike('para_email', `%${c.de_email}%`).gt('fecha', c.fecha);
+            .eq('direccion', 'saliente').ilike('para_email', `%${likeLiteral(String(c.de_email ?? ''))}%`).gt('fecha', c.fecha);
         return (count ?? 0) > 0;
     }));
     const porCategoria: Record<string, number> = {};

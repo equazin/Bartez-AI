@@ -20,7 +20,7 @@ import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orches
 import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { calcularMapa } from './orchestrator/mapa.js';
 import { crearCliente, editarCliente } from './orchestrator/clientes.js';
-import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
+import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -1390,7 +1390,10 @@ async function main() {
     // Documentos que se leyeron antes de sacar los datos de presupuesto: se leen
     // de nuevo (de a uno, en segundo plano) para que sumen a Cotizado.
     setTimeout(() => {
-        completarDatosDocumentos()
+        retomarPendientes()
+            .then((r) => { if (r.documentos || r.notas) app.log.info(r, 'retomado lo que quedó a medias por el reinicio'); })
+            .catch((err) => app.log.warn({ err }, 'retomar pendientes falló'))
+            .then(() => completarDatosDocumentos())
             .then((n) => { if (n) app.log.info({ documentos: n }, 'documentos releídos para Cotizado'); })
             .catch((err) => app.log.warn({ err }, 'releer documentos falló'));
     }, 15_000);

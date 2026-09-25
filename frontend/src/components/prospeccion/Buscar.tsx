@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { buscarProspectos } from '../../api/client.ts';
+import { buscarProspectos, urlSegura } from '../../api/client.ts';
 
 interface Prospecto {
     nombre: string;
@@ -105,7 +105,7 @@ export function Buscar() {
                         <div>
                             <h3>{p.nombre}</h3>
                             {p.sitio_web && (
-                                <a href={p.sitio_web} target="_blank" rel="noreferrer" className="prosp-web">
+                                <a href={urlSegura(p.sitio_web)} target="_blank" rel="noreferrer" className="prosp-web">
                                     {p.sitio_web}
                                 </a>
                             )}

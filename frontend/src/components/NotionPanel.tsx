@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { EstadoNotionAutonomo, actualizarTableroNotion, estadoNotionAutonomo, organizarNotion } from '../api/client.ts';
+import { EstadoNotionAutonomo, actualizarTableroNotion, estadoNotionAutonomo, organizarNotion, urlSegura } from '../api/client.ts';
 
 const fecha = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'nunca';
@@ -130,7 +130,7 @@ export function NotionPanel() {
                         {ocupado === 'tablero' ? 'Actualizando…' : 'Actualizar tablero'}
                     </button>
                     {estado?.tablero_url && (
-                        <a className="btn-primario notion-abrir" href={estado.tablero_url} target="_blank" rel="noreferrer">Abrir Tablero ↗</a>
+                        <a className="btn-primario notion-abrir" href={urlSegura(estado.tablero_url)} target="_blank" rel="noreferrer">Abrir Tablero ↗</a>
                     )}
                 </div>
             </div>
@@ -210,7 +210,7 @@ export function NotionPanel() {
                                     <span className={`notion-tipo2 nt-${t.tono}`}>{t.etq}</span>
                                     <span className="notion-detalle">{c.detalle}</span>
                                     {c.origen === 'pedido' && <span className="notion-origen">a pedido</span>}
-                                    {c.url && <a href={c.url} target="_blank" rel="noreferrer">ver ↗</a>}
+                                    {c.url && <a href={urlSegura(c.url)} target="_blank" rel="noreferrer">ver ↗</a>}
                                 </div>
                             );
                         })}

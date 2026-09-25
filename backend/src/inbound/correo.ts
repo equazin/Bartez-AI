@@ -3,7 +3,7 @@
 // enrutar(canal='correo') → el asistente de Correo genera respuesta → si
 // autonomía < 100, va a acciones_pendientes esperando aprobación.
 
-import { supabase } from '../connectors/supabase.js';
+import { emailNormal, supabase } from '../connectors/supabase.js';
 import { CorreoEntrante, iniciarListener } from '../connectors/ferozo.js';
 import { enrutar } from '../orchestrator/router.js';
 import { actualizarCotizacion, cotizar } from '../orchestrator/cotizador.js';
@@ -11,13 +11,14 @@ import { clasificarCorreo } from './clasificador.js';
 import { registrarCorreoEnHistoria } from './registro_correos.js';
 import { casillaCorreo } from '../connectors/ferozo.js';
 
-async function buscarOCrearCliente(emailCliente: string, nombre?: string): Promise<string | null> {
-    // Buscar cliente existente por email
-    // Sin distinguir mayúsculas: "MMarsilla@…" es el mismo que "mmarsilla@…".
+async function buscarOCrearCliente(emailRecibido: string, nombre?: string): Promise<string | null> {
+    // Buscar cliente existente por email, exacto y en minúscula: "MMarsilla@…" es
+    // el mismo que "mmarsilla@…" (los emails de clientes se guardan en minúscula).
+    const emailCliente = emailNormal(emailRecibido);
     const { data: existentes } = await supabase
         .from('clientes')
         .select('id')
-        .ilike('email', emailCliente)
+        .eq('email', emailCliente)
         .limit(1);
     if (existentes?.[0]) return existentes[0].id as string;
 

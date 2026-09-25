@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { actualizarCliente, contactarProspecto, correrSeguimientos, importarCorreosHistoricos, listarProspectos, organizarNotion, registrarCatalogoNotion, Prospecto } from '../../api/client.ts';
+import { actualizarCliente, contactarProspecto, correrSeguimientos, importarCorreosHistoricos, listarProspectos, organizarNotion, registrarCatalogoNotion, Prospecto, urlSegura } from '../../api/client.ts';
 
 type Estado = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado';
 
@@ -214,7 +214,7 @@ export function ListaProspectos() {
                                 {p.metadata?.sitio_web && (
                                     <p>
                                         <strong>Sitio:</strong>{' '}
-                                        <a href={p.metadata.sitio_web} target="_blank" rel="noreferrer" className="prosp-web">
+                                        <a href={urlSegura(p.metadata.sitio_web)} target="_blank" rel="noreferrer" className="prosp-web">
                                             {p.metadata.sitio_web}
                                         </a>
                                     </p>

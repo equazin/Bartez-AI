@@ -7,7 +7,7 @@
 import { ImapFlow } from 'imapflow';
 import { simpleParser, ParsedMail } from 'mailparser';
 import nodemailer, { Transporter } from 'nodemailer';
-import MailComposer from 'nodemailer/lib/mail-composer/index.js';
+import MailComposer from 'nodemailer/lib/mail-composer';
 import { randomUUID } from 'node:crypto';
 
 const email = process.env.FEROZO_EMAIL ?? '';
