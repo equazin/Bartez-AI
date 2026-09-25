@@ -307,7 +307,13 @@ interface FilaCotizacion {
     numero: number | null;
     datos_cliente: DatosCliente | null;
     creado_en: string;
+    estado: EstadoVenta | null;
+    enviada_en: string | null;
+    cerrada_en: string | null;
+    motivo_cierre: string | null;
 }
+
+export type EstadoVenta = 'abierta' | 'enviada' | 'ganada' | 'perdida';
 
 export interface DatosCliente {
     cuit?: string;
@@ -322,6 +328,11 @@ export interface CotizacionGuardada extends ResultadoCotizacion {
     numero: number | null;
     datos_cliente: DatosCliente;
     creado_en: string;
+    cliente_id: string | null;
+    estado: EstadoVenta;
+    enviada_en: string | null;
+    cerrada_en: string | null;
+    motivo_cierre: string | null;
 }
 
 // Las cotizaciones anteriores a la columna `resultado` se rearman desde items + totales.
@@ -350,13 +361,16 @@ function rearmar(f: FilaCotizacion): CotizacionGuardada {
             duracion_ms: 0,
         };
     })();
-    return { ...base, id: f.id, titulo: f.titulo, numero: f.numero, datos_cliente: f.datos_cliente ?? {}, creado_en: f.creado_en };
+    return {
+        ...base, id: f.id, titulo: f.titulo, numero: f.numero, datos_cliente: f.datos_cliente ?? {}, creado_en: f.creado_en,
+        cliente_id: f.cliente_id, estado: f.estado ?? 'abierta', enviada_en: f.enviada_en, cerrada_en: f.cerrada_en, motivo_cierre: f.motivo_cierre,
+    };
 }
 
 export async function listarCotizaciones(limite = 50) {
     const { data, error } = await supabase
         .from('cotizaciones')
-        .select('id, titulo, pedido, total_usd, total_ars, creado_en, items')
+        .select('id, titulo, pedido, total_usd, total_ars, creado_en, items, numero, estado, enviada_en, cerrada_en, motivo_cierre, cliente_id')
         .order('creado_en', { ascending: false })
         .limit(limite);
     if (error) throw new Error(error.message);
@@ -368,6 +382,12 @@ export async function listarCotizaciones(limite = 50) {
         total_ars: Number(f.total_ars ?? 0),
         renglones: Array.isArray(f.items) ? f.items.length : 0,
         creado_en: f.creado_en as string,
+        numero: (f.numero as number | null) ?? null,
+        estado: ((f.estado as EstadoVenta | null) ?? 'abierta'),
+        enviada_en: (f.enviada_en as string | null) ?? null,
+        cerrada_en: (f.cerrada_en as string | null) ?? null,
+        motivo_cierre: (f.motivo_cierre as string | null) ?? null,
+        cliente_id: (f.cliente_id as string | null) ?? null,
     }));
 }
 
@@ -396,5 +416,56 @@ export async function borrarCotizacion(id: string): Promise<boolean> {
 export async function numeroPresupuesto(id: string): Promise<number | null> {
     const { data, error } = await supabase.rpc('asignar_numero_presupuesto', { p_id: id });
     if (error) throw new Error(error.message);
+    // Con número (PDF generado) el presupuesto pasa a "enviada".
+    if (data != null) {
+        await supabase.from('cotizaciones').update({ estado: 'enviada', enviada_en: new Date().toISOString() })
+            .eq('id', id).eq('estado', 'abierta');
+    }
     return (data as number | null) ?? null;
+}
+
+// Cierre del ciclo de venta. Ganar un presupuesto convierte al lead en cliente.
+export async function cerrarCotizacion(
+    id: string,
+    estado: EstadoVenta,
+    motivo?: string | null,
+): Promise<{ ok: boolean; cliente_actualizado?: boolean }> {
+    const cerrada = estado === 'ganada' || estado === 'perdida';
+    const cambios: Record<string, unknown> = {
+        estado,
+        cerrada_en: cerrada ? new Date().toISOString() : null,
+        motivo_cierre: cerrada ? (motivo?.trim() || null) : null,
+    };
+    if (estado === 'enviada') cambios.enviada_en = new Date().toISOString();
+    const { data, error } = await supabase.from('cotizaciones').update(cambios).eq('id', id).select('id, cliente_id');
+    if (error) throw new Error(error.message);
+    const fila = data?.[0];
+    if (!fila) return { ok: false };
+    let clienteActualizado = false;
+    if (estado === 'ganada' && fila.cliente_id) {
+        const { data: c } = await supabase.from('clientes').update({ estado: 'cliente' })
+            .eq('id', fila.cliente_id).in('estado', ['lead', 'inactivo']).select('id');
+        clienteActualizado = (c ?? []).length > 0;
+    }
+    return { ok: true, cliente_actualizado: clienteActualizado };
+}
+
+// Presupuestos enviados que siguen sin respuesta después de `dias`.
+export async function presupuestosSinRespuesta(dias = 5, limite = 20) {
+    const hasta = new Date(Date.now() - dias * 86_400_000).toISOString();
+    const { data, error } = await supabase.from('cotizaciones')
+        .select('id, titulo, numero, total_usd, enviada_en, cliente_id, seguimiento_en, pedido')
+        .eq('estado', 'enviada').lte('enviada_en', hasta)
+        .order('enviada_en', { ascending: true }).limit(limite);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((f) => ({
+        id: f.id as string,
+        titulo: (f.titulo as string | null) ?? null,
+        numero: (f.numero as number | null) ?? null,
+        total_usd: Number(f.total_usd ?? 0),
+        enviada_en: f.enviada_en as string,
+        cliente_id: (f.cliente_id as string | null) ?? null,
+        seguimiento_en: (f.seguimiento_en as string | null) ?? null,
+        pedido: f.pedido as string,
+    }));
 }

@@ -435,6 +435,11 @@ export interface Cotizacion {
     numero?: number | null;
     datos_cliente?: DatosCliente;
     creado_en?: string;
+    cliente_id?: string | null;
+    estado?: EstadoVenta;
+    enviada_en?: string | null;
+    cerrada_en?: string | null;
+    motivo_cierre?: string | null;
 }
 
 export interface DatosCliente {
@@ -483,6 +488,20 @@ export interface CotizacionResumen {
     total_ars: number;
     renglones: number;
     creado_en: string;
+    numero: number | null;
+    estado: EstadoVenta;
+    enviada_en: string | null;
+    cerrada_en: string | null;
+    motivo_cierre: string | null;
+    cliente_id: string | null;
+}
+
+export type EstadoVenta = 'abierta' | 'enviada' | 'ganada' | 'perdida';
+
+export async function cerrarCotizacion(id: string, estado: EstadoVenta, motivo?: string | null): Promise<{ ok: boolean; cliente_actualizado?: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/cotizaciones/${id}/cierre`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ estado, motivo: motivo ?? null }),
+    }));
 }
 
 export async function listarCotizaciones(): Promise<{ cotizaciones: CotizacionResumen[] }> {
@@ -959,7 +978,13 @@ export interface Pulso {
         leads_30d_anterior: number;
         aprobadas_30d: number;
         resueltas_30d: number;
+        ganado_mes_usd: number;
+        ganado_mes_anterior_usd: number;
+        ganadas_90d: number;
+        perdidas_90d: number;
     };
+    esperando: Array<{ id: string; titulo: string | null; numero: number | null; total_usd: number; enviada_en: string }>;
+    esperando_total: number;
     embudo: { prospectos: number; contactados: number; respondieron: number; clientes: number };
 }
 

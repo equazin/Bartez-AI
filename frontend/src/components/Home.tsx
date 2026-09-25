@@ -66,7 +66,14 @@ function Delta({ actual, anterior, sufijo }: { actual: number; anterior: number;
 }
 
 function Kpis({ p, irA }: { p: Pulso; irA: (t: IrA) => void }) {
-    const k = p.kpis;
+    // Los campos de cierre llegan desde el backend nuevo; con uno viejo valen 0.
+    const k = {
+        ...p.kpis,
+        ganado_mes_usd: p.kpis.ganado_mes_usd ?? 0,
+        ganado_mes_anterior_usd: p.kpis.ganado_mes_anterior_usd ?? 0,
+        ganadas_90d: p.kpis.ganadas_90d ?? 0,
+        perdidas_90d: p.kpis.perdidas_90d ?? 0,
+    };
     const consultas = p.dias.map((_, i) => (p.consultas_correo[i] ?? 0) + (p.consultas_whatsapp[i] ?? 0));
     const tasa = k.resueltas_30d ? Math.round((k.aprobadas_30d / k.resueltas_30d) * 100) : null;
     const hoy = (v: number[]) => v[v.length - 1] ?? 0;
@@ -79,10 +86,14 @@ function Kpis({ p, irA }: { p: Pulso; irA: (t: IrA) => void }) {
                 <Sparkline valores={p.cotizado_usd} titulo="Cotizado por día, últimos 30 días" />
             </button>
             <button className="kpi" onClick={() => irA('cotizador')}>
-                <span className="kpi-etq">Presupuestos del mes</span>
-                <span className="kpi-num">{k.presupuestos_mes}</span>
-                <span className="kpi-pie"><Delta actual={k.presupuestos_mes} anterior={k.presupuestos_mes_anterior} sufijo="vs mes ant." /></span>
-                <span className="kpi-nota">con número, en PDF</span>
+                <span className="kpi-etq">Ganado este mes</span>
+                <span className="kpi-num">{usdCorto(k.ganado_mes_usd)}</span>
+                <span className="kpi-pie"><Delta actual={k.ganado_mes_usd} anterior={k.ganado_mes_anterior_usd} sufijo="vs mes ant." /></span>
+                <span className="kpi-nota">
+                    {k.ganadas_90d + k.perdidas_90d > 0
+                        ? `cierre ${Math.round((k.ganadas_90d / (k.ganadas_90d + k.perdidas_90d)) * 100)}% · ${k.ganadas_90d} de ${k.ganadas_90d + k.perdidas_90d} en 90 días`
+                        : `${k.presupuestos_mes} presupuestos este mes`}
+                </span>
             </button>
             <button className="kpi" onClick={() => irA('whatsapp')}>
                 <span className="kpi-etq">Consultas · 30 días</span>
@@ -250,6 +261,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     if (tuOk) chips.push({ clave: 'ok', n: tuOk, texto: tuOk === 1 ? 'espera tu OK' : 'esperan tu OK', tono: 'espera', ir: () => irA('acciones') });
     if (waPendientes.length) chips.push({ clave: 'wa', n: waPendientes.length, texto: waPendientes.length === 1 ? 'WhatsApp vence hoy' : 'WhatsApp vencen hoy', tono: waPendientes.some((w) => w.hace_horas >= 18) ? 'urgente' : 'normal', ir: () => irA('whatsapp') });
     if (correosSinResp.length) chips.push({ clave: 'correo', n: correosSinResp.length, texto: correosSinResp.length === 1 ? 'correo sin responder' : 'correos sin responder', tono: 'normal', ir: irASinResponder });
+    if (p?.esperando_total) chips.push({ clave: 'presupuestos', n: p.esperando_total, texto: p.esperando_total === 1 ? 'presupuesto sin respuesta' : 'presupuestos sin respuesta', tono: 'normal', ir: () => irA('cotizador') });
     if (tareasUrgentes.length) chips.push({ clave: 'tareas', n: tareasUrgentes.length, texto: tareasUrgentes.length === 1 ? 'tarea para hoy' : 'tareas para hoy', tono: tareasUrgentes.some((t) => t.fecha_limite! < hoyIso) ? 'urgente' : 'normal', ir: () => irA('notion') });
 
     return (

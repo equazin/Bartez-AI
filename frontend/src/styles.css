@@ -2207,3 +2207,25 @@ input, textarea, select { color: var(--texto); }
 .aprendio-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .canal-rechazo { background: var(--peligro-soft); color: var(--peligro); }
 .canal-edicion { background: var(--acento-soft); color: var(--acento); }
+
+/* ---- Ciclo de venta: estado de cada presupuesto ---- */
+.estado-venta { font-size: var(--t-xs); font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; text-align: center; }
+.ev-abierta { background: var(--hover); color: var(--sutil); }
+.ev-enviada { background: var(--acento-soft); color: var(--acento); }
+.ev-ganada { background: var(--ok-soft); color: var(--ok); }
+.ev-perdida { background: var(--peligro-soft); color: var(--peligro); }
+.cot-hist-cab { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 24px 0 10px; }
+.cot-hist-cab .section-h { margin: 0; }
+.chip-n { opacity: 0.6; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.cierre { display: flex; align-items: center; justify-content: space-between; gap: 10px 14px; flex-wrap: wrap; margin: 10px 0 14px; padding: 10px 12px; border-radius: 10px; background: var(--hundido); border: 1px solid var(--borde-soft); }
+.cierre-pregunta { font-weight: 650; font-size: var(--t-sm); }
+.cierre-pregunta .tenue { font-weight: 400; margin-left: 4px; }
+.cierre-botones { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cierre-motivos { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.cierre-motivos input { font: inherit; font-size: var(--t-sm); padding: 7px 10px; border-radius: 6px; border: 1px solid var(--borde); background: var(--panel); color: var(--texto); min-width: 200px; flex: 1; }
+.btn-ganada { background: var(--ok); color: #fff; border: 0; padding: 8px 16px; border-radius: 6px; font: inherit; font-size: var(--t-sm); font-weight: 650; cursor: pointer; }
+.cierre-ganada { background: var(--ok-soft); border-color: transparent; justify-content: flex-start; }
+.cierre.cierre-perdida { background: var(--peligro-soft); border-color: transparent; justify-content: flex-start; flex-direction: row; }
+.cierre-marca { font-weight: 750; }
+.cierre-ganada .cierre-marca { color: var(--ok); }
+.cierre.cierre-perdida .cierre-marca { color: var(--peligro); }

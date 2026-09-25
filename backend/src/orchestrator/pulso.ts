@@ -2,6 +2,7 @@
 // indicadores comparados con el período anterior y el embudo de prospectos.
 // Todo se agrupa por día en horario de Argentina.
 
+import { presupuestosSinRespuesta } from './cotizador.js';
 import { supabase } from '../connectors/supabase.js';
 
 const TZ = 'America/Argentina/Buenos_Aires';
@@ -25,7 +26,14 @@ export interface Pulso {
         leads_30d_anterior: number;
         aprobadas_30d: number;
         resueltas_30d: number;
+        ganado_mes_usd: number;
+        ganado_mes_anterior_usd: number;
+        ganadas_90d: number;
+        perdidas_90d: number;
     };
+    // Enviados hace 5+ días sin respuesta (los más viejos primero).
+    esperando: Array<{ id: string; titulo: string | null; numero: number | null; total_usd: number; enviada_en: string }>;
+    esperando_total: number;
     embudo: { prospectos: number; contactados: number; respondieron: number; clientes: number };
 }
 
@@ -46,7 +54,7 @@ export async function calcularPulso(): Promise<Pulso> {
     const hace60 = new Date(ahora - 60 * DIA_MS).toISOString();
     const hoyStr = dia(new Date(ahora).toISOString());
 
-    const [correos, wa, cots, clientes, acciones, conCorreo, conWa] = await Promise.all([
+    const [correos, wa, cots, clientes, acciones, conCorreo, conWa, cerradas, esperando] = await Promise.all([
         todas<{ fecha: string }>((a, b) => supabase.from('correos_historicos').select('fecha').eq('direccion', 'entrante').eq('ignorable', false).gte('fecha', hace60).range(a, b)),
         todas<{ creado_en: string }>((a, b) => supabase.from('wa_mensajes').select('creado_en').eq('origen', 'cliente').gte('creado_en', hace60).range(a, b)),
         todas<{ creado_en: string; total_usd: number | string | null; numero: number | null }>((a, b) => supabase.from('cotizaciones').select('creado_en, total_usd, numero').gte('creado_en', new Date(ahora - 70 * DIA_MS).toISOString()).range(a, b)),
@@ -54,6 +62,8 @@ export async function calcularPulso(): Promise<Pulso> {
         todas<{ estado: string; resuelto_en: string }>((a, b) => supabase.from('acciones_pendientes').select('estado, resuelto_en').gte('resuelto_en', new Date(ahora - 30 * DIA_MS).toISOString()).range(a, b)),
         todas<{ cliente_id: string }>((a, b) => supabase.from('correos_historicos').select('cliente_id').eq('direccion', 'entrante').not('cliente_id', 'is', null).range(a, b)),
         todas<{ cliente_id: string }>((a, b) => supabase.from('wa_conversaciones').select('cliente_id').not('cliente_id', 'is', null).range(a, b)),
+        todas<{ estado: string; total_usd: number | string | null; cerrada_en: string }>((a, b) => supabase.from('cotizaciones').select('estado, total_usd, cerrada_en').in('estado', ['ganada', 'perdida']).gte('cerrada_en', new Date(ahora - 95 * DIA_MS).toISOString()).range(a, b)),
+        presupuestosSinRespuesta(5, 200),
     ]);
 
     // Últimos 30 días (incluye hoy), en orden.
@@ -86,6 +96,16 @@ export async function calcularPulso(): Promise<Pulso> {
     const antesDe30 = dia(new Date(ahora - 30 * DIA_MS).toISOString());
     const contar = <T>(arr: T[], fecha: (x: T) => string, desde: string, hasta: string) => arr.filter((x) => enRango(dia(fecha(x)), desde, hasta)).length;
 
+    let ganadoMes = 0, ganadoMesAnt = 0, ganadas90 = 0, perdidas90 = 0;
+    const desde90 = dia(new Date(ahora - 89 * DIA_MS).toISOString());
+    for (const c of cerradas) {
+        const d = dia(c.cerrada_en);
+        if (d >= desde90) { if (c.estado === 'ganada') ganadas90++; else perdidas90++; }
+        if (c.estado !== 'ganada') continue;
+        if (d >= inicioMes && d <= hoyStr) ganadoMes += Number(c.total_usd ?? 0);
+        else if (d >= inicioMesAnt && d <= finTramoAnt) ganadoMesAnt += Number(c.total_usd ?? 0);
+    }
+
     const activos = clientes.filter((c) => c.estado !== 'descartado');
     const respondieron = new Set([...conCorreo.map((c) => c.cliente_id), ...conWa.map((c) => c.cliente_id)]);
 
@@ -106,7 +126,13 @@ export async function calcularPulso(): Promise<Pulso> {
             leads_30d_anterior: contar(clientes, (x) => x.creado_en, hace60d, antesDe30),
             aprobadas_30d: acciones.filter((a) => ['aprobada', 'editada', 'ejecutada'].includes(a.estado)).length,
             resueltas_30d: acciones.filter((a) => a.estado !== 'pendiente').length,
+            ganado_mes_usd: Math.round(ganadoMes * 100) / 100,
+            ganado_mes_anterior_usd: Math.round(ganadoMesAnt * 100) / 100,
+            ganadas_90d: ganadas90,
+            perdidas_90d: perdidas90,
         },
+        esperando: esperando.slice(0, 5).map((q) => ({ id: q.id, titulo: q.titulo, numero: q.numero, total_usd: q.total_usd, enviada_en: q.enviada_en })),
+        esperando_total: esperando.length,
         embudo: {
             prospectos: activos.length,
             contactados: activos.filter((c) => (c.intentos_contacto ?? 0) > 0 || c.ultimo_contacto_en).length,

@@ -12,7 +12,7 @@ import { enrutar } from './orchestrator/router.js';
 import { supabase } from './connectors/supabase.js';
 import { iniciarInboundCorreo } from './inbound/correo.js';
 import { ejecutarAccion } from './orchestrator/ejecutor.js';
-import { correrBarridoSeguimientos, generarSeguimientoIndividual } from './orchestrator/seguimientos.js';
+import { correrBarridoSeguimientos, generarSeguimientoIndividual, seguirPresupuestosEnviados } from './orchestrator/seguimientos.js';
 import { bootstrapNotion, notionConfigurado } from './connectors/notion.js';
 import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, guardarCatalogoDbId } from './orchestrator/notion_sync.js';
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
@@ -26,7 +26,7 @@ import {
     sincronizarWhatsapp, vincularClienteWa,
 } from './orchestrator/whatsapp.js';
 import { studioConfigurado } from './connectors/studio.js';
-import { actualizarCotizacion, borrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion } from './orchestrator/cotizador.js';
+import { actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion } from './orchestrator/cotizador.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { destilarLecciones, destilarPendientes, listarAprendizajes, olvidarCacheLecciones, registrarCorreccion } from './orchestrator/aprendizaje.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
@@ -342,6 +342,22 @@ app.patch('/cotizaciones/:id', async (req, res) => {
     }
     if (!(await actualizarCotizacion(id, cambios))) return res.status(404).send({ error: 'cotización no encontrada' });
     return { ok: true };
+});
+
+const CierreSchema = z.object({
+    estado: z.enum(['abierta', 'enviada', 'ganada', 'perdida']),
+    motivo: z.string().max(300).nullable().optional(),
+});
+
+// Cómo terminó un presupuesto: ganada o perdida (con motivo), o se reabre.
+app.post('/cotizaciones/:id/cierre', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = CierreSchema.safeParse(req.body ?? {});
+    if (!z.string().uuid().safeParse(id).success || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    const r = await cerrarCotizacion(id, parseo.data.estado, parseo.data.motivo);
+    if (!r.ok) return res.status(404).send({ error: 'cotización no encontrada' });
+    invalidarResumenHoy();
+    return r;
 });
 
 app.post('/cotizaciones/:id/numero', async (req, res) => {
@@ -1098,6 +1114,16 @@ async function main() {
 
     // Cron cada 4 horas — sincronizar listas de proveedores (Elit, Air, Invid).
     // Los que no tienen credenciales en el .env quedan como 'sin_configurar'.
+    // Presupuestos enviados hace 5+ días sin respuesta: se propone un seguimiento.
+    cron.schedule('20 10 * * 1-5', async () => {
+        try {
+            const r = await seguirPresupuestosEnviados();
+            if (r.generados) app.log.info(r, 'seguimientos de presupuestos propuestos');
+        } catch (err) {
+            app.log.error({ err }, 'seguimiento de presupuestos falló');
+        }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
+
     // Todas las noches, las correcciones del día se convierten en lecciones.
     cron.schedule('40 20 * * *', async () => {
         try {
