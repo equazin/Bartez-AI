@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Home } from './components/Home.tsx';
 import { Chat } from './components/Chat.tsx';
-import { Dashboard } from './components/Dashboard.tsx';
 import { Acciones } from './components/Acciones.tsx';
 import { Asistentes } from './components/Asistentes.tsx';
-import { Bitacora } from './components/Bitacora.tsx';
 import { Prospeccion } from './components/Prospeccion.tsx';
-import { Analitica } from './components/Analitica.tsx';
+import { Rendimiento, SeccionRendimiento } from './components/Rendimiento.tsx';
 import { Seguimientos } from './components/Seguimientos.tsx';
 import { Cotizador } from './components/Cotizador.tsx';
 import { Login } from './components/Login.tsx';
@@ -15,7 +13,10 @@ import { NotionPanel } from './components/NotionPanel.tsx';
 import { EVENTO_RESUELTA } from './components/Deshacer.tsx';
 import { BACKEND_ES_DEMO, BACKEND_URL, EVENTO_LOGOUT, estadoAuth, logout, resumenHoy, volverAlBackendNormal } from './api/client.ts';
 
-export type Tab = 'home' | 'chat' | 'dashboard' | 'acciones' | 'asistentes' | 'bitacora' | 'prospeccion' | 'analitica' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
+export type Tab = 'home' | 'chat' | 'acciones' | 'asistentes' | 'rendimiento' | 'prospeccion' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
+
+// Las tres pantallas viejas de Sistema viven ahora como pestañas de Rendimiento.
+const A_RENDIMIENTO: Record<string, SeccionRendimiento> = { dashboard: 'hoy', analitica: 'informes', bitacora: 'bitacora' };
 
 type Contador = 'tu_ok' | 'whatsapp';
 
@@ -36,10 +37,8 @@ const GRUPOS: Array<{ titulo: string; items: Array<{ id: Tab; label: string; con
         { id: 'notion', label: 'Notion' },
     ] },
     { titulo: 'Sistema', items: [
-        { id: 'analitica', label: 'Analítica' },
+        { id: 'rendimiento', label: 'Rendimiento' },
         { id: 'asistentes', label: 'Asistentes' },
-        { id: 'dashboard', label: 'Métricas' },
-        { id: 'bitacora', label: 'Bitácora' },
     ] },
 ];
 
@@ -73,8 +72,10 @@ function Marca() {
 export function App() {
     const [tab, setTabState] = useState<Tab>(() => {
         const t = leer('bartez_tab');
+        if (t && A_RENDIMIENTO[t]) return 'rendimiento';
         return t && TABS_VALIDAS.has(t) ? (t as Tab) : 'home';
     });
+    const [secRend, setSecRend] = useState<SeccionRendimiento>(() => A_RENDIMIENTO[leer('bartez_tab') ?? ''] ?? 'hoy');
     const [tema, setTema] = useState<Tema>(() => (leer('bartez_tema') as Tema) || 'sistema');
     const [menuAbierto, setMenuAbierto] = useState(false);
     const [contadores, setContadores] = useState<Record<Contador, number>>({ tu_ok: 0, whatsapp: 0 });
@@ -82,7 +83,11 @@ export function App() {
     const [auth, setAuth] = useState<{ requerida: boolean; valido: boolean } | null>(null);
     const [errorConexion, setErrorConexion] = useState<string>();
 
-    const setTab = useCallback((t: Tab) => {
+    const setTab = useCallback((destino: Tab | string) => {
+        // Enlaces viejos (Métricas, Analítica, Bitácora) abren esa pestaña de Rendimiento.
+        const sec = A_RENDIMIENTO[destino];
+        if (sec) setSecRend(sec);
+        const t = (sec ? 'rendimiento' : destino) as Tab;
         setTabState(t);
         guardar('bartez_tab', t);
         setMenuAbierto(false);
@@ -195,18 +200,16 @@ export function App() {
             </aside>
 
             <main className="contenido">
-                {tab === 'home' && <Home irA={(t) => setTab(t as Tab)} />}
+                {tab === 'home' && <Home irA={(t) => setTab(t)} />}
                 {tab === 'chat' && <Chat />}
                 {tab === 'acciones' && <Acciones />}
                 {tab === 'prospeccion' && <Prospeccion />}
                 {tab === 'asistentes' && <Asistentes />}
-                {tab === 'dashboard' && <Dashboard />}
-                {tab === 'analitica' && <Analitica />}
+                {tab === 'rendimiento' && <Rendimiento key={secRend} inicial={secRend} />}
                 {tab === 'seguimientos' && <Seguimientos />}
                 {tab === 'cotizador' && <Cotizador />}
                 {tab === 'whatsapp' && <WhatsApp />}
                 {tab === 'notion' && <NotionPanel />}
-                {tab === 'bitacora' && <Bitacora />}
             </main>
 
             {/* El chat está a mano en todas las pantallas (menos en la suya). */}
