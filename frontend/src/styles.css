@@ -2452,3 +2452,14 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .rend-contenido > .dashboard, .rend-contenido > .bitacora, .rend-contenido > .analitica, .contenido > .rendimiento {
     background: transparent; border: 0; box-shadow: none; padding: 0; border-radius: 0;
 }
+
+/* ---- Filas de lista: una sola anatomía en todo el panel ----
+   Arriba: título a la izquierda y el dato clave (hora o monto) a la derecha.
+   Abajo: detalle gris a la izquierda y el estado a la derecha. */
+.seg-item .fila-top .hora { flex: none; }
+.fila-pie { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wa-item-tags { justify-content: flex-end; }
+.wa-item-top strong, .apr-item-top strong, .cot-item-top strong, .seg-item .nombre { font-size: var(--t-sm); font-weight: 700; }
+.wa-item-txt, .apr-item-vista, .cot-item-pedido { font-size: var(--t-xs); color: var(--sutil); }
+.wa-item, .apr-item, .cot-item, .seg-item { padding: 9px 10px; border-radius: 8px; }
+.wa-item .fila-pie { margin-top: 4px; min-height: 18px; } .wa-item-meta { font-size: var(--t-xs); }

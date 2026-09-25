@@ -132,21 +132,25 @@ export function Seguimientos() {
                                 aria-current={seleccionadaId === e.id ? 'true' : undefined}
                                 onClick={() => abrir(e.id)}
                             >
+                                {/* Misma anatomía que las otras listas: título y dato clave arriba,
+                                    detalle gris y estado abajo a la derecha. */}
                                 <span className="fila-top">
                                     <span className="nombre">{e.nombre}</span>
-                                    <span className={`badge-estado est-${e.estado}`}>{e.estado}</span>
+                                    {e.ultimo_correo_en && <span className="hora" title={formatearFecha(e.ultimo_correo_en)}>{haceCuanto(e.ultimo_correo_en)}</span>}
                                 </span>
-                                <span className="fila-meta">
-                                    {typeof e.metadata?.puntaje_icp === 'number' && (
-                                        <span className="icp" title={`ICP ${e.metadata.puntaje_icp}/10`}>
-                                            <span className="icp-barra"><span style={{ width: `${e.metadata.puntaje_icp * 10}%` }} /></span>
-                                            <span>{e.metadata.puntaje_icp}</span>
+                                <span className="fila-pie">
+                                    <span className="fila-meta">
+                                        {typeof e.metadata?.puntaje_icp === 'number' && (
+                                            <span className="icp" title={`Encaje con el cliente ideal: ${e.metadata.puntaje_icp}/10`}>
+                                                <span className="icp-barra"><span style={{ width: `${e.metadata.puntaje_icp * 10}%` }} /></span>
+                                                <span>{e.metadata.puntaje_icp}</span>
+                                            </span>
+                                        )}
+                                        <span title={`${e.correos_entrantes} recibidos · ${e.correos_salientes} enviados`}>
+                                            {e.correos_totales} correo{e.correos_totales === 1 ? '' : 's'}
                                         </span>
-                                    )}
-                                    <span title={`${e.correos_entrantes} recibidos · ${e.correos_salientes} enviados`}>
-                                        {e.correos_totales} correo{e.correos_totales === 1 ? '' : 's'}
                                     </span>
-                                    {e.ultimo_correo_en && <span className="hora" title={formatearFecha(e.ultimo_correo_en)}>· {haceCuanto(e.ultimo_correo_en)}</span>}
+                                    <span className={`badge-estado est-${e.estado}`}>{e.estado}</span>
                                 </span>
                             </button>
                         ))}

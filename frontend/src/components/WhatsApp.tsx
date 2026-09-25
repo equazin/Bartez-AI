@@ -195,11 +195,13 @@ export function WhatsApp() {
                                 {c.ultimo_origen && c.ultimo_origen !== 'cliente' && <span className="wa-de">{QUIEN[c.ultimo_origen]}: </span>}
                                 {c.ultimo_mensaje ?? '(sin texto)'}
                             </div>
-                            <div className="wa-item-tags">
-                                {c.respuesta_pendiente && <span className="wa-tag wa-tag-aprobar">en Para aprobar</span>}
-                                {c.en_ventana && <span className="wa-tag ventana">24 h abierta</span>}
-                                {c.estado === 'escalated' && <span className="wa-tag">derivada</span>}
-                                {!c.cliente_id && <span className="wa-tag gris">sin cliente</span>}
+                            {/* Una sola etiqueta de estado (la más importante), abajo a la derecha. */}
+                            <div className="fila-pie">
+                                <span className="tenue wa-item-meta">{c.cliente_id ? '' : 'sin cliente'}</span>
+                                {c.respuesta_pendiente ? <span className="wa-tag wa-tag-aprobar">en Para aprobar</span>
+                                    : c.en_ventana ? <span className="wa-tag ventana">24 h abierta</span>
+                                    : c.estado === 'escalated' ? <span className="wa-tag">derivada</span>
+                                    : null}
                             </div>
                         </div>
                     ))}
