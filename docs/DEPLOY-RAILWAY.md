@@ -78,6 +78,12 @@ Cada vez que se sube un cambio a `main`, Railway redespliega solo el backend
 
 ## Si algo falla
 
+- **Crash con "native WebSocket not found":** Railway levantó Node 20. El
+  backend necesita Node 22 (lo pide `backend/package.json` y
+  `backend/.node-version`); volvé a desplegar el último commit de `main`.
+- **"SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY sin definir":** faltan las
+  variables del paso 2. Pegá tu `backend/.env` en **Variables → Raw Editor**.
+
 - **El panel dice "Failed to fetch":** revisá que `VITE_BACKEND_URL` no
   tenga barra al final y que `/health` responda. Si cambiaste la dirección de
   Railway, volvé a correr el workflow del paso 4.
