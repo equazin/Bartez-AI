@@ -138,7 +138,7 @@ a { color: var(--acento); }
 .barra-movil { display: none; }
 
 @media (max-width: 900px) {
-    .shell { grid-template-columns: minmax(0, 1fr); }
+    .shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; align-content: start; }
     .barra-movil {
         display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 30;
         background: var(--lateral); padding: 10px 16px; border-bottom: 1px solid var(--lateral-borde);
@@ -2489,8 +2489,7 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 
     .apr.ver-detalle .apr-paso { display: flex; align-items: center; gap: 8px; padding: 12px 16px 0; }
     .apr-paso-n { font-size: var(--t-sm); font-weight: 650; }
-    .apr-paso .apr-volver { margin: 0 0 0 auto; display: inline; }
-    .apr .apr-volver { display: none; }
+    .apr.ver-detalle .apr-paso .apr-volver { margin: 0 0 0 auto; display: inline; }
 }
 @media (max-width: 900px) {
     /* Para aprobar en el celular: la botonera queda fija sobre la barra inferior */
