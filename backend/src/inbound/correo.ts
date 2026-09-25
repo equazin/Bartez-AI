@@ -6,6 +6,7 @@
 import { supabase } from '../connectors/supabase.js';
 import { CorreoEntrante, iniciarListener } from '../connectors/ferozo.js';
 import { enrutar } from '../orchestrator/router.js';
+import { actualizarCotizacion, cotizar } from '../orchestrator/cotizador.js';
 import { clasificarCorreo } from './clasificador.js';
 
 async function buscarOCrearCliente(emailCliente: string, nombre?: string): Promise<string | null> {
@@ -84,6 +85,12 @@ async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
     // 3. Enrutar al asistente principal con la clasificación en la metadata
     const texto = `Asunto: ${c.asunto}\n\n${c.cuerpo.slice(0, 4000)}`;
 
+    // Pedido de cotización con datos concretos: el cotizador lo arma con los
+    // precios de los proveedores y la respuesta sale con el PDF adjunto.
+    const cotizacion = clasificacion.categoria === 'cotizacion_detalle'
+        ? await cotizarDesdeCorreo(texto, clienteId, c.deNombre || c.de)
+        : null;
+
     try {
         await enrutar({
             canal: 'correo',
@@ -101,10 +108,42 @@ async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
                     prioridad: clasificacion.prioridad,
                     razon: clasificacion.razon,
                 },
+                ...(cotizacion ? { cotizacion } : {}),
             },
         });
     } catch (err) {
         console.error('[inbound-correo] error enrutando:', err);
+    }
+}
+
+export interface CotizacionParaCorreo {
+    id: string;
+    total_usd: number;
+    items: Array<{ cantidad: number; descripcion: string; precio_unit_usd: number; iva_pct: number }>;
+    faltantes: string[];
+    comentario: string;
+}
+
+async function cotizarDesdeCorreo(texto: string, clienteId: string, nombre: string): Promise<CotizacionParaCorreo | null> {
+    try {
+        const r = await cotizar(texto, { cliente_id: clienteId });
+        const elegidas = r.lineas.filter((l) => l.elegido);
+        if (!r.ok || !r.id || elegidas.length === 0) {
+            console.log(`[inbound-correo] cotización automática sin resultado: ${r.detalle ?? 'sin artículos'}`);
+            return null;
+        }
+        await actualizarCotizacion(r.id, { titulo: nombre.slice(0, 200) });
+        return {
+            id: r.id,
+            total_usd: r.total_usd,
+            items: elegidas.map((l) => ({ cantidad: l.cantidad, descripcion: l.elegido!.descripcion, precio_unit_usd: l.elegido!.precio_unit_usd, iva_pct: l.elegido!.iva_pct })),
+            faltantes: r.lineas.filter((l) => !l.elegido).map((l) => l.pedido),
+            comentario: r.comentario,
+        };
+    } catch (err) {
+        // Si falla, el correo sigue su camino normal (sin presupuesto adjunto).
+        console.warn('[inbound-correo] no se pudo cotizar automáticamente:', (err as Error).message);
+        return null;
     }
 }
 

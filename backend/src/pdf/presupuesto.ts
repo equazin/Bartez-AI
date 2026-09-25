@@ -1,10 +1,15 @@
 // PDF de presupuesto con el diseño del presupuesto modelo de Bartez.
 // Solo incluye lo que ve el cliente: nunca proveedor, SKU del mayorista, costo
-// ni alternativas. Se carga bajo demanda para no agrandar la app.
+// ni alternativas. Se genera en el backend para que el mismo archivo sirva
+// para descargarlo desde el Cotizador y para adjuntarlo a un correo.
 
-import type { Cotizacion } from '../api/client.ts';
-import { CIERRE, CONDICIONES, EMPRESA, NOTA_PRECIOS } from '../config/empresa.ts';
-import logoUrl from '../assets/logo-bartez.png';
+import { readFileSync } from 'node:fs';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { CIERRE, CONDICIONES, EMPRESA, NOTA_PRECIOS } from '../config/empresa.js';
+import type { CotizacionGuardada } from '../orchestrator/cotizador.js';
+
+type Cotizacion = Pick<CotizacionGuardada, 'lineas' | 'titulo' | 'datos_cliente' | 'creado_en' | 'subtotal_usd' | 'total_usd'>;
 
 type RGB = [number, number, number];
 const AZUL_OSCURO: RGB = [27, 58, 140];
@@ -39,26 +44,23 @@ export function objetoPorDefecto(c: Cotizacion): string {
     return `Provisión de equipamiento IT según detalle: ${lineas.length} ítems, ${unidades} unidades en total.`;
 }
 
-async function cargarLogo(): Promise<string> {
-    const blob = await (await fetch(logoUrl)).blob();
-    return await new Promise((ok, mal) => {
-        const r = new FileReader();
-        r.onload = () => ok(r.result as string);
-        r.onerror = () => mal(r.error);
-        r.readAsDataURL(blob);
-    });
+let logoCache: string | null = null;
+function cargarLogo(): string {
+    if (!logoCache) {
+        const png = readFileSync(new URL('../../assets/logo-bartez.png', import.meta.url));
+        logoCache = `data:image/png;base64,${png.toString('base64')}`;
+    }
+    return logoCache;
 }
 
-function nombreArchivo(cliente: string, numero: string): string {
+export function nombreArchivo(cliente: string, numero: string): string {
     const base = (cliente || 'cliente').normalize('NFD').replace(/[̀-ͯ]/g, '')
         .replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '');
     return `Presupuesto_${numero}_${base || 'cliente'}.pdf`;
 }
 
-export async function descargarPresupuestoPdf(c: Cotizacion, numero?: number | null): Promise<void> {
-    const [{ jsPDF }, { default: autoTable }, logo] = await Promise.all([
-        import('jspdf'), import('jspdf-autotable'), cargarLogo(),
-    ]);
+export function generarPresupuestoPdf(c: Cotizacion, numero?: number | null): { pdf: Buffer; archivo: string } {
+    const logo = cargarLogo();
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     const W = doc.internal.pageSize.getWidth();
     const H = doc.internal.pageSize.getHeight();
@@ -207,5 +209,5 @@ export async function descargarPresupuestoPdf(c: Cotizacion, numero?: number | n
         doc.text(`Página ${i}${paginas > 1 ? ` de ${paginas}` : ''}`, W - M, H - 12, { align: 'right' });
     }
 
-    doc.save(nombreArchivo(cliente, num));
+    return { pdf: Buffer.from(doc.output('arraybuffer')), archivo: nombreArchivo(cliente, num) };
 }

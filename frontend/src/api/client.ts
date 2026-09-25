@@ -447,6 +447,7 @@ export interface DatosCliente {
     direccion?: string;
     localidad?: string;
     atencion?: string;
+    email?: string;
     objeto?: string;
 }
 
@@ -523,6 +524,26 @@ export async function actualizarCotizacion(
 
 export async function numeroPresupuesto(id: string): Promise<{ numero: number }> {
     return jsonOError(await apiFetch(`${BASE}/cotizaciones/${id}/numero`, { method: 'POST' }));
+}
+
+// PDF generado en el backend (el mismo que se adjunta a los correos).
+// Descargarlo asigna el número; `borrador` es una vista previa que no toca nada.
+export async function pdfCotizacion(id: string, borrador = false): Promise<{ blob: Blob; archivo: string }> {
+    const res = await apiFetch(`${BASE}/cotizaciones/${id}/pdf${borrador ? '?borrador=1' : ''}`);
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(typeof err.error === 'string' ? err.error : `Backend respondió ${res.status}`);
+    }
+    const disp = res.headers.get('Content-Disposition') ?? '';
+    const archivo = /filename="([^"]+)"/.exec(disp)?.[1] ?? 'Presupuesto.pdf';
+    return { blob: await res.blob(), archivo };
+}
+
+// Deja en Para aprobar un correo con el presupuesto adjunto.
+export async function enviarCotizacionPorCorreo(id: string, para: string, nombre?: string): Promise<{ ok: boolean; accion_id?: string }> {
+    return jsonOError(await apiFetch(`${BASE}/cotizaciones/${id}/enviar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ para, nombre }),
+    }));
 }
 
 export async function borrarCotizacion(id: string): Promise<{ ok: boolean }> {

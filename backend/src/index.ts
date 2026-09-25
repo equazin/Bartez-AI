@@ -26,7 +26,8 @@ import {
     sincronizarWhatsapp, vincularClienteWa,
 } from './orchestrator/whatsapp.js';
 import { studioConfigurado } from './connectors/studio.js';
-import { actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion } from './orchestrator/cotizador.js';
+import { actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion, proponerEnvioCotizacion } from './orchestrator/cotizador.js';
+import { generarPresupuestoPdf } from './pdf/presupuesto.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { destilarLecciones, destilarPendientes, listarAprendizajes, olvidarCacheLecciones, registrarCorreccion } from './orchestrator/aprendizaje.js';
 import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
@@ -324,7 +325,7 @@ const campoCliente = z.string().max(500).optional();
 const ActualizarCotizacionSchema = z.object({
     titulo: z.string().max(200).nullable().optional(),
     datos_cliente: z.object({
-        cuit: campoCliente, direccion: campoCliente, localidad: campoCliente, atencion: campoCliente,
+        cuit: campoCliente, direccion: campoCliente, localidad: campoCliente, atencion: campoCliente, email: campoCliente,
         objeto: z.string().max(2000).optional(),
     }).optional(),
 });
@@ -342,6 +343,42 @@ app.patch('/cotizaciones/:id', async (req, res) => {
     }
     if (!(await actualizarCotizacion(id, cambios))) return res.status(404).send({ error: 'cotización no encontrada' });
     return { ok: true };
+});
+
+// PDF del presupuesto. Descargarlo asigna el número y lo marca enviado;
+// con ?borrador=1 es una vista previa que no toca nada.
+app.get('/cotizaciones/:id/pdf', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const borrador = (req.query as { borrador?: string }).borrador === '1';
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
+    const q = await obtenerCotizacion(id);
+    if (!q) return res.status(404).send({ error: 'cotización no encontrada' });
+    if (!q.lineas.some((l) => l.elegido)) return res.status(400).send({ error: 'La cotización no tiene artículos para presupuestar' });
+    const numero = borrador ? q.numero : await numeroPresupuesto(id);
+    const { pdf, archivo } = generarPresupuestoPdf(q, numero);
+    if (!borrador) invalidarResumenHoy();
+    return res
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `${borrador ? 'inline' : 'attachment'}; filename="${archivo}"`)
+        .header('Access-Control-Expose-Headers', 'Content-Disposition')
+        .send(pdf);
+});
+
+const EnviarCotizacionSchema = z.object({
+    para: z.string().email(),
+    nombre: z.string().max(200).optional(),
+});
+
+// Enviar un presupuesto por correo: arma el mensaje con el PDF adjunto y lo
+// deja en Para aprobar (nada sale sin tu OK).
+app.post('/cotizaciones/:id/enviar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const parseo = EnviarCotizacionSchema.safeParse(req.body ?? {});
+    if (!z.string().uuid().safeParse(id).success || !parseo.success) return res.status(400).send({ error: 'Falta un email válido' });
+    const r = await proponerEnvioCotizacion(id, parseo.data.para, parseo.data.nombre);
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    invalidarResumenHoy();
+    return r;
 });
 
 const CierreSchema = z.object({

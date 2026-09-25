@@ -5,6 +5,8 @@ import {
     DatosCliente,
     EstadoVenta,
     cerrarCotizacion,
+    enviarCotizacionPorCorreo,
+    pdfCotizacion,
     Proveedor,
     actualizarProveedor,
     borrarCotizacion,
@@ -12,7 +14,6 @@ import {
     listarCotizaciones,
     obtenerCotizacion,
     actualizarCotizacion,
-    numeroPresupuesto,
     importarCsvProveedor,
     listarProveedores,
     sincronizarProveedor,
@@ -226,6 +227,22 @@ export function Cotizador() {
     }
 
     const [generandoPdf, setGenerandoPdf] = useState(false);
+    const [envio, setEnvio] = useState<{ abierto: boolean; para: string; ocupado: boolean; msg?: string }>({ abierto: false, para: '', ocupado: false });
+
+    async function prepararEnvio() {
+        if (!cot?.id) return;
+        const para = envio.para.trim();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(para)) { setEnvio({ ...envio, msg: 'Poné un email válido.' }); return; }
+        setEnvio({ ...envio, ocupado: true, msg: undefined });
+        try {
+            if (para !== datosCli.email) { const d = { ...datosCli, email: para }; setDatosCli(d); await actualizarCotizacion(cot.id, { datos_cliente: d }); }
+            await guardarTitulo();
+            await enviarCotizacionPorCorreo(cot.id, para, titulo.trim() || undefined);
+            setEnvio({ abierto: false, para, ocupado: false, msg: 'Listo: el correo con el PDF adjunto quedó en Para aprobar. Sale cuando lo apruebes.' });
+        } catch (e) {
+            setEnvio({ ...envio, ocupado: false, msg: (e as Error).message });
+        }
+    }
 
     async function generarPdf() {
         if (!cot) return;
@@ -234,14 +251,16 @@ export function Cotizador() {
         if (!cot.lineas.some((l) => l.elegido)) { setError('La cotización no tiene artículos para presupuestar'); return; }
         setGenerandoPdf(true);
         try {
-            const { descargarPresupuestoPdf } = await import('../lib/presupuestoPdf.ts');
+            if (!cot.id) throw new Error('La cotización no está guardada');
+            // El PDF lo arma el backend (el mismo que va adjunto en los correos).
             // El número se asigna la primera vez; después siempre es el mismo.
-            const numero = cot.id ? (await numeroPresupuesto(cot.id)).numero : null;
-            if (numero && numero !== cot.numero) {
-                setCot({ ...cot, numero, estado: cot.estado === 'abierta' || !cot.estado ? 'enviada' : cot.estado, enviada_en: cot.enviada_en ?? new Date().toISOString() });
-                cargarHistorial();
-            }
-            await descargarPresupuestoPdf({ ...cot, titulo: titulo.trim() || cot.titulo, datos_cliente: datosCli }, numero);
+            const { blob, archivo } = await pdfCotizacion(cot.id);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = archivo; document.body.append(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10_000);
+            abrir(cot.id);
+            cargarHistorial();
         } catch (e) { setError(`No se pudo generar el PDF: ${(e as Error).message}`); }
         finally { setGenerandoPdf(false); }
     }
@@ -329,6 +348,7 @@ export function Cotizador() {
                             <div className="cot-datos-grid">
                                 <label><span>CUIT</span><input {...campoCli('cuit')} placeholder="30-12345678-9" /></label>
                                 <label><span>Atención</span><input {...campoCli('atencion')} placeholder="Nombre del contacto" /></label>
+                                <label><span>Email</span><input {...campoCli('email')} type="email" placeholder="compras@empresa.com.ar" /></label>
                                 <label><span>Dirección</span><input {...campoCli('direccion')} placeholder="Calle y número" /></label>
                                 <label><span>Localidad</span><input {...campoCli('localidad')} placeholder="Ciudad, provincia (CP)" /></label>
                                 <label className="ancho">
@@ -391,8 +411,30 @@ export function Cotizador() {
                             <button className="secundario" onClick={generarPdf} disabled={generandoPdf}>
                                 {generandoPdf ? 'Generando…' : 'Descargar PDF'}
                             </button>
+                            {cot.id && (
+                                <button className="btn-primario" onClick={() => setEnvio({ abierto: !envio.abierto, para: envio.para || datosCli.email || '', ocupado: false })}>
+                                    Enviar por correo
+                                </button>
+                            )}
                         </div>
                     </div>
+                    {envio.abierto && (
+                        <div className="cot-envio">
+                            <label>
+                                <span>Para</span>
+                                <input
+                                    type="email" autoFocus value={envio.para}
+                                    onChange={(e) => setEnvio({ ...envio, para: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') prepararEnvio(); if (e.key === 'Escape') setEnvio({ ...envio, abierto: false }); }}
+                                    placeholder="compras@empresa.com.ar"
+                                />
+                            </label>
+                            <button className="btn-primario" onClick={prepararEnvio} disabled={envio.ocupado}>{envio.ocupado ? 'Preparando…' : 'Preparar correo'}</button>
+                            <button className="boton-fantasma" onClick={() => setEnvio({ ...envio, abierto: false })}>Cancelar</button>
+                            <span className="tenue">Se arma el correo con el PDF adjunto y queda en Para aprobar para que lo revises.</span>
+                        </div>
+                    )}
+                    {envio.msg && <p className={envio.msg.startsWith('Listo') ? 'msg-ok' : 'error'}>{envio.msg}</p>}
                 </div>
             )}
 

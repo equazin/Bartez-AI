@@ -320,6 +320,7 @@ export interface DatosCliente {
     direccion?: string;
     localidad?: string;
     atencion?: string;
+    email?: string;
     objeto?: string;
 }
 
@@ -468,4 +469,66 @@ export async function presupuestosSinRespuesta(dias = 5, limite = 20) {
         seguimiento_en: (f.seguimiento_en as string | null) ?? null,
         pedido: f.pedido as string,
     }));
+}
+
+// Propuesta de envío de un presupuesto por correo, con el PDF adjunto al
+// aprobar. El texto es una plantilla corta que se puede editar en Para aprobar.
+export async function proponerEnvioCotizacion(
+    id: string,
+    para: string,
+    nombre?: string,
+): Promise<{ ok: boolean; accion_id?: string; detalle?: string }> {
+    const q = await obtenerCotizacion(id);
+    if (!q) return { ok: false, detalle: 'Cotización no encontrada' };
+    const elegidas = q.lineas.filter((l) => l.elegido);
+    if (elegidas.length === 0) return { ok: false, detalle: 'La cotización no tiene artículos para presupuestar' };
+
+    const { data: pend } = await supabase.from('acciones_pendientes').select('id')
+        .eq('estado', 'pendiente').eq('accion', 'enviar_correo').contains('payload', { cotizacion_id: id }).limit(1);
+    if (pend && pend.length) return { ok: false, detalle: 'Este presupuesto ya está esperando aprobación en Para aprobar' };
+
+    // Cliente: el de la cotización, o el que tenga ese email.
+    let clienteId = q.cliente_id;
+    let nombreCliente = nombre?.trim() || q.titulo || '';
+    if (!clienteId) {
+        const { data: c } = await supabase.from('clientes').select('id, nombre').eq('email', para).maybeSingle();
+        if (c) { clienteId = c.id as string; nombreCliente ||= c.nombre as string; }
+    }
+    if (clienteId && !q.cliente_id) await supabase.from('cotizaciones').update({ cliente_id: clienteId }).eq('id', id);
+
+    const { data: asist } = await supabase.from('asistentes').select('id').eq('area', 'correo').maybeSingle();
+    const saludo = q.datos_cliente?.atencion?.trim() || nombreCliente;
+    const resumen = elegidas.length === 1
+        ? `${elegidas[0]!.cantidad} x ${elegidas[0]!.elegido!.descripcion}`
+        : `${elegidas.length} ítems (${elegidas.reduce((s, l) => s + l.cantidad, 0)} unidades)`;
+    const total = q.total_usd.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const cuerpo = [
+        `Hola${saludo ? ` ${saludo.split(' ')[0]}` : ''}, ¿cómo estás?`,
+        '',
+        `Te adjunto el presupuesto por ${resumen}. El total es US$ ${total} con IVA incluido.`,
+        'Los precios están en dólares (billete BNA) y el presupuesto tiene una validez de 7 días, sujeto a stock.',
+        '',
+        'Cualquier consulta o si querés ajustar algo, me escribís.',
+        '',
+        'Saludos,',
+        'Andrés — Bartez Tecnología',
+    ].join('\n');
+
+    const { data, error } = await supabase.from('acciones_pendientes').insert({
+        asistente_id: asist?.id ?? null,
+        accion: 'enviar_correo',
+        estado: 'pendiente',
+        payload: {
+            para,
+            asunto: `Presupuesto Bartez Tecnología${q.titulo ? ` — ${q.titulo}` : ''}`,
+            cuerpo,
+            clienteId,
+            nombreCliente: nombreCliente || null,
+            cotizacion_id: id,
+            adjunto: { tipo: 'presupuesto', total_usd: q.total_usd },
+        },
+        respuesta: { por: 'sistema', origen: 'cotizador' },
+    }).select('id').single();
+    if (error) return { ok: false, detalle: error.message };
+    return { ok: true, accion_id: data.id as string };
 }

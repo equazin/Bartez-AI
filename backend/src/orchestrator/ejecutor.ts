@@ -5,6 +5,8 @@
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
 import { enviarWhatsapp } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
+import { numeroPresupuesto, obtenerCotizacion } from './cotizador.js';
+import { generarPresupuestoPdf } from '../pdf/presupuesto.js';
 import { actualizarProspectoEnNotion, crearNotaEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
 
 const CATEGORIAS_A_NOTA = new Set(['queja', 'cotizacion_detalle', 'soporte']);
@@ -39,6 +41,18 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
             if (!para || !cuerpo) return { ok: false, detalle: 'payload sin para/cuerpo' };
             const clienteId = (p.clienteId as string | undefined) ?? null;
 
+            // Presupuesto adjunto: el PDF se genera recién al enviar, con número
+            // definitivo (y el presupuesto pasa a "enviada").
+            const adjuntos: Array<{ nombre: string; contenido: Buffer }> = [];
+            const cotizacionId = typeof p.cotizacion_id === 'string' ? p.cotizacion_id : null;
+            if (cotizacionId) {
+                const q = await obtenerCotizacion(cotizacionId);
+                if (!q) return { ok: false, detalle: 'El presupuesto adjunto ya no existe (¿se borró?)' };
+                const numero = await numeroPresupuesto(cotizacionId);
+                const { pdf, archivo } = generarPresupuestoPdf(q, numero);
+                adjuntos.push({ nombre: archivo, contenido: pdf });
+            }
+
             let messageId: string | undefined;
             if (!ferozoConfigurado) {
                 messageId = 'simulado';
@@ -49,6 +63,7 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
                     cuerpo,
                     inReplyTo: p.inReplyTo as string | undefined,
                     references: p.references as string | undefined,
+                    adjuntos,
                 });
                 messageId = info.messageId;
             }
@@ -108,8 +123,8 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
                 ok: true,
                 detalle: !ferozoConfigurado ? 'ferozo sin configurar — envío simulado' : undefined,
                 resultado: !ferozoConfigurado
-                    ? { messageId, para, simulado: true, tareasCreadas: tareas.length }
-                    : { messageId, para, tareasCreadas: tareas.length },
+                    ? { messageId, para, simulado: true, tareasCreadas: tareas.length, adjuntos: adjuntos.map((a) => a.nombre) }
+                    : { messageId, para, tareasCreadas: tareas.length, adjuntos: adjuntos.map((a) => a.nombre) },
             };
         }
         if (a.accion === 'otra' && a.payload.subtipo === 'prospectos_propuestos') {

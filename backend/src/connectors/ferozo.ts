@@ -39,6 +39,7 @@ export interface CorreoAEnviar {
     cuerpo: string;
     inReplyTo?: string;
     references?: string;
+    adjuntos?: Array<{ nombre: string; contenido: Buffer; tipo?: string }>;
 }
 
 export async function enviarCorreo(c: CorreoAEnviar): Promise<{ messageId: string }> {
@@ -53,6 +54,7 @@ export async function enviarCorreo(c: CorreoAEnviar): Promise<{ messageId: strin
         text: c.cuerpo,
         inReplyTo: c.inReplyTo,
         references: c.references ?? c.inReplyTo,
+        attachments: c.adjuntos?.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo ?? 'application/pdf' })),
     });
     return { messageId: info.messageId };
 }

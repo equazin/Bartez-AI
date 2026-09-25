@@ -2229,3 +2229,14 @@ input, textarea, select { color: var(--texto); }
 .cierre-marca { font-weight: 750; }
 .cierre-ganada .cierre-marca { color: var(--ok); }
 .cierre.cierre-perdida .cierre-marca { color: var(--peligro); }
+
+/* ---- Presupuesto por correo ---- */
+.cot-envio { display: flex; align-items: flex-end; gap: 8px 10px; flex-wrap: wrap; margin-top: 12px; padding: 12px; border-radius: 10px; background: var(--hundido); border: 1px solid var(--borde-soft); }
+.cot-envio label { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 220px; }
+.cot-envio label > span { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sutil); }
+.cot-envio input { font: inherit; font-size: var(--t-sm); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--borde); background: var(--panel); color: var(--texto); }
+.cot-envio .tenue { flex-basis: 100%; font-size: var(--t-xs); }
+.adjunto { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--borde); background: var(--panel); flex-wrap: wrap; }
+.adjunto-icono { width: 36px; height: 42px; display: grid; place-items: center; border-radius: 4px; background: var(--peligro-soft); color: var(--peligro); font-family: var(--f-mono); font-size: 10px; font-weight: 700; }
+.adjunto-texto { display: flex; flex-direction: column; flex: 1; min-width: 160px; font-size: var(--t-sm); }
+.adjunto-texto .tenue { font-size: var(--t-xs); }

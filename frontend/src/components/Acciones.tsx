@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AccionPendiente, listarAcciones } from '../api/client.ts';
+import { AccionPendiente, listarAcciones, pdfCotizacion } from '../api/client.ts';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 
@@ -26,6 +26,8 @@ function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
                     <div className="fila"><span className="etiq">Categoría</span><span className="valor mono">{categoria}{motivo ? ` — ${motivo}` : ''}</span></div>
                 )}
             </div>
+
+            {typeof payload.cotizacion_id === 'string' && <AdjuntoPresupuesto id={payload.cotizacion_id} total={(payload.adjunto as { total_usd?: number } | undefined)?.total_usd} />}
 
             <div className="correo-cuerpo">
                 {cuerpo.split('\n').map((linea, i) => (
@@ -57,6 +59,33 @@ function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
                 <summary>Ver payload JSON completo</summary>
                 <pre className="payload">{JSON.stringify(payload, null, 2)}</pre>
             </details>
+        </div>
+    );
+}
+
+// El PDF del presupuesto se genera con número recién al enviar; acá se ve la
+// vista previa (marcada BORRADOR si todavía no tiene número).
+function AdjuntoPresupuesto({ id, total }: { id: string; total?: number }) {
+    const [ocupado, setOcupado] = useState(false);
+    const [error, setError] = useState<string>();
+    async function ver() {
+        setOcupado(true);
+        setError(undefined);
+        try {
+            const { blob } = await pdfCotizacion(id, true);
+            window.open(URL.createObjectURL(blob), '_blank', 'noopener');
+        } catch (e) { setError((e as Error).message); }
+        finally { setOcupado(false); }
+    }
+    return (
+        <div className="adjunto">
+            <span className="adjunto-icono" aria-hidden="true">PDF</span>
+            <span className="adjunto-texto">
+                <strong>Presupuesto adjunto</strong>
+                <span className="tenue">{total != null ? `Total US$ ${total.toLocaleString('es-AR', { minimumFractionDigits: 2 })} · ` : ''}se numera al enviarlo</span>
+            </span>
+            <button className="boton-fantasma" onClick={ver} disabled={ocupado}>{ocupado ? 'Abriendo…' : 'Vista previa'}</button>
+            {error && <span className="error">{error}</span>}
         </div>
     );
 }

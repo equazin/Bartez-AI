@@ -145,6 +145,14 @@ export class AsistenteCorreo extends AsistenteBase {
             }
         }
 
+        const cot = tarea.metadata?.cotizacion as { total_usd: number; items: Array<{ cantidad: number; descripcion: string; precio_unit_usd: number; iva_pct: number }>; faltantes: string[]; comentario: string } | undefined;
+        if (cot) {
+            const lineas = cot.items.map((i) => `- ${i.cantidad} x ${i.descripcion} — US$ ${i.precio_unit_usd.toLocaleString('es-AR')} + IVA ${i.iva_pct}% c/u`).join('\n');
+            extra.push(
+                `---\nPRESUPUESTO YA ARMADO (va ADJUNTO en PDF cuando se apruebe el envío):\n${lineas}\nTotal final con IVA: US$ ${cot.total_usd.toLocaleString('es-AR', { minimumFractionDigits: 2 })}\n${cot.faltantes.length ? `No se encontró en las listas: ${cot.faltantes.join('; ')}\n` : ''}${cot.comentario ? `Notas del cotizador: ${cot.comentario}\n` : ''}\nTu respuesta tiene que presentar el presupuesto adjunto: agradecé el pedido, contá en 1 o 2 líneas qué incluye y el total, aclará lo que no se encontró (ofrecé buscar alternativa), mencioná que la validez es de 7 días y que el precio está en dólares. NO pegues la tabla completa: está en el PDF. Nunca menciones proveedores, costos ni márgenes.`,
+            );
+        }
+
         return conLecciones(`${fecha}\n\n${base}${extra.length > 0 ? '\n\n' + extra.join('\n\n') : ''}`, this.config.id);
     }
 
@@ -183,6 +191,10 @@ export class AsistenteCorreo extends AsistenteBase {
                 categoria: clasif?.categoria,
                 motivoClasif: clasif?.razon,
                 textoEntrante: tarea.texto?.slice(0, 2000),
+                ...(tarea.metadata?.cotizacion ? {
+                    cotizacion_id: (tarea.metadata.cotizacion as { id: string }).id,
+                    adjunto: { tipo: 'presupuesto', total_usd: (tarea.metadata.cotizacion as { total_usd: number }).total_usd },
+                } : {}),
             },
         };
     }
