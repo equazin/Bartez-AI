@@ -165,9 +165,6 @@ export function App() {
         <div className="shell">
             <div className="barra-movil">
                 <Marca />
-                <button onClick={() => setMenuAbierto((v) => !v)} aria-expanded={menuAbierto}>
-                    Menú{contadores.tu_ok > 0 ? ` · ${contadores.tu_ok}` : ''}
-                </button>
             </div>
 
             <aside className={`lateral ${menuAbierto ? 'abierto' : ''}`} aria-label="Menú principal">
@@ -211,6 +208,27 @@ export function App() {
                 {tab === 'whatsapp' && <WhatsApp />}
                 {tab === 'notion' && <NotionPanel />}
             </main>
+
+            {/* Celular: lo que se usa todos los días, al alcance del pulgar. */}
+            <nav className="nav-inferior" aria-label="Accesos rápidos">
+                {([
+                    ['home', 'Inicio', '⌂'],
+                    ['acciones', 'Aprobar', '✓'],
+                    ['chat', 'Chat', '✦'],
+                    ['cotizador', 'Cotizar', '$'],
+                ] as Array<[Tab, string, string]>).map(([id, etq, icono]) => (
+                    <button key={id} className={tab === id ? 'activo' : ''} aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>
+                        <span className="ni-icono" aria-hidden="true">{icono}</span>
+                        <span>{etq}</span>
+                        {id === 'acciones' && contadores.tu_ok > 0 && <span className="ni-badge">{contadores.tu_ok}</span>}
+                    </button>
+                ))}
+                <button className={menuAbierto ? 'activo' : ''} onClick={() => setMenuAbierto((v) => !v)} aria-expanded={menuAbierto}>
+                    <span className="ni-icono" aria-hidden="true">☰</span>
+                    <span>Más</span>
+                    {contadores.whatsapp > 0 && <span className="ni-punto" aria-label="hay WhatsApp sin responder" />}
+                </button>
+            </nav>
 
             {/* El chat está a mano en todas las pantallas (menos en la suya). */}
             {tab !== 'chat' && <Chat modo="barra" alAbrirChat={() => setTab('chat')} />}

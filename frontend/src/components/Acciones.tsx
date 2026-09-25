@@ -220,7 +220,10 @@ export function Acciones() {
     const [selId, setSelId] = useState<string | null>(null);
     const [edicion, setEdicion] = useState<Edicion | null>(null);
     const [rechazando, setRechazando] = useState<string | null>(null);
-    const [verDetalle, setVerDetalle] = useState(false); // celular: lista o detalle
+    // Celular: se revisa de a una (tarjeta con anterior/siguiente); la lista queda a un toque.
+    const [verDetalle, setVerDetalle] = useState(() => {
+        try { return window.matchMedia('(max-width: 900px)').matches; } catch { return false; }
+    });
     const [error, setError] = useState<string>();
     const [cargando, setCargando] = useState(false);
 
@@ -352,7 +355,12 @@ export function Acciones() {
                     </ul>
 
                     <article className="apr-detalle" aria-label="Propuesta seleccionada">
-                        <button className="enlace apr-volver" onClick={() => setVerDetalle(false)}>← Volver a la lista</button>
+                        <div className="apr-paso">
+                            <button className="icono-btn" onClick={() => seleccionar(visibles[idxSel - 1])} disabled={idxSel === 0} aria-label="Anterior">‹</button>
+                            <span className="apr-paso-n">{idxSel + 1} de {visibles.length}</span>
+                            <button className="icono-btn" onClick={() => seleccionar(visibles[idxSel + 1])} disabled={idxSel >= visibles.length - 1} aria-label="Siguiente">›</button>
+                            <button className="enlace apr-volver" onClick={() => setVerDetalle(false)}>Ver la lista</button>
+                        </div>
                         <div className="apr-detalle-cab">
                             <span className={`canal canal-${sel.accion}`}>{CANAL[sel.accion] ?? sel.accion}</span>
                             <h3>{resumenAccion(sel).destino || '—'}</h3>

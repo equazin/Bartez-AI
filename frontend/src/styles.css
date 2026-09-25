@@ -2463,3 +2463,46 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .wa-item-txt, .apr-item-vista, .cot-item-pedido { font-size: var(--t-xs); color: var(--sutil); }
 .wa-item, .apr-item, .cot-item, .seg-item { padding: 9px 10px; border-radius: 8px; }
 .wa-item .fila-pie { margin-top: 4px; min-height: 18px; } .wa-item-meta { font-size: var(--t-xs); }
+
+/* ---- Celular: barra inferior y Para aprobar de a una ---- */
+.nav-inferior { display: none; }
+.apr-paso { display: none; }
+@media (max-width: 900px) {
+    .nav-inferior {
+        display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 38;
+        background: var(--lateral); border-top: 1px solid var(--lateral-borde); padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+    }
+    .nav-inferior button {
+        position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; justify-content: center;
+        background: none; border: 0; color: var(--lateral-texto); font: inherit; font-size: 11px; cursor: pointer; border-radius: 10px;
+    }
+    .nav-inferior button.activo { color: var(--acento); font-weight: 650; }
+    .ni-icono { font-size: 18px; line-height: 1; }
+    .ni-badge { position: absolute; top: 2px; left: calc(50% + 6px); min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--alerta-fuerte); color: #1a1a1a; font-size: 10.5px; font-weight: 700; line-height: 18px; }
+    .ni-punto { position: absolute; top: 6px; left: calc(50% + 8px); width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+    .contenido { padding-bottom: 96px; }
+    .chat-fab { display: none; }
+    .chat.chat-flotante { bottom: 72px; height: calc(100vh - 140px); }
+    .dock-avisos, .apr-dock { bottom: 80px; left: 0; }
+    .lateral.abierto { padding-bottom: 80px; }
+    .apr-barra { bottom: 64px; }
+
+    .apr.ver-detalle .apr-paso { display: flex; align-items: center; gap: 8px; padding: 12px 16px 0; }
+    .apr-paso-n { font-size: var(--t-sm); font-weight: 650; }
+    .apr-paso .apr-volver { margin: 0 0 0 auto; display: inline; }
+    .apr .apr-volver { display: none; }
+}
+@media (max-width: 900px) {
+    /* Para aprobar en el celular: la botonera queda fija sobre la barra inferior */
+    .apr-detalle-contenido { overflow: visible; flex: none; padding-bottom: 90px; }
+    .apr-barra {
+        position: fixed; left: 0; right: 0; bottom: 64px; z-index: 37; margin: 0; padding: 10px 16px;
+        border-top: 1px solid var(--borde); box-shadow: 0 -8px 20px -12px rgba(0, 0, 0, 0.25);
+    }
+    .apr:not(.ver-detalle) .apr-barra { display: none; }
+    .apr-dock { bottom: 140px; }
+}
+@media (max-width: 760px) {
+    .hoy-cabecera { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .hoy-actualizado { align-self: stretch; justify-content: space-between; }
+}
