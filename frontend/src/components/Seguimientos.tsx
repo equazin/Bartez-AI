@@ -126,25 +126,29 @@ export function Seguimientos() {
                     </div>
                     <div className="seg-scroll">
                         {filtradas.map((e) => (
-                            <div
+                            <button
                                 key={e.id}
                                 className={`seg-item ${seleccionadaId === e.id ? 'on' : ''}`}
+                                aria-current={seleccionadaId === e.id ? 'true' : undefined}
                                 onClick={() => abrir(e.id)}
                             >
-                                <div className="fila-top">
+                                <span className="fila-top">
                                     <span className="nombre">{e.nombre}</span>
                                     <span className={`badge-estado est-${e.estado}`}>{e.estado}</span>
-                                </div>
-                                <div className="fila-meta">
-                                    {typeof e.metadata?.puntaje_icp === 'number' && <span className="icp">ICP {e.metadata.puntaje_icp}</span>}
-                                    <span>{e.correos_totales} correos ({e.correos_entrantes}↓ {e.correos_salientes}↑)</span>
-                                </div>
-                                {e.ultimo_correo_en && (
-                                    <div className="fila-meta subtle">
-                                        Último: {formatearFecha(e.ultimo_correo_en)} · {haceCuanto(e.ultimo_correo_en)}
-                                    </div>
-                                )}
-                            </div>
+                                </span>
+                                <span className="fila-meta">
+                                    {typeof e.metadata?.puntaje_icp === 'number' && (
+                                        <span className="icp" title={`ICP ${e.metadata.puntaje_icp}/10`}>
+                                            <span className="icp-barra"><span style={{ width: `${e.metadata.puntaje_icp * 10}%` }} /></span>
+                                            <span>{e.metadata.puntaje_icp}</span>
+                                        </span>
+                                    )}
+                                    <span title={`${e.correos_entrantes} recibidos · ${e.correos_salientes} enviados`}>
+                                        {e.correos_totales} correo{e.correos_totales === 1 ? '' : 's'}
+                                    </span>
+                                    {e.ultimo_correo_en && <span className="hora" title={formatearFecha(e.ultimo_correo_en)}>· {haceCuanto(e.ultimo_correo_en)}</span>}
+                                </span>
+                            </button>
                         ))}
                     </div>
                 </aside>
@@ -249,11 +253,11 @@ export function Seguimientos() {
                             )}
 
                             <div className="det-stats">
-                                <div className="stat"><span className="k">Intentos de contacto</span><span className="v">{seleccionada.cliente.intentos_contacto ?? 0}</span></div>
-                                <div className="stat"><span className="k">Último contacto Bartez</span><span className="v">{seleccionada.cliente.ultimo_contacto_en ? haceCuanto(seleccionada.cliente.ultimo_contacto_en) : 'nunca'}</span></div>
-                                <div className="stat"><span className="k">Correos históricos</span><span className="v">{seleccionada.correos.length}</span></div>
-                                <div className="stat"><span className="k">Mensajes WhatsApp</span><span className="v">{seleccionada.whatsapp?.length ?? 0}</span></div>
-                                <div className="stat"><span className="k">Acciones (aprobadas + pend)</span><span className="v">{seleccionada.acciones.length}</span></div>
+                                <div className="stat"><span className="k">Intentos</span><span className="v">{seleccionada.cliente.intentos_contacto ?? 0}</span></div>
+                                <div className="stat"><span className="k">Último contacto</span><span className="v">{seleccionada.cliente.ultimo_contacto_en ? haceCuanto(seleccionada.cliente.ultimo_contacto_en) : 'nunca'}</span></div>
+                                <div className="stat"><span className="k">Correos</span><span className="v">{seleccionada.correos.length}</span></div>
+                                <div className="stat"><span className="k">WhatsApp</span><span className="v">{seleccionada.whatsapp?.length ?? 0}</span></div>
+                                <div className="stat"><span className="k">Propuestas</span><span className="v">{seleccionada.acciones.length}</span></div>
                             </div>
 
                             {informe && (
@@ -313,6 +317,7 @@ function haceCuanto(iso: string): string {
     const ms = Date.now() - new Date(iso).getTime();
     const dias = Math.floor(ms / (24 * 3600_000));
     if (dias < 1) return 'hoy';
+    if (dias === 1) return 'ayer';
     if (dias < 30) return `hace ${dias} días`;
     const meses = Math.floor(dias / 30);
     return `hace ${meses} mes${meses > 1 ? 'es' : ''}`;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
     ConversacionWa,
     EmpresaSeguimiento,
@@ -38,6 +38,12 @@ export function WhatsApp() {
     const [aviso, setAviso] = useState<string>();
     const [clientes, setClientes] = useState<EmpresaSeguimiento[]>([]);
     const [verPlantillas, setVerPlantillas] = useState(false);
+    const hiloRef = useRef<HTMLDivElement>(null);
+    // Al abrir una conversación se ve lo último, como en WhatsApp.
+    useEffect(() => {
+        const h = hiloRef.current;
+        if (h) h.scrollTop = h.scrollHeight;
+    }, [mensajes, sel]);
     const [versionPl, setVersionPl] = useState(0);
 
     async function cargar() {
@@ -171,25 +177,33 @@ export function WhatsApp() {
                             <button key={f} className={filtro === f ? 'activo' : ''} onClick={() => setFiltro(f)}>{etq}</button>
                         ))}
                     </div>
+                    <div className="wa-items">
                     {visibles.length === 0 && <p className="vacio-mini">No hay conversaciones con este filtro.</p>}
                     {visibles.map((c) => (
-                        <div key={c.wa_id} className={`wa-item ${sel === c.wa_id ? 'activo' : ''}`} onClick={() => abrir(c.wa_id)}>
+                        <div
+                            key={c.wa_id}
+                            className={`wa-item ${sel === c.wa_id ? 'activo' : ''}`}
+                            role="button" tabIndex={0} aria-current={sel === c.wa_id ? 'true' : undefined}
+                            onClick={() => abrir(c.wa_id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(c.wa_id); } }}
+                        >
                             <div className="wa-item-top">
                                 <strong>{c.cliente_nombre ?? c.nombre ?? `+${c.wa_id}`}</strong>
-                                <span className="mono">{c.actualizado_en ? hora(c.actualizado_en) : ''}</span>
+                                <span className="hora">{c.actualizado_en ? hora(c.actualizado_en) : ''}</span>
                             </div>
                             <div className="wa-item-txt">
                                 {c.ultimo_origen && c.ultimo_origen !== 'cliente' && <span className="wa-de">{QUIEN[c.ultimo_origen]}: </span>}
                                 {c.ultimo_mensaje ?? '(sin texto)'}
                             </div>
                             <div className="wa-item-tags">
-                                {c.respuesta_pendiente && <span className="wa-tag propuesta">propuesta en Acciones</span>}
+                                {c.respuesta_pendiente && <span className="wa-tag wa-tag-aprobar">en Para aprobar</span>}
                                 {c.en_ventana && <span className="wa-tag ventana">24 h abierta</span>}
                                 {c.estado === 'escalated' && <span className="wa-tag">derivada</span>}
                                 {!c.cliente_id && <span className="wa-tag gris">sin cliente</span>}
                             </div>
                         </div>
                     ))}
+                    </div>
                 </aside>
 
                 <main className="wa-chat">
@@ -216,7 +230,7 @@ export function WhatsApp() {
                                 </div>
                             </div>
 
-                            <div className="wa-hilo">
+                            <div className="wa-hilo" ref={hiloRef}>
                                 {mensajes.map((m) => (
                                     <div key={m.id} className={`wa-burbuja ${m.origen === 'cliente' ? 'entrante' : 'saliente'} ${m.origen}`}>
                                         <span className="wa-quien">{QUIEN[m.origen] ?? m.origen} · {hora(m.creado_en)}</span>

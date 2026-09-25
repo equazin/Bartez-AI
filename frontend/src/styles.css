@@ -1537,7 +1537,7 @@ nav button.salir { color: var(--peligro); }
 .wa-de { font-weight: 600; }
 .wa-item-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
 .wa-tag { font-size: 10px; padding: 1px 6px; border-radius: 8px; background: var(--alerta-soft); color: var(--alerta); }
-.wa-tag.propuesta { background: var(--acento-soft); color: var(--acento); font-weight: 600; }
+.wa-tag.wa-tag-aprobar { background: var(--acento-soft); color: var(--acento); font-weight: 600; }
 .wa-tag.ventana { background: rgba(16,163,127,0.12); color: var(--ok); }
 .wa-tag.gris { background: var(--borde-soft); color: var(--sutil); }
 .wa-chat { background: var(--panel); border: 1px solid var(--borde); border-radius: 8px; padding: 14px; min-height: 300px; }
@@ -1553,7 +1553,7 @@ nav button.salir { color: var(--peligro); }
 .wa-burbuja.entrante { align-self: flex-start; background: var(--panel); }
 .wa-burbuja.saliente { align-self: flex-end; background: var(--wa-saliente); }
 .wa-burbuja.saliente.bot { background: var(--wa-bot); }
-.wa-burbuja.propuesta { max-width: 100%; align-self: stretch; border: 2px dashed var(--ok); }
+.wa-burbuja.wa-propuesta { max-width: 100%; align-self: stretch; border: 2px dashed var(--ok); }
 .wa-quien { display: block; font-size: 10px; font-weight: 600; color: var(--wa-meta); margin-bottom: 2px; }
 .wa-propuesta-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--sutil); font-weight: 600; margin: 10px 0 4px; }
 .wa-proponer { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -2261,6 +2261,134 @@ input, textarea, select { color: var(--texto); }
 .wa-retomar { display: flex; flex-direction: column; gap: 10px; }
 .wa-retomar > .tenue { font-size: var(--t-sm); }
 .wa-retomar-valores { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
-.wa-retomar .wa-burbuja.propuesta { max-width: 100%; }
+.wa-retomar .wa-burbuja.wa-propuesta { max-width: 100%; }
 .wa-retomar .btn-primario { align-self: flex-start; }
 @media (max-width: 760px) { .wa-pl-fila { grid-template-columns: 1fr; } .wa-pl-form { grid-template-columns: 1fr; } }
+
+/* ---- Cotizador: lista a la izquierda, presupuesto a la derecha ---- */
+.cot-cab-der { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cot-dolar { font-size: var(--t-sm); color: var(--sutil); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--borde-soft); background: var(--panel); }
+.cot-dolar strong { color: var(--texto); font-variant-numeric: tabular-nums; }
+.punto-alerta { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--peligro); margin-left: 6px; vertical-align: middle; }
+.cot-cuerpo { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.cot-lista { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 10px; max-height: calc(100vh - 140px); padding: 12px; margin: 0; }
+.cot-nueva { width: 100%; padding: 9px; }
+.cot-buscar { font: inherit; font-size: var(--t-sm); padding: 8px 10px; border-radius: 8px; border: 1px solid var(--borde); background: var(--hundido); color: var(--texto); }
+.cot-lista .chips .chip { padding: 4px 9px; }
+.cot-items { list-style: none; margin: 0 -4px; padding: 0; overflow-y: auto; flex: 1; min-height: 0; }
+.cot-items-vacio { padding: 12px 6px; font-size: var(--t-sm); }
+.cot-item { width: 100%; display: flex; flex-direction: column; gap: 3px; text-align: left; padding: 9px 10px; border: 0; border-radius: 8px; background: none; font: inherit; color: inherit; cursor: pointer; }
+.cot-item:hover { background: var(--hover); }
+.cot-item.activa { background: var(--acento-soft); }
+.cot-item:focus-visible { outline: 2px solid var(--acento); outline-offset: -2px; }
+.cot-item-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: var(--t-sm); }
+.cot-item-top strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cot-item-pedido { font-size: var(--t-xs); color: var(--sutil); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cot-item-pie { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.cot-principal { min-width: 0; }
+.cot-principal .cot-resultado { margin: 0; }
+.cot-nuevo { display: flex; flex-direction: column; gap: 12px; margin: 0; }
+.cot-nuevo h3 { margin: 0; font-size: var(--t-lg); font-weight: 750; }
+.cot-nuevo textarea { font: inherit; font-size: var(--t-md); line-height: 1.5; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--borde); background: var(--hundido); color: var(--texto); resize: vertical; }
+.cot-nuevo textarea:focus { outline: 2px solid var(--acento-soft); border-color: var(--acento); }
+.cot-ejemplos { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--t-xs); }
+.cot-nuevo-pie { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cot-nuevo-pie .tenue { font-size: var(--t-xs); }
+.cot-nuevo-pie .btn-primario { padding: 10px 22px; }
+@media (max-width: 1000px) {
+    .cot-cuerpo { grid-template-columns: 1fr; }
+    .cot-lista { position: static; max-height: 360px; }
+    .cot-principal { order: -1; }
+}
+
+/* ---- WhatsApp: mismo esquema que Para aprobar ---- */
+.wa-layout { grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); align-items: stretch; height: calc(100vh - 170px); min-height: 480px; }
+.wa-lista { display: flex; flex-direction: column; gap: 8px; max-height: none; overflow: hidden; padding: 12px; }
+.wa-buscar { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--hundido); font-size: var(--t-sm); }
+.wa-filtros { margin: 0; }
+.wa-items { flex: 1; min-height: 0; overflow-y: auto; margin: 0 -4px; }
+.wa-item { border-bottom: 0; border-radius: 8px; padding: 9px 10px; margin-bottom: 2px; }
+.wa-item:focus-visible { outline: 2px solid var(--acento); outline-offset: -2px; }
+.wa-item-top strong { font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-tag { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+.wa-chat { display: flex; flex-direction: column; padding: 0; min-height: 0; overflow: hidden; }
+.wa-chat-head { padding: 14px 18px 12px; margin: 0; }
+.wa-chat-head h3 { font-size: var(--t-lg); font-weight: 750; }
+.wa-hilo { flex: 1; min-height: 0; max-height: none; border-radius: 0; padding: 14px 18px; }
+.wa-proponer { margin: 0; padding: 12px 18px 14px; border-top: 1px solid var(--borde-soft); max-height: 45%; overflow-y: auto; }
+.wa-ventana { border-radius: 8px; font-size: var(--t-xs); }
+.wa-proponer textarea { background: var(--hundido); border-radius: 8px; font-size: var(--t-sm); }
+@media (max-width: 800px) {
+    .wa-layout { grid-template-columns: minmax(0, 1fr); height: auto; min-height: 0; }
+    .wa-lista { max-height: 45vh; }
+    .wa-hilo { max-height: 50vh; }
+    .wa-proponer { max-height: none; }
+}
+.wa-item-tags { align-items: center; }
+.wa-tag { white-space: nowrap; line-height: 1.6; display: inline-block; }
+
+/* ---- Notion ---- */
+.notion-cab-der { display: flex; gap: 8px; align-items: center; }
+a.notion-abrir { text-decoration: none; display: inline-flex; align-items: center; padding: 8px 14px; border-radius: 6px; font-weight: 650; font-size: var(--t-sm); }
+.notion-como { margin: -6px 0 14px; font-size: var(--t-sm); color: var(--sutil); }
+.notion-como summary { cursor: pointer; color: var(--acento); font-weight: 600; font-size: var(--t-xs); }
+.notion-como p { margin: 6px 0 0; max-width: 780px; line-height: 1.55; }
+.notion-estado { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--borde); border-bottom: 1px solid var(--borde); margin-bottom: 18px; }
+.notion-estado > div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-left: 1px solid var(--borde-soft); }
+.notion-estado > div:first-child { border-left: 0; padding-left: 4px; }
+.notion-estado strong { font-size: var(--t-lg); font-weight: 800; }
+.notion-estado .tenue { font-size: var(--t-xs); }
+.notion-cuerpo { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.notion-pedido { display: flex; flex-direction: column; gap: 10px; }
+.notion-pedido h3, .notion-registro h3 { margin: 0; font-size: var(--t-md); font-weight: 750; }
+.notion-resumen { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--hundido); font-size: var(--t-sm); display: flex; flex-direction: column; gap: 2px; }
+.notion-pedido textarea { font: inherit; font-size: var(--t-sm); line-height: 1.5; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--borde); background: var(--hundido); color: var(--texto); resize: vertical; }
+.notion-sugerencias { display: flex; flex-wrap: wrap; gap: 6px; }
+.notion-pedido-pie { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.notion-pedido-pie .tenue { font-size: var(--t-xs); }
+.notion-dia + .notion-dia { margin-top: 12px; }
+.notion-dia-titulo { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--sutil); padding: 4px 0 6px; border-bottom: 1px solid var(--borde-soft); text-transform: uppercase; }
+.notion-cambio2 { display: grid; grid-template-columns: 48px auto minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--borde-soft); font-size: var(--t-sm); }
+.notion-cambio2:last-child { border-bottom: 0; }
+.notion-tipo2 { font-size: 10.5px; font-weight: 650; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.nt-nuevo { background: var(--ok-soft); color: var(--ok); }
+.nt-cambio { background: var(--acento-soft); color: var(--acento); }
+.nt-fin { background: var(--hover); color: var(--sutil); }
+.notion-origen { font-size: var(--t-xs); color: var(--alerta); font-weight: 600; }
+@media (max-width: 900px) {
+    .notion-estado { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .notion-estado > div:nth-child(3) { border-left: 0; padding-left: 4px; }
+    .notion-cuerpo { grid-template-columns: 1fr; }
+    .notion-cambio2 { grid-template-columns: 44px minmax(0, 1fr) auto; }
+    .notion-cambio2 .notion-tipo2 { grid-column: 2; justify-self: start; }
+    .notion-cambio2 .notion-detalle { grid-column: 2 / -1; }
+    .notion-cambio2 .notion-origen { grid-column: 3; grid-row: 1; }
+}
+
+/* ---- Clientes y seguimientos ---- */
+.seg-layout { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); align-items: start; }
+.seg-lista { position: sticky; top: 16px; display: flex; flex-direction: column; max-height: calc(100vh - 140px); padding: 12px; }
+.seg-toolbar { padding: 0 0 10px; }
+.seg-buscar { padding: 8px 10px; border-radius: 8px; background: var(--hundido); font-size: var(--t-sm); }
+.seg-toolbar .cnt { font-family: var(--f-texto); font-size: var(--t-xs); }
+.seg-scroll { flex: 1; min-height: 0; max-height: none; margin: 0 -4px; }
+.seg-item { width: 100%; display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; color: inherit; background: none; border: 0; padding: 9px 10px; margin-bottom: 2px; border-radius: 8px; transition: none; }
+.seg-item:hover { background: var(--hover); }
+.seg-item.on { background: var(--acento-soft); border: 0; }
+.seg-item:focus-visible { outline: 2px solid var(--acento); outline-offset: -2px; }
+.seg-item .fila-top { margin: 0; }
+.seg-item .nombre { font-size: var(--t-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg-item .fila-meta { font-family: var(--f-texto); font-size: var(--t-xs); align-items: center; gap: 6px; }
+.seg-item .icp { color: var(--texto); font-weight: 600; }
+.badge-estado { font-family: var(--f-texto); text-transform: capitalize; letter-spacing: 0; border-radius: 999px; font-size: 11px; padding: 1px 8px; white-space: nowrap; }
+.seg-detalle { padding: 18px 22px; }
+.det-head h3 { font-size: var(--t-lg); font-weight: 750; }
+@media (max-width: 900px) { .seg-lista { position: static; max-height: 50vh; } }
+/* Indicadores del cliente: franja plana como en el Inicio y Notion */
+.det-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0; border-top: 1px solid var(--borde-soft); border-bottom: 1px solid var(--borde-soft); margin-bottom: 20px; }
+.det-stats .stat { background: none; border-radius: 0; border-left: 1px solid var(--borde-soft); padding: 10px 12px; }
+.det-stats .stat:first-child { border-left: 0; padding-left: 0; }
+.det-stats .stat .k { font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.08em; }
+.det-stats .stat .v { font-size: var(--t-lg); font-weight: 800; }
+.contexto-extra .sub { font-style: normal; font-size: var(--t-xs); }
+.contexto-extra textarea { background: var(--hundido); border-radius: 8px; }

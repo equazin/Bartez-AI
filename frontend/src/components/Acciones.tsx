@@ -127,7 +127,7 @@ function VistaWhatsapp({ payload }: { payload: Record<string, unknown> }) {
             <div className="wa-propuesta-label">
                 {payload.plantilla ? `Plantilla «${(payload.plantilla as { nombre: string }).nombre}» (aprobada en Meta)` : 'Respuesta propuesta'}
             </div>
-            <div className="wa-burbuja saliente propuesta">{cuerpo}</div>
+            <div className="wa-burbuja saliente wa-propuesta">{cuerpo}</div>
         </div>
     );
 }

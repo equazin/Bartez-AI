@@ -94,6 +94,12 @@ function CierreVenta({ cot, alCambiar }: { cot: Cotizacion; alCambiar: (estado: 
 
 type FiltroHist = 'todas' | EstadoVenta;
 
+const EJEMPLOS = [
+    '10 notebooks i5 16 GB SSD 512 y 10 monitores de 24"',
+    '2 switches de 24 bocas gigabit administrables',
+    '5 PCs de oficina i3 8 GB con monitor, teclado y mouse',
+];
+
 export function Cotizador() {
     const [pedido, setPedido] = useState('');
     const [cotizando, setCotizando] = useState(false);
@@ -106,6 +112,8 @@ export function Cotizador() {
 
     const [historial, setHistorial] = useState<CotizacionResumen[]>([]);
     const [filtroHist, setFiltroHist] = useState<FiltroHist>('todas');
+    const [busquedaHist, setBusquedaHist] = useState('');
+    const [vista, setVista] = useState<'cotizaciones' | 'proveedores'>('cotizaciones');
     const [avisoCierre, setAvisoCierre] = useState<string>();
     const [titulo, setTitulo] = useState('');
     const [datosCli, setDatosCli] = useState<DatosCliente>({});
@@ -165,6 +173,12 @@ export function Cotizador() {
         mostrar(null);
         setPedido('');
     }
+
+    const historialVisible = historial.filter((h) => {
+        if (filtroHist !== 'todas' && h.estado !== filtroHist) return false;
+        const q = busquedaHist.trim().toLowerCase();
+        return !q || `${h.titulo ?? ''} ${h.pedido}`.toLowerCase().includes(q);
+    });
 
     async function cargarProvs() {
         try {
@@ -287,29 +301,85 @@ export function Cotizador() {
 
     return (
         <section className="cotizador">
-            <div className="analitica-top">
+            <div className="acciones-header">
                 <div>
                     <h2>Cotizador</h2>
-                    <p className="sub">
-                        Pedí en lenguaje natural. El asistente busca en las listas de Elit, Air e Invid y elige artículos iguales o similares.
-                        Precios con tu margen + IVA. {tc && <>Dólar: <strong>{tc.valor}</strong> ({tc.fuente}).</>}
-                    </p>
+                    <p className="sub">Pedí en lenguaje natural: el asistente busca en Elit, Air e Invid y arma el presupuesto con tu margen + IVA.</p>
+                </div>
+                <div className="cot-cab-der">
+                    {tc && <span className="cot-dolar" title={`Fuente: ${tc.fuente}`}>Dólar <strong>{tc.valor.toLocaleString('es-AR')}</strong></span>}
+                    <div className="segmentos" role="tablist" aria-label="Sección">
+                        <button role="tab" aria-selected={vista === 'cotizaciones'} className={vista === 'cotizaciones' ? 'on' : ''} onClick={() => setVista('cotizaciones')}>Cotizaciones</button>
+                        <button role="tab" aria-selected={vista === 'proveedores'} className={vista === 'proveedores' ? 'on' : ''} onClick={() => setVista('proveedores')}>
+                            Proveedores{provs.some((x) => x.ultimo_estado === 'error') && <span className="punto-alerta" aria-label="con errores" />}
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {error && <p className="error">Error: {error}</p>}
 
-            <div className="cot-pedido">
-                <textarea
-                    rows={3}
-                    value={pedido}
-                    onChange={(e) => setPedido(e.target.value)}
-                    placeholder="ej: 10 notebooks i5 con 16GB y SSD 512 para oficina, 2 switches de 24 puertos gigabit y 10 monitores de 24 pulgadas"
-                />
-                <button className="primario" onClick={cotizar} disabled={cotizando || !pedido.trim()}>
-                    {cotizando ? 'Buscando en proveedores…' : 'Cotizar'}
-                </button>
-            </div>
+            {vista === 'cotizaciones' && (
+            <div className="cot-cuerpo">
+                <aside className="cot-lista panel" aria-label="Cotizaciones guardadas">
+                    <button className="btn-primario cot-nueva" onClick={nueva}>+ Nueva cotización</button>
+                    <input className="cot-buscar" value={busquedaHist} onChange={(e) => setBusquedaHist(e.target.value)} placeholder="Buscar cliente o pedido…" aria-label="Buscar cotizaciones" />
+                    <div className="chips" role="group" aria-label="Filtrar por estado">
+                        {(['todas', 'abierta', 'enviada', 'ganada', 'perdida'] as FiltroHist[]).map((f) => {
+                            const n = f === 'todas' ? historial.length : historial.filter((h) => h.estado === f).length;
+                            return (
+                                <button key={f} type="button" className={filtroHist === f ? 'chip on' : 'chip'} aria-pressed={filtroHist === f} onClick={() => setFiltroHist(f)}>
+                                    {f === 'todas' ? 'Todas' : ESTADO[f] + 's'} <span className="chip-n">{n}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <ul className="cot-items">
+                        {historialVisible.length === 0 && <li className="tenue cot-items-vacio">{historial.length ? 'Nada con ese filtro.' : 'Todavía no hay cotizaciones.'}</li>}
+                        {historialVisible.map((h) => (
+                            <li key={h.id}>
+                                <button className={`cot-item ${cot?.id === h.id ? 'activa' : ''}`} onClick={() => abrir(h.id)} aria-current={cot?.id === h.id ? 'true' : undefined}>
+                                    <span className="cot-item-top">
+                                        <strong>{h.titulo || 'Sin nombre'}</strong>
+                                        <span className="monto">{usd(h.total_usd)}</span>
+                                    </span>
+                                    <span className="cot-item-pedido">{h.pedido}</span>
+                                    <span className="cot-item-pie">
+                                        <span className="hora">{fecha(h.creado_en)}{h.numero ? ` · N° ${h.numero}` : ''}</span>
+                                        <span className={`estado-venta ev-${h.estado}`} title={h.motivo_cierre ?? undefined}>
+                                            {ESTADO[h.estado]}{h.estado === 'enviada' && h.enviada_en && diasDesde(h.enviada_en) >= 5 ? ` · ${diasDesde(h.enviada_en)} d` : ''}
+                                        </span>
+                                    </span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                </aside>
+
+                <div className="cot-principal">
+            {!cot && (
+                <div className="panel cot-nuevo">
+                    <h3>Nueva cotización</h3>
+                    <textarea
+                        rows={5}
+                        value={pedido}
+                        onChange={(e) => setPedido(e.target.value)}
+                        onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') cotizar(); }}
+                        placeholder="ej: 10 notebooks i5 con 16GB y SSD 512 para oficina, 2 switches de 24 puertos gigabit y 10 monitores de 24 pulgadas"
+                        disabled={cotizando}
+                    />
+                    <div className="cot-ejemplos">
+                        <span className="tenue">Ejemplos:</span>
+                        {EJEMPLOS.map((ej) => <button key={ej} type="button" className="sugerencia" onClick={() => setPedido(ej)} disabled={cotizando}>{ej}</button>)}
+                    </div>
+                    <div className="cot-nuevo-pie">
+                        <span className="tenue">{cotizando ? 'Buscando en Elit, Air e Invid… suele tardar entre 20 y 60 segundos.' : 'Ctrl + Enter para cotizar.'}</span>
+                        <button className="btn-primario" onClick={cotizar} disabled={cotizando || !pedido.trim()}>
+                            {cotizando ? 'Cotizando…' : 'Cotizar'}
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {cot && (
                 <div className="cot-resultado">
@@ -438,49 +508,12 @@ export function Cotizador() {
                 </div>
             )}
 
-            <div className="cot-hist-cab">
-                <h4 className="section-h">Cotizaciones guardadas</h4>
-                <div className="chips" role="group" aria-label="Filtrar por estado">
-                    {(['todas', 'abierta', 'enviada', 'ganada', 'perdida'] as FiltroHist[]).map((f) => {
-                        const n = f === 'todas' ? historial.length : historial.filter((h) => h.estado === f).length;
-                        return (
-                            <button key={f} type="button" className={filtroHist === f ? 'chip on' : 'chip'} aria-pressed={filtroHist === f} onClick={() => setFiltroHist(f)}>
-                                {f === 'todas' ? 'Todas' : ESTADO[f] + 's'} <span className="chip-n">{n}</span>
-                            </button>
-                        );
-                    })}
                 </div>
             </div>
-            {historial.length === 0 ? (
-                <p className="sub">Todavía no hay cotizaciones guardadas.</p>
-            ) : (
-                <div className="cot-historial">
-                    {historial.filter((h) => filtroHist === 'todas' || h.estado === filtroHist).map((h) => (
-                        <div
-                            key={h.id}
-                            className={`cot-hist-fila ${cot?.id === h.id ? 'activa' : ''}`}
-                            onClick={() => abrir(h.id)}
-                        >
-                            <span className="mono">{fecha(h.creado_en)}</span>
-                            <span className="cot-hist-txt">
-                                {h.titulo && <strong>{h.titulo} · </strong>}
-                                {h.pedido}
-                            </span>
-                            <span className={`estado-venta ev-${h.estado}`} title={h.motivo_cierre ?? undefined}>
-                                {ESTADO[h.estado]}{h.estado === 'enviada' && h.enviada_en && diasDesde(h.enviada_en) >= 5 ? ` · ${diasDesde(h.enviada_en)} d` : ''}
-                            </span>
-                            <span className="num">{usd(h.total_usd)}</span>
-                            <button
-                                className="cot-hist-borrar"
-                                title="Borrar"
-                                onClick={(e) => { e.stopPropagation(); borrar(h.id); }}
-                            >×</button>
-                        </div>
-                    ))}
-                </div>
             )}
 
-            <h4 className="section-h">Proveedores</h4>
+            {vista === 'proveedores' && (
+            <>
             {msgProv && <div className={msgProv.startsWith('✗') ? 'msg-error' : 'msg-ok'}>{msgProv}</div>}
             <div className="prov-grid">
                 {provs.map((p) => (
@@ -510,6 +543,8 @@ export function Cotizador() {
                     </div>
                 ))}
             </div>
+            </>
+            )}
         </section>
     );
 }

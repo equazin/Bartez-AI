@@ -136,7 +136,7 @@ export function RetomarConPlantilla({ waId, nombre, deshabilitado, alProponer, a
                             ))}
                         </div>
                     )}
-                    <div className="wa-burbuja saliente propuesta">{conParametros(plantilla.texto, valores)}</div>
+                    <div className="wa-burbuja saliente wa-propuesta">{conParametros(plantilla.texto, valores)}</div>
                     <button className="btn-primario" onClick={proponer} disabled={ocupado || deshabilitado}>{ocupado ? 'Preparando…' : 'Proponer plantilla'}</button>
                 </>
             )}
