@@ -386,10 +386,12 @@ export async function detalleEmpresa(clienteId: string) {
     if (!cliente) return null;
 
     const historia = await historicoConCliente(clienteId, 50);
+    // Por respuesta.cliente_id o payload.clienteId: aprobar pisaba la respuesta y
+    // las propuestas aprobadas desaparecían de la ficha.
     const { data: acciones } = await supabase
         .from('acciones_pendientes')
-        .select('id, accion, payload, estado, respuesta, creado_en')
-        .contains('respuesta', { cliente_id: clienteId })
+        .select('id, accion, payload, estado, respuesta, creado_en, resuelto_en')
+        .or(`respuesta->>cliente_id.eq.${clienteId},payload->>clienteId.eq.${clienteId}`)
         .order('creado_en', { ascending: false })
         .limit(50);
 

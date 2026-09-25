@@ -19,6 +19,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
 import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { calcularMapa } from './orchestrator/mapa.js';
+import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
@@ -739,6 +740,42 @@ const ClienteUpdateSchema = z.object({
     whatsapp: z.string().optional(),
 });
 
+// ---------- Alta y edición manual de clientes ----------
+
+const texto = (max: number) => z.string().max(max).nullable().optional();
+const DatosClienteSchema = z.object({
+    nombre: z.string().max(200),
+    email: texto(200),
+    whatsapp: texto(40),
+    estado: z.enum(['lead', 'cliente', 'inactivo', 'descartado']).optional(),
+    contacto: texto(200),
+    sitio_web: texto(300),
+    cuit: texto(30),
+});
+
+// Crea un cliente. Si hay uno parecido (mismo email, teléfono o nombre) devuelve
+// 409 con los parecidos; con crear_igual: true lo crea igual.
+app.post('/clientes', async (req, res) => {
+    const parseo = DatosClienteSchema.extend({ nota: z.string().max(60_000).nullable().optional(), crear_igual: z.boolean().optional() })
+        .safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'Revisá los datos del cliente' });
+    const { crear_igual, ...datos } = parseo.data;
+    const r = await crearCliente(datos, { origen: 'manual', crearIgual: crear_igual });
+    if (!r.ok) return res.status(r.parecidos?.length ? 409 : 400).send({ error: r.detalle, parecidos: r.parecidos ?? [] });
+    invalidarResumenHoy();
+    return { cliente: r.cliente, vinculados: r.vinculados };
+});
+
+app.put('/clientes/:id/datos', async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
+    const parseo = DatosClienteSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'Revisá los datos del cliente' });
+    const r = await editarCliente(id, parseo.data);
+    if (!r.ok) return res.status(r.parecidos?.length ? 409 : r.detalle === 'Cliente no encontrado' ? 404 : 400).send({ error: r.detalle, parecidos: r.parecidos ?? [] });
+    return { cliente: r.cliente, vinculados: r.vinculados };
+});
+
 app.patch('/clientes/:id', async (req, res) => {
     const { id } = req.params as { id: string };
     const parseo = ClienteUpdateSchema.safeParse(req.body ?? {});
@@ -996,12 +1033,14 @@ app.post('/acciones/:id/aprobar', async (req, res) => {
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
-    // Marcar aprobada primero, atómicamente (evita doble ejecución si el user hace clic dos veces)
+    // Marcar aprobada primero, atómicamente (evita doble ejecución si el user hace clic dos veces).
+    // Se conserva lo que ya tenía "respuesta" (p. ej. cliente_id, que usa la ficha).
+    const previa = await respuestaPrevia(id);
     const { data, error } = await supabase
         .from('acciones_pendientes')
         .update({
             estado: 'aprobada',
-            respuesta: { por: 'humano', nota: parseo.data.nota ?? null },
+            respuesta: { ...previa, por: 'humano', nota: parseo.data.nota ?? null },
             resuelto_en: new Date().toISOString(),
         })
         .eq('id', id)
@@ -1032,12 +1071,13 @@ app.post('/acciones/:id/editar', async (req, res) => {
     const { data: original } = await supabase
         .from('acciones_pendientes').select('id, asistente_id, accion, payload').eq('id', id).eq('estado', 'pendiente').maybeSingle();
 
+    const previaEd = await respuestaPrevia(id);
     const { data, error } = await supabase
         .from('acciones_pendientes')
         .update({
             estado: 'editada',
             payload: parseo.data.payload,
-            respuesta: { por: 'humano', nota: parseo.data.nota ?? null },
+            respuesta: { ...previaEd, por: 'humano', nota: parseo.data.nota ?? null },
             resuelto_en: new Date().toISOString(),
         })
         .eq('id', id)
@@ -1054,6 +1094,45 @@ app.post('/acciones/:id/editar', async (req, res) => {
         .eq('id', id);
 
     return { accion: data, ejecucion: ejec };
+});
+
+async function respuestaPrevia(id: string): Promise<Record<string, unknown>> {
+    const { data } = await supabase.from('acciones_pendientes').select('respuesta').eq('id', id).maybeSingle();
+    const r = (data?.respuesta as Record<string, unknown> | null) ?? {};
+    // Solo datos que identifican (no el resultado de una ejecución anterior).
+    return typeof r.cliente_id === 'string' ? { cliente_id: r.cliente_id } : {};
+}
+
+// Correos y WhatsApp aprobados que no se pudieron enviar (últimos 30 días): se
+// muestran en Para aprobar, en Inicio y en la ficha para reintentar o descartar.
+app.get('/acciones/fallidas', async () => {
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .select('id, asistente_id, accion, payload, estado, respuesta, resuelto_en, creado_en')
+        .in('estado', ['aprobada', 'editada'])
+        .in('accion', ['enviar_correo', 'enviar_whatsapp'])
+        .eq('respuesta->ejecucion->>ok', 'false')
+        .gte('creado_en', new Date(Date.now() - 30 * 86_400_000).toISOString())
+        .order('resuelto_en', { ascending: false })
+        .limit(50);
+    if (error) throw error;
+    return { acciones: data ?? [] };
+});
+
+app.post('/acciones/:id/descartar', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const previa = await supabase.from('acciones_pendientes').select('respuesta').eq('id', id).maybeSingle();
+    const { data, error } = await supabase
+        .from('acciones_pendientes')
+        .update({ estado: 'descartada', respuesta: { ...((previa.data?.respuesta as Record<string, unknown> | null) ?? {}), descartada_en: new Date().toISOString() } })
+        .eq('id', id)
+        .in('estado', ['aprobada', 'editada'])
+        .eq('respuesta->ejecucion->>ok', 'false')
+        .select('id');
+    if (error) return res.status(400).send({ error: error.message });
+    if (!data?.length) return res.status(404).send({ error: 'No hay un envío fallido con ese id' });
+    invalidarResumenHoy();
+    return { ok: true };
 });
 
 app.post('/acciones/:id/reintentar', async (req, res) => {
@@ -1079,6 +1158,7 @@ app.post('/acciones/:id/reintentar', async (req, res) => {
             respuesta: { ...(data.respuesta ?? {}), ejecucion: ejec, reintento_en: new Date().toISOString() },
         })
         .eq('id', id);
+    invalidarResumenHoy();
 
     return { accion: data, ejecucion: ejec };
 });
@@ -1089,11 +1169,12 @@ app.post('/acciones/:id/rechazar', async (req, res) => {
     const parseo = ResolucionSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
+    const previaRe = await respuestaPrevia(id);
     const { data, error } = await supabase
         .from('acciones_pendientes')
         .update({
             estado: 'rechazada',
-            respuesta: { por: 'humano', nota: parseo.data.nota ?? null },
+            respuesta: { ...previaRe, por: 'humano', nota: parseo.data.nota ?? null },
             resuelto_en: new Date().toISOString(),
         })
         .eq('id', id)
@@ -1282,6 +1363,24 @@ async function main() {
 
     const port = Number(process.env.PORT ?? 3000);
     await app.listen({ port, host: '0.0.0.0' });
+
+    // Historia de correos al día (línea de tiempo de cada cliente): lo que entra
+    // y lo que se manda desde cualquier programa de correo. Al arrancar se trae
+    // la última semana; después, cada hora, los últimos 2 días. No duplica.
+    let importando = false;
+    const importarReciente = async (dias: number) => {
+        if (importando) return;
+        importando = true;
+        try {
+            const r = await importarHistorico(dias);
+            if (r.total_nuevos) app.log.info({ nuevos: r.total_nuevos, vinculados: r.total_vinculados }, 'historia de correos actualizada');
+            if (!r.ok) app.log.warn({ detalle: r.detalle }, 'importar correos recientes falló');
+        } catch (err) {
+            app.log.warn({ err }, 'importar correos recientes falló');
+        } finally { importando = false; }
+    };
+    setTimeout(() => { void importarReciente(7); }, 60_000);
+    cron.schedule('20 * * * *', () => { void importarReciente(2); }, { timezone: 'America/Argentina/Buenos_Aires' });
 
     // Documentos que se leyeron antes de sacar los datos de presupuesto: se leen
     // de nuevo (de a uno, en segundo plano) para que sumen a Cotizado.

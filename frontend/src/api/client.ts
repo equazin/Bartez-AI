@@ -216,9 +216,44 @@ export interface Prospecto {
         senial?: string;
         razon_prospeccion?: string;
         puntaje_icp?: number;
+        // Cargados a mano (alta o edición del cliente)
+        contacto?: string;
+        cuit?: string;
     } | null;
     creado_en: string;
     actualizado_en: string;
+}
+
+// ---------- Alta y edición manual de clientes ----------
+
+export interface DatosClienteForm {
+    nombre: string;
+    email: string | null;
+    whatsapp: string | null;
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    contacto: string | null;
+    sitio_web: string | null;
+    cuit: string | null;
+}
+export interface ClienteParecido { id: string; nombre: string; email: string | null; whatsapp: string | null; estado: string; motivo: string }
+export type ResultadoGuardarCliente =
+    | { ok: true; cliente: { id: string; nombre: string; estado: string }; vinculados: { correos: number; whatsapp: number } }
+    | { ok: false; error: string; parecidos: ClienteParecido[] };
+
+async function guardarClienteFetch(url: string, method: 'POST' | 'PUT', body: unknown): Promise<ResultadoGuardarCliente> {
+    const res = await apiFetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({})) as { error?: string; parecidos?: ClienteParecido[]; cliente?: { id: string; nombre: string; estado: string }; vinculados?: { correos: number; whatsapp: number } };
+    // 409 = hay un cliente parecido: se muestran para decidir.
+    if (!res.ok) return { ok: false, error: data.error || `Backend respondió ${res.status}`, parecidos: data.parecidos ?? [] };
+    return { ok: true, cliente: data.cliente!, vinculados: data.vinculados ?? { correos: 0, whatsapp: 0 } };
+}
+
+export function crearClienteManual(datos: DatosClienteForm & { nota?: string | null }, crear_igual = false): Promise<ResultadoGuardarCliente> {
+    return guardarClienteFetch(`${BASE}/clientes`, 'POST', { ...datos, crear_igual });
+}
+
+export function editarDatosCliente(id: string, datos: DatosClienteForm): Promise<ResultadoGuardarCliente> {
+    return guardarClienteFetch(`${BASE}/clientes/${id}/datos`, 'PUT', datos);
 }
 
 export async function listarProspectos(estado = 'todos'): Promise<{ prospectos: Prospecto[] }> {
@@ -923,6 +958,29 @@ export interface AccionPendiente {
     payload: Record<string, unknown>;
     estado: string;
     creado_en: string;
+}
+
+// Aprobados que no se pudieron enviar (p. ej. el servidor de correo no respondió).
+export interface EnvioFallido {
+    id: string;
+    accion: string;
+    payload: Record<string, unknown>;
+    estado: string;
+    respuesta: { ejecucion?: { ok: boolean; detalle?: string }; reintento_en?: string } | null;
+    resuelto_en: string | null;
+    creado_en: string;
+}
+
+export async function listarEnviosFallidos(): Promise<{ acciones: EnvioFallido[] }> {
+    return jsonOError(await apiFetch(`${BASE}/acciones/fallidas`));
+}
+
+export async function reintentarEnvio(id: string): Promise<{ ejecucion: { ok: boolean; detalle?: string } }> {
+    return jsonOError(await apiFetch(`${BASE}/acciones/${id}/reintentar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }));
+}
+
+export async function descartarEnvio(id: string): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/acciones/${id}/descartar`, { method: 'POST' }));
 }
 
 export async function listarAcciones(estado = 'pendiente'): Promise<{ acciones: AccionPendiente[] }> {

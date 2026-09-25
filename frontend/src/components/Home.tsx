@@ -1,5 +1,5 @@
 import { CSSProperties, useCallback, useEffect, useState } from 'react';
-import { AccionPendiente, SIN_MAPA, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, mapaNegocio, resumenHoy } from '../api/client.ts';
+import { AccionPendiente, SIN_MAPA, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, listarEnviosFallidos, mapaNegocio, resumenHoy } from '../api/client.ts';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 import { preguntarABartez } from '../lib/bartez.ts';
@@ -314,8 +314,12 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [soloUrgente, setSoloUrgente] = useState(false);
     const [pregunta, setPregunta] = useState('');
 
+    // Envíos aprobados que no salieron: se avisa arriba de Para aprobar.
+    const [fallidos, setFallidos] = useState(0);
+
     const cargar = useCallback(async (forzar = false) => {
         setCargando(true);
+        listarEnviosFallidos().then((r) => setFallidos(r.acciones.length)).catch(() => setFallidos(0));
         try {
             const [res, ac, mp] = await Promise.all([
                 resumenHoy(forzar),
@@ -507,6 +511,11 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                 <h2>Para aprobar <span className="g-cuenta">{visibles.length}</span></h2>
                                 {visibles.length > mostradas.length && <button className="enlace" onClick={() => irA('acciones')}>Ver las {visibles.length} →</button>}
                             </div>
+                            {fallidos > 0 && (
+                                <button type="button" className="g-fallidos" onClick={() => irA('acciones')}>
+                                    ⚠ {fallidos === 1 ? '1 envío aprobado no salió' : `${fallidos} envíos aprobados no salieron`} · Revisar
+                                </button>
+                            )}
                             {visibles.length === 0 ? (
                                 <p className="mesa-vacio">Nada para aprobar. Tus asistentes están al día.</p>
                             ) : (

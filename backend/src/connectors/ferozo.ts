@@ -17,6 +17,16 @@ const smtpPort = Number(process.env.FEROZO_SMTP_PORT ?? 465);
 const smtpSecure = (process.env.FEROZO_SMTP_SECURE ?? 'true') === 'true';
 
 export const ferozoConfigurado = Boolean(email && password && imapHost && smtpHost);
+// La casilla desde la que sale todo (para registrar los enviados en la historia).
+export const casillaCorreo = email;
+
+// Envío por HTTPS (Resend) para cuando el SMTP no está disponible: por ejemplo
+// en Railway Hobby, que bloquea los puertos de correo. Con RESEND_API_KEY
+// cargada, los correos salen por Resend desde la misma casilla (el dominio
+// tiene que estar verificado en Resend); la lectura sigue por IMAP.
+const resendKey = process.env.RESEND_API_KEY ?? '';
+export const envioPorApi = Boolean(resendKey);
+const enRailway = Boolean(process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_ENVIRONMENT_NAME || process.env.RAILWAY_ENVIRONMENT);
 
 // ---------- SMTP ----------
 
@@ -28,6 +38,10 @@ function getTransporter(): Transporter {
             port: smtpPort,
             secure: smtpSecure, // 465 = true, 587 = false (STARTTLS)
             auth: { user: email, pass: password },
+            // Si el servidor no responde, fallar en segundos y no en minutos.
+            connectionTimeout: 20_000,
+            greetingTimeout: 15_000,
+            socketTimeout: 60_000,
         });
     }
     return transporter;
@@ -42,21 +56,59 @@ export interface CorreoAEnviar {
     adjuntos?: Array<{ nombre: string; contenido: Buffer; tipo?: string }>;
 }
 
+async function enviarPorResend(c: CorreoAEnviar): Promise<{ messageId: string }> {
+    const headers: Record<string, string> = {};
+    if (c.inReplyTo) headers['In-Reply-To'] = c.inReplyTo;
+    if (c.references ?? c.inReplyTo) headers.References = (c.references ?? c.inReplyTo)!;
+    const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            from: process.env.CORREO_REMITENTE || email,
+            to: [c.para],
+            reply_to: email || undefined,
+            subject: c.asunto,
+            text: c.cuerpo,
+            headers,
+            attachments: c.adjuntos?.map((a) => ({ filename: a.nombre, content: a.contenido.toString('base64') })),
+        }),
+        signal: AbortSignal.timeout(30_000),
+    });
+    const r = await res.json().catch(() => ({})) as { id?: string; message?: string; name?: string };
+    if (!res.ok || !r.id) throw new Error(`No se pudo enviar por Resend: ${r.message ?? r.name ?? res.status}`);
+    return { messageId: `<${r.id}@resend.dev>` };
+}
+
+// Errores de conexión al servidor de correo: se explican en castellano.
+function errorDeConexion(err: unknown): boolean {
+    const e = err as { code?: string; message?: string };
+    return /ETIMEDOUT|ECONNECTION|ESOCKET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH/.test(e.code ?? '')
+        || /timeout|timed out|ECONNREFUSED|ENETUNREACH|EHOSTUNREACH/i.test(e.message ?? '');
+}
+
 export async function enviarCorreo(c: CorreoAEnviar): Promise<{ messageId: string }> {
+    if (envioPorApi) return enviarPorResend(c);
     if (!ferozoConfigurado) {
         console.warn(`[ferozo] STUB — no configurado; simulando envío a ${c.para}`);
         return { messageId: `<stub-${Date.now()}@bartez.local>` };
     }
-    const info = await getTransporter().sendMail({
-        from: email,
-        to: c.para,
-        subject: c.asunto,
-        text: c.cuerpo,
-        inReplyTo: c.inReplyTo,
-        references: c.references ?? c.inReplyTo,
-        attachments: c.adjuntos?.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo ?? 'application/pdf' })),
-    });
-    return { messageId: info.messageId };
+    try {
+        const info = await getTransporter().sendMail({
+            from: email,
+            to: c.para,
+            subject: c.asunto,
+            text: c.cuerpo,
+            inReplyTo: c.inReplyTo,
+            references: c.references ?? c.inReplyTo,
+            attachments: c.adjuntos?.map((a) => ({ filename: a.nombre, content: a.contenido, contentType: a.tipo ?? 'application/pdf' })),
+        });
+        return { messageId: info.messageId };
+    } catch (err) {
+        if (!errorDeConexion(err)) throw err;
+        throw new Error(enRailway
+            ? 'No se pudo conectar al servidor de correo: Railway (plan Hobby) bloquea el envío por SMTP. El correo quedó para reintentar.'
+            : 'No se pudo conectar al servidor de correo (SMTP). El correo quedó para reintentar.');
+    }
 }
 
 // ---------- IMAP listener ----------

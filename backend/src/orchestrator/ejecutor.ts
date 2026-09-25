@@ -2,7 +2,8 @@
 // Usado tanto por el router (cuando el asistente autoresponde) como por
 // /acciones/:id/aprobar (cuando la aprueba un humano).
 
-import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
+import { casillaCorreo, enviarCorreo, envioPorApi, ferozoConfigurado } from '../connectors/ferozo.js';
+import { registrarCorreoEnHistoria } from '../inbound/registro_correos.js';
 import { enviarPlantillaWa, enviarWhatsapp } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { numeroPresupuesto, obtenerCotizacion } from './cotizador.js';
@@ -57,7 +58,7 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
             }
 
             let messageId: string | undefined;
-            if (!ferozoConfigurado) {
+            if (!ferozoConfigurado && !envioPorApi) {
                 messageId = 'simulado';
             } else {
                 const info = await enviarCorreo({
@@ -69,6 +70,11 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
                     adjuntos,
                 });
                 messageId = info.messageId;
+                // Queda en la línea de tiempo del cliente al instante.
+                await registrarCorreoEnHistoria({
+                    direccion: 'saliente', de: casillaCorreo, para, asunto, cuerpo, messageId,
+                    clienteId, carpeta: 'Enviados por Bartez AI',
+                });
             }
 
             // Trackeo de contacto: si sabemos qué cliente es (viene de Contactar o

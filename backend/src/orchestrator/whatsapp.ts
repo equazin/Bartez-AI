@@ -27,6 +27,7 @@ import { contextoFecha } from '../assistants/base.js';
 import { conLecciones, registrarCorreccion } from './aprendizaje.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { bloqueMemoria } from './memoria.js';
+import { claveTelefono } from './clientes.js';
 
 const VENTANA_MS = 24 * 3600_000;
 
@@ -89,19 +90,12 @@ function bloqueIdentidad(nombre: string): string {
 
 // ---------- Teléfonos ----------
 
-const soloDigitos = (s: string) => s.replace(/\D/g, '');
-
-// Últimos 8 dígitos: el número local, igual escrito con 549/54/0/15.
-function colaTelefono(s: string): string {
-    const d = soloDigitos(s);
-    return d.length >= 8 ? d.slice(-8) : '';
-}
-
 async function clientePorTelefono(waId: string): Promise<string | null> {
-    const cola = colaTelefono(waId);
-    if (!cola) return null;
-    const { data } = await supabase.from('clientes').select('id, whatsapp').not('whatsapp', 'is', null).ilike('whatsapp', `%${cola.slice(-4)}%`);
-    const coinciden = (data ?? []).filter((c) => colaTelefono(String(c.whatsapp ?? '')) === cola);
+    const clave = claveTelefono(waId);
+    if (!clave) return null;
+    const { data } = await supabase.from('clientes').select('id, whatsapp').not('whatsapp', 'is', null).ilike('whatsapp', `%${clave.slice(-4)}%`);
+    // Mismo número aunque esté escrito con 0, 15, +54 o 9 (ver clientes.ts).
+    const coinciden = (data ?? []).filter((c) => claveTelefono(String(c.whatsapp ?? '')) === clave);
     return coinciden.length === 1 ? (coinciden[0]!.id as string) : null;
 }
 

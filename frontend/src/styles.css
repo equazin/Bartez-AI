@@ -3037,3 +3037,60 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
     .wa-escribir-pie .wa-atajo { display: none; }
     .wa-escribir-pie { justify-content: space-between; }
 }
+
+/* ---------- Envíos aprobados que no salieron ---------- */
+.envios-fallidos { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--peligro-soft); border: 1px solid var(--peligro); }
+.ef-cab { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.ef-cab strong { color: var(--peligro); font-size: var(--t-sm); }
+.ef-cab span { font-size: var(--t-xs); color: var(--texto); line-height: 1.45; }
+.envios-fallidos ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.envios-fallidos li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; background: var(--panel); }
+.ef-canal { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; background: var(--hover); color: var(--sutil); text-transform: uppercase; letter-spacing: 0.04em; }
+.ef-info { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
+.ef-destino { font-weight: 650; font-size: var(--t-sm); }
+.ef-resumen { font-size: var(--t-xs); color: var(--texto); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ef-fecha { font-size: var(--t-xs); color: var(--sutil); }
+.ef-resultado { font-size: var(--t-xs); color: var(--peligro); font-weight: 600; }
+.ef-resultado.ok { color: var(--ok); }
+.ef-acc { display: flex; align-items: center; gap: 10px; }
+.contenido .ef-acc .ef-descartar { color: var(--sutil); font-weight: 500; font-size: var(--t-xs); }
+.g-fallidos {
+    display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; border: 0;
+    background: var(--peligro-soft); color: var(--peligro); font: inherit; font-size: var(--t-sm); font-weight: 650; cursor: pointer;
+}
+.g-fallidos:hover { filter: brightness(0.97); }
+@media (max-width: 560px) {
+    .envios-fallidos li { grid-template-columns: minmax(0, 1fr); }
+    .ef-canal { justify-self: start; }
+}
+
+/* ---------- Alta y edición de clientes ---------- */
+.seguimientos .analitica-top { align-items: flex-start; gap: 12px; }
+.seguimientos .analitica-top .btn-primario { white-space: nowrap; }
+.det-editar { margin-left: 6px; font-size: var(--t-xs); }
+.form-cliente { display: flex; flex-direction: column; gap: 14px; }
+.form-cliente-cab h3 { margin: 0; font-size: var(--t-lg); font-weight: 750; }
+.form-cliente-cab p { margin: 3px 0 0; font-size: var(--t-xs); color: var(--sutil); }
+.form-cliente-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+.form-cliente-grid .ancho { grid-column: 1 / -1; }
+.form-cliente-grid label, .form-cliente-estado { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.form-cliente-grid label > span, .form-cliente-estado > span { font-size: var(--t-xs); font-weight: 650; color: var(--sutil); }
+.form-cliente-grid input, .form-cliente-grid textarea {
+    width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--borde);
+    background: var(--hundido); color: var(--texto); font: inherit; font-size: var(--t-sm);
+}
+.form-cliente-grid textarea { resize: vertical; min-height: 70px; line-height: 1.45; }
+.form-cliente-grid input:focus, .form-cliente-grid textarea:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-soft); }
+.form-cliente-grid small { font-size: var(--t-xs); color: var(--sutil); }
+.form-cliente-estado .segmentos { align-self: flex-start; }
+.form-cliente-parecidos { padding: 10px 12px; border-radius: 10px; background: var(--alerta-soft); border: 1px solid var(--alerta); font-size: var(--t-sm); }
+.form-cliente-parecidos ul { list-style: none; margin: 6px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.form-cliente-parecidos li { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.fcp-nombre { font-weight: 650; }
+.fcp-dato { font-size: var(--t-xs); color: var(--sutil); flex: 1; min-width: 0; }
+.form-cliente-error { margin: 0; font-size: var(--t-sm); color: var(--peligro); }
+.form-cliente-pie { display: flex; justify-content: flex-end; gap: 10px; padding-top: 4px; border-top: 1px solid var(--borde-soft); padding-top: 12px; }
+@media (max-width: 560px) {
+    .form-cliente-grid { grid-template-columns: minmax(0, 1fr); }
+    .seguimientos .analitica-top { flex-direction: column; }
+}

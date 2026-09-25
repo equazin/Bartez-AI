@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AccionPendiente, listarAcciones, pdfCotizacion } from '../api/client.ts';
+import { AccionPendiente, EnvioFallido, listarAcciones, listarEnviosFallidos, pdfCotizacion } from '../api/client.ts';
+import { EnviosFallidos } from './EnviosFallidos.tsx';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 
@@ -226,9 +227,15 @@ export function Acciones() {
     });
     const [error, setError] = useState<string>();
     const [cargando, setCargando] = useState(false);
+    const [fallidos, setFallidos] = useState<EnvioFallido[]>([]);
+
+    const cargarFallidos = useCallback(() => {
+        listarEnviosFallidos().then((r) => setFallidos(r.acciones)).catch(() => { /* backend viejo: no hay lista */ });
+    }, []);
 
     const cargar = useCallback(async () => {
         setCargando(true);
+        cargarFallidos();
         try {
             const { acciones } = await listarAcciones('pendiente');
             setAcciones(acciones);
@@ -311,6 +318,8 @@ export function Acciones() {
             </header>
 
             {error && <p className="error" role="alert">{error}</p>}
+
+            <EnviosFallidos acciones={fallidos} alCambiar={cargarFallidos} />
 
             {!cargado && (
                 <div className="apr-cuerpo" aria-busy="true">

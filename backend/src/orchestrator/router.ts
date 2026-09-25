@@ -168,7 +168,11 @@ function decidirArea(tarea: TareaEntrante): string {
 // que conoce el estado del negocio y puede cotizar.
 function areaDelPedido(texto: string): string {
     const t = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    if (/\b(prospect|busca(me)? (empresas|clientes|prospectos|leads)|nuevos (clientes|leads))/.test(t)) return 'prospeccion';
+    if (/\b(prospect|busca(me)? (empresas|clientes|prospectos|leads))/.test(t)) return 'prospeccion';
+    // Dar de alta clientes lo hace el General (herramienta crear_cliente), aunque
+    // diga "nuevos clientes".
+    if (/\b(crea(r|me|lo|la)?|agrega(r|me|lo|la)?|carga(r|me|lo|la)?|registra(r|me|lo|la)?|anota(r|me|lo|la)?|da(r)? de alta|alta de)\b[^.?!]{0,60}\b(clientes?|leads?|contactos?|empresas?)\b/.test(t)) return 'operador';
+    if (/\bnuevos (clientes|leads)/.test(t)) return 'prospeccion';
     if (/\b(segui?miento|retoma|recontact|hace(me)? un seguimiento)/.test(t)) return 'seguimientos';
     if (/\b(redacta|escribi(le)?|arma(me)? un (correo|mail|email)|responde(le)? (el|al|este) (correo|mail))/.test(t)) return 'correo';
     if (/\b(analitica|informe semanal|como venimos (esta|la) semana)/.test(t)) return 'analitica';

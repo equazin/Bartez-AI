@@ -8,15 +8,18 @@ import { CorreoEntrante, iniciarListener } from '../connectors/ferozo.js';
 import { enrutar } from '../orchestrator/router.js';
 import { actualizarCotizacion, cotizar } from '../orchestrator/cotizador.js';
 import { clasificarCorreo } from './clasificador.js';
+import { registrarCorreoEnHistoria } from './registro_correos.js';
+import { casillaCorreo } from '../connectors/ferozo.js';
 
 async function buscarOCrearCliente(emailCliente: string, nombre?: string): Promise<string | null> {
     // Buscar cliente existente por email
-    const { data: existente } = await supabase
+    // Sin distinguir mayúsculas: "MMarsilla@…" es el mismo que "mmarsilla@…".
+    const { data: existentes } = await supabase
         .from('clientes')
         .select('id')
-        .eq('email', emailCliente)
-        .maybeSingle();
-    if (existente) return existente.id as string;
+        .ilike('email', emailCliente)
+        .limit(1);
+    if (existentes?.[0]) return existentes[0].id as string;
 
     // Crear nuevo
     const { data: nuevo, error } = await supabase
@@ -67,14 +70,23 @@ async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
 
     console.log(`[inbound-correo] categoría: ${clasificacion.categoria} (${clasificacion.prioridad}) — ${clasificacion.razon}`);
 
+    // Todo lo que entra queda en la historia (lo ignorable, marcado): la línea de
+    // tiempo de cada cliente se mantiene al día sin importar a mano.
+    const aHistoria = (clienteId: string | null) => registrarCorreoEnHistoria({
+        direccion: 'entrante', de: c.de, deNombre: c.deNombre ?? null, para: casillaCorreo, asunto: c.asunto, cuerpo: c.cuerpo,
+        fecha: c.fecha, messageId: c.messageId, clienteId, categoria: clasificacion.categoria, ignorable: clasificacion.ignorable, carpeta: 'INBOX',
+    });
+
     if (clasificacion.ignorable) {
         // Descartado: no crear cliente ni conversación. Log y listo.
         console.log(`[inbound-correo] ignorado por categoría "${clasificacion.categoria}"`);
+        await aHistoria(null);
         return;
     }
 
     // 2. Crear/reusar cliente y conversación
     const clienteId = await buscarOCrearCliente(c.de, c.deNombre);
+    await aHistoria(clienteId);
     if (!clienteId) {
         console.warn('[inbound-correo] descartado, sin cliente');
         return;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
     DetalleEmpresa,
     EmpresaSeguimiento,
+    EnvioFallido,
     InformeCliente,
     MemoriaCliente as Memoria,
     descartarContactoDetectado,
@@ -13,6 +14,8 @@ import {
     redactarSeguimiento,
 } from '../api/client.ts';
 import { MemoriaCliente, PestanaMemoria, fechaHora, notaResumiendose } from './seguimientos/MemoriaCliente.tsx';
+import { EnviosFallidos } from './EnviosFallidos.tsx';
+import { ClienteInicial, FormCliente } from './seguimientos/FormCliente.tsx';
 import { movimientoReducido } from '../lib/animar.ts';
 
 type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
@@ -41,6 +44,8 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
     const [avisoInforme, setAvisoInforme] = useState<string | null>(null);
     const idActual = useRef<string | null>(null);
     const detalleRef = useRef<HTMLElement>(null);
+    // Alta o edición de un cliente a mano (ocupa el lugar de la ficha).
+    const [formulario, setFormulario] = useState<'nuevo' | 'editar' | null>(null);
 
     async function cargar() {
         try {
@@ -68,6 +73,7 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
 
     async function abrir(id: string) {
         idActual.current = id;
+        setFormulario(null);
         setCargando(true);
         setInforme(null);
         setMensajeAccion(null);
@@ -144,6 +150,25 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
 
     const hayInforme = (memoria?.informes.length ?? 0) > 0 || !!informe;
 
+    const textoVinculados = (v: { correos: number; whatsapp: number }) => {
+        const partes = [v.correos ? `${v.correos} correo${v.correos === 1 ? '' : 's'}` : '', v.whatsapp ? `${v.whatsapp} chat${v.whatsapp === 1 ? '' : 's'} de WhatsApp` : ''].filter(Boolean);
+        return partes.length ? ` Se sumaron ${partes.join(' y ')} que ya había.` : '';
+    };
+
+    function nuevoCliente() {
+        setFormulario('nuevo');
+        if (window.matchMedia?.('(max-width: 900px)').matches) {
+            requestAnimationFrame(() => detalleRef.current?.scrollIntoView({ behavior: movimientoReducido() ? 'auto' : 'smooth', block: 'start' }));
+        }
+    }
+
+    async function clienteGuardado(r: { id: string; nombre: string; vinculados: { correos: number; whatsapp: number } }, esNuevo: boolean) {
+        if (esNuevo) { setFiltro('todos'); setBusqueda(''); }
+        await cargar();
+        await abrir(r.id);
+        setMensajeAccion(`✓ ${esNuevo ? `${r.nombre} quedó cargado` : 'Datos guardados'}.${textoVinculados(r.vinculados)}`);
+    }
+
     // Filtros
     const filtradas = empresas.filter((e) => {
         if (filtro === 'con_correos') { if ((e.correos_totales ?? 0) === 0) return false; }
@@ -164,6 +189,7 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
                         Empresas, contactos e historia. Elegí una para ver su línea de tiempo y pedir un informe o un seguimiento.
                     </p>
                 </div>
+                <button type="button" className="btn-primario" onClick={nuevoCliente}>+ Nuevo cliente</button>
             </div>
 
             {error && <p className="error">Error: {error}</p>}
@@ -220,9 +246,26 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
                 </aside>
 
                 <main className="seg-detalle" ref={detalleRef}>
-                    {cargando && <p className="vacio">Cargando…</p>}
-                    {!seleccionada && !cargando && <p className="vacio">Elegí una empresa de la izquierda para ver su historia.</p>}
-                    {seleccionada && (
+                    {formulario === 'nuevo' && (
+                        <FormCliente
+                            alGuardar={(r) => void clienteGuardado(r, true)}
+                            alCancelar={() => setFormulario(null)}
+                            alAbrir={(id) => void abrir(id)}
+                        />
+                    )}
+                    {formulario === 'editar' && seleccionada && seleccionadaId && (
+                        <FormCliente
+                            inicial={{ ...(seleccionada.cliente as unknown as ClienteInicial), id: seleccionadaId }}
+                            alGuardar={(r) => void clienteGuardado(r, false)}
+                            alCancelar={() => setFormulario(null)}
+                            alAbrir={(id) => void abrir(id)}
+                        />
+                    )}
+                    {!formulario && cargando && <p className="vacio">Cargando…</p>}
+                    {!formulario && !seleccionada && !cargando && (
+                        <p className="vacio">Elegí una empresa de la izquierda para ver su historia, o cargá un cliente nuevo con «+ Nuevo cliente».</p>
+                    )}
+                    {!formulario && seleccionada && (
                         <>
                             <div className="det-head">
                                 <div>
@@ -235,6 +278,12 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
                                         )}
                                         {typeof seleccionada.cliente.metadata?.puntaje_icp === 'number' && (
                                             <> · <strong>ICP {seleccionada.cliente.metadata.puntaje_icp}/10</strong></>
+                                        )}
+                                        {seleccionada.cliente.whatsapp && <span>· {seleccionada.cliente.whatsapp}</span>}
+                                        {seleccionada.cliente.metadata?.contacto && <span>· {seleccionada.cliente.metadata.contacto}</span>}
+                                        {seleccionada.cliente.metadata?.cuit && <span>· CUIT {seleccionada.cliente.metadata.cuit}</span>}
+                                        {seleccionada.cliente.estado !== 'detectado' && (
+                                            <button type="button" className="enlace det-editar" onClick={() => setFormulario('editar')}>Editar datos</button>
                                         )}
                                     </div>
                                 </div>
@@ -301,6 +350,16 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
                             {mensajeAccion && (
                                 <div className="msg-ok">{mensajeAccion}</div>
                             )}
+
+                            {/* Seguimientos aprobados que no salieron: reintentar desde acá. */}
+                            <EnviosFallidos
+                                acciones={seleccionada.acciones.filter((a) =>
+                                    ['aprobada', 'editada'].includes(a.estado)
+                                    && ['enviar_correo', 'enviar_whatsapp'].includes(a.accion)
+                                    && (a.respuesta as { ejecucion?: { ok?: boolean } } | null)?.ejecucion?.ok === false) as unknown as EnvioFallido[]}
+                                alCambiar={() => { if (seleccionadaId) void abrir(seleccionadaId); }}
+                                titulo="Un envío a este cliente no salió"
+                            />
 
                             {seleccionada.cliente.metadata?.senial && (
                                 <div className="det-signal">

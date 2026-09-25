@@ -10,6 +10,7 @@ import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { cotizar } from './cotizador.js';
+import { crearCliente } from './clientes.js';
 import { documentosDeCliente, notasDeCliente, textoDeNota, ultimoInforme } from './memoria.js';
 import { resumenHoy } from './hoy.js';
 import { mensajesWhatsappDeCliente } from './whatsapp.js';
@@ -27,6 +28,10 @@ Reglas:
   proveedor mostralo solo si te lo piden.
 - Si te piden cotizar varios artículos, usá la herramienta cotizar: arma la
   cotización completa y la deja guardada en el Cotizador.
+- Si te piden crear, cargar o dar de alta un cliente, usá crear_cliente con los
+  datos que te dieron; no inventes email, teléfono ni CUIT. Si devuelve
+  parecidos, preguntá si es alguno de esos antes de crear otro. Al terminar,
+  decí qué quedó cargado y cuántos correos y chats de WhatsApp se vincularon.
 - Si el pedido es redactar un correo, prospectar empresas o preparar un
   seguimiento, decile que lo pida así ("redactá un correo para…", "buscá
   prospectos de…", "hacé un seguimiento a…") y se lo derivás al asistente
@@ -58,6 +63,25 @@ const TOOLS: Anthropic.Tool[] = [
         input_schema: { type: 'object', properties: { pedido: { type: 'string' } }, required: ['pedido'] },
     },
     {
+        name: 'crear_cliente',
+        description: 'Da de alta un cliente o lead en Clientes y seguimientos. Primero busca parecidos (mismo email, teléfono o nombre): si hay, NO lo crea y devuelve los parecidos para que le preguntes al usuario si es el mismo; solo si confirma que es otro, llamala de nuevo con crear_igual: true. Vincula los correos y chats de WhatsApp que ya había de ese email o teléfono. Usala solo cuando te pidan crear o cargar un cliente, y solo con datos que te dieron.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                nombre: { type: 'string', description: 'Empresa o persona' },
+                email: { type: 'string' },
+                whatsapp: { type: 'string', description: 'Teléfono o WhatsApp tal como lo dieron (con característica)' },
+                estado: { type: 'string', enum: ['lead', 'cliente'], description: 'cliente si ya compró; si no, lead (por defecto)' },
+                contacto: { type: 'string', description: 'Persona de contacto en la empresa' },
+                sitio_web: { type: 'string' },
+                cuit: { type: 'string' },
+                nota: { type: 'string', description: 'Lo que contaron del cliente: queda en su memoria' },
+                crear_igual: { type: 'boolean', description: 'Solo si el usuario confirmó que no es ninguno de los parecidos' },
+            },
+            required: ['nombre'],
+        },
+    },
+    {
         name: 'buscar_cliente',
         description: 'Busca un cliente o lead por nombre, empresa o email y devuelve su ficha: estado, último contacto, correos y WhatsApp recientes, cotizaciones a su nombre y su memoria (último informe, notas de Andrés y resúmenes de los documentos que subió, como órdenes de compra o presupuestos de la competencia).',
         input_schema: { type: 'object', properties: { nombre: { type: 'string' } }, required: ['nombre'] },
@@ -81,6 +105,25 @@ async function tipoCambioActual(): Promise<number | null> {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function ejecutarTool(nombre: string, e: any): Promise<string> {
+    if (nombre === 'crear_cliente') {
+        const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+        const r = await crearCliente({
+            nombre: String(e.nombre ?? ''),
+            email: str(e.email), whatsapp: str(e.whatsapp), contacto: str(e.contacto), sitio_web: str(e.sitio_web), cuit: str(e.cuit),
+            estado: e.estado === 'cliente' ? 'cliente' : 'lead',
+            nota: str(e.nota),
+        }, { origen: 'chat', crearIgual: e.crear_igual === true });
+        if (!r.ok && r.parecidos?.length) {
+            return JSON.stringify({
+                creado: false,
+                motivo: 'Hay clientes parecidos. Preguntá si es alguno de estos antes de crear otro.',
+                parecidos: r.parecidos.map((p) => ({ nombre: p.nombre, email: p.email, whatsapp: p.whatsapp, estado: p.estado, por: p.motivo })),
+            });
+        }
+        if (!r.ok) return JSON.stringify({ creado: false, error: r.detalle });
+        return JSON.stringify({ creado: true, cliente: r.cliente, vinculados: r.vinculados, donde: 'Clientes y seguimientos' });
+    }
+
     if (nombre === 'resumen_del_dia') {
         const r = await resumenHoy();
         const f = r.foto;
