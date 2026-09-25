@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AccionPendiente, Pulso, ResumenHoy, listarAcciones, resumenHoy } from '../api/client.ts';
+import { AccionPendiente, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, mapaNegocio, resumenHoy } from '../api/client.ts';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
-import { BarrasEmbudo, ColumnasApiladas, Sparkline } from './graficos.tsx';
+import { preguntarABartez } from '../lib/bartez.ts';
+import { ListaNegocio, MapaNegocio, Seleccion, metricaAsistente } from './inicio/MapaNegocio.tsx';
 
 type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard' | 'chat';
 
@@ -12,60 +13,214 @@ const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDig
 const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 const usdCorto = (n: number) => (n >= 10_000 ? `US$ ${(n / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 })} k` : usd(n));
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
-const diaCorto = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ, day: '2-digit', month: '2-digit' });
+const diaCorto = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ, day: 'numeric', month: 'numeric' });
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+const MESES_LARGOS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
-// ---------- Indicadores ----------
+// A qué pantalla lleva cada asistente del mapa.
+const PANTALLA: Record<AreaMapa | 'notion', IrA> = {
+    seguimientos: 'seguimientos', cotizador: 'cotizador', correo: 'acciones', whatsapp: 'whatsapp', prospeccion: 'prospeccion', notion: 'notion',
+};
+const QUE_ES: Record<NodoMapa['tipo'], string> = { cliente: 'Cliente', presupuesto: 'Presupuesto', conversacion: 'Conversación de WhatsApp' };
 
-function Delta({ actual, anterior, sufijo }: { actual: number; anterior: number; sufijo: string }) {
-    if (!anterior && !actual) return <span className="delta">sin datos previos</span>;
-    if (!anterior) return <span className="delta sube">▲ nuevo</span>;
+function Delta({ actual, anterior }: { actual: number; anterior: number }) {
+    if (!anterior) return null;
     const pct = Math.round(((actual - anterior) / anterior) * 100);
-    if (pct === 0) return <span className="delta">= {sufijo}</span>;
-    return <span className={`delta ${pct > 0 ? 'sube' : 'baja'}`} title={`Antes: ${anterior.toLocaleString('es-AR')}`}>{pct > 0 ? '▲' : '▼'} {Math.abs(pct)}% {sufijo}</span>;
+    if (!pct) return <span className="g-delta">= mes pasado</span>;
+    return <span className="g-delta" title={`El mes pasado a esta altura: ${usd(anterior)}`}>{pct > 0 ? '+' : '−'}{Math.abs(pct)}%</span>;
 }
 
-function Kpis({ p, irA }: { p: Pulso; irA: (t: IrA) => void }) {
-    // Los campos de cierre llegan desde el backend nuevo; con uno viejo valen 0.
-    const k = {
-        ...p.kpis,
-        ganado_mes_usd: p.kpis.ganado_mes_usd ?? 0,
-        ganado_mes_anterior_usd: p.kpis.ganado_mes_anterior_usd ?? 0,
-        ganadas_90d: p.kpis.ganadas_90d ?? 0,
-        perdidas_90d: p.kpis.perdidas_90d ?? 0,
-    };
-    const consultas = p.dias.map((_, i) => (p.consultas_correo[i] ?? 0) + (p.consultas_whatsapp[i] ?? 0));
-    const cerradas = k.ganadas_90d + k.perdidas_90d;
+// ---------- Tarjeta verde: lo ganado ----------
+
+function TarjetaGanado({ p, cierre, irA }: { p: Pulso; cierre: number | null; irA: (t: IrA) => void }) {
+    const k = p.kpis;
     return (
-        <div className="kpis kpis-4">
-            <button className="kpi" onClick={() => irA('cotizador')}>
-                <span className="kpi-etq">Cotizado este mes</span>
-                <span className="kpi-num">{usdCorto(k.cotizado_mes_usd)}</span>
-                <Delta actual={k.cotizado_mes_usd} anterior={k.cotizado_mes_anterior_usd} sufijo="vs mes anterior" />
-                <Sparkline valores={p.cotizado_usd} titulo="Cotizado por día, últimos 30 días" />
-            </button>
-            <button className="kpi" onClick={() => irA('cotizador')}>
-                <span className="kpi-etq">Ganado este mes</span>
-                <span className="kpi-num">{usdCorto(k.ganado_mes_usd)}</span>
-                <Delta actual={k.ganado_mes_usd} anterior={k.ganado_mes_anterior_usd} sufijo="vs mes anterior" />
-                <span className="kpi-nota">
-                    {cerradas > 0
-                        ? <>Cierre <strong>{Math.round((k.ganadas_90d / cerradas) * 100)}%</strong> · {k.ganadas_90d} de {cerradas} en 90 días</>
-                        : `${k.presupuestos_mes} presupuestos enviados este mes`}
-                </span>
-            </button>
-            <button className="kpi" onClick={() => irA('whatsapp')}>
-                <span className="kpi-etq">Consultas · 30 días</span>
-                <span className="kpi-num">{k.consultas_30d.toLocaleString('es-AR')}</span>
-                <Delta actual={k.consultas_30d} anterior={k.consultas_30d_anterior} sufijo="vs 30 días antes" />
-                <Sparkline valores={consultas} titulo="Consultas por día, últimos 30 días" />
-            </button>
-            <button className="kpi" onClick={() => irA('prospeccion')}>
-                <span className="kpi-etq">Leads nuevos · 30 días</span>
-                <span className="kpi-num">{k.leads_30d}</span>
-                <Delta actual={k.leads_30d} anterior={k.leads_30d_anterior} sufijo="vs 30 días antes" />
-                <Sparkline valores={p.leads_nuevos} titulo="Leads nuevos por día, últimos 30 días" />
-            </button>
+        <section className="g-ganado" aria-label="Ganado este mes">
+            <div className="g-ganado-cab">
+                <div>
+                    <span className="g-ganado-etq">Ganado este mes</span>
+                    <strong className="g-ganado-num">{usd(k.ganado_mes_usd ?? 0)}</strong>
+                </div>
+                <Delta actual={k.ganado_mes_usd ?? 0} anterior={k.ganado_mes_anterior_usd ?? 0} />
+            </div>
+            <div className="g-ganado-mini">
+                <button onClick={() => irA('cotizador')}><span>Cotizado</span><strong>{usdCorto(k.cotizado_mes_usd)}</strong></button>
+                <button onClick={() => irA('cotizador')}><span>Cierre · 90 d</span><strong>{cierre != null ? `${cierre}%` : '—'}</strong></button>
+                <button onClick={() => irA('whatsapp')}><span>Consultas · 30 d</span><strong>{k.consultas_30d.toLocaleString('es-AR')}</strong></button>
+            </div>
+        </section>
+    );
+}
+
+// ---------- Panel derecho: detalle del nodo elegido o el día ----------
+
+function Acciones({ acciones, irA }: { acciones: NodoMapa['acciones']; irA: (t: IrA) => void }) {
+    return (
+        <div className="g-det-botones">
+            {acciones.map((a, i) => (
+                <button
+                    key={a.etiqueta}
+                    className={i === 0 ? 'g-btn' : 'g-btn-sec'}
+                    onClick={() => (a.tipo === 'chat' && a.texto ? preguntarABartez(a.texto) : a.destino && irA(a.destino))}
+                >
+                    {a.etiqueta}{a.tipo === 'chat' && i === 0 ? ' ✦' : ''}
+                </button>
+            ))}
         </div>
+    );
+}
+
+function DetalleNodo({ n, area, irA, cerrar }: { n: NodoMapa; area: AsistenteMapa; irA: (t: IrA) => void; cerrar: () => void }) {
+    const datos: Array<{ etq: string; valor: string; alerta?: boolean }> = [];
+    if (n.en_juego_usd != null) datos.push({ etq: 'En juego', valor: usd(n.en_juego_usd) });
+    if (n.dias_sin_respuesta != null) datos.push({ etq: 'Sin respuesta', valor: plural(n.dias_sin_respuesta, 'día', 'días'), alerta: n.dias_sin_respuesta >= 5 });
+    if (n.compras != null) datos.push({ etq: 'Compró', valor: n.compras ? plural(n.compras, 'vez', 'veces') : 'todavía no' });
+    if (n.consultas > 0 && datos.length < 3) datos.push({ etq: 'Consultas · 30 d', valor: String(n.consultas) });
+    return (
+        <section className="g-detalle" aria-label={`Detalle de ${n.nombre}`}>
+            <div className="g-det-cab">
+                <span className={`g-orbe ${n.tipo}`} aria-hidden="true" />
+                <div className="g-det-titulo">
+                    <h2>{n.nombre}</h2>
+                    <span>{QUE_ES[n.tipo]} · lo sigue el asistente {area.nombre}</span>
+                </div>
+                <button className="g-cerrar" onClick={cerrar} aria-label="Cerrar el detalle">×</button>
+            </div>
+            {datos.length > 0 && (
+                <div className="g-det-datos">
+                    {datos.slice(0, 3).map((d) => (
+                        <div key={d.etq} className={d.alerta ? 'alerta' : undefined}><span>{d.etq}</span><strong>{d.valor}</strong></div>
+                    ))}
+                </div>
+            )}
+            {n.historia.length > 0 && (
+                <>
+                    <h3 className="g-det-sub">Historia</h3>
+                    <ol className="g-historia">
+                        {n.historia.map((h, i) => (
+                            <li key={i}><span className={`g-hito ${h.tipo}`} aria-hidden="true" /><span className="g-historia-texto">{h.texto}</span><span className="g-historia-fecha">{diaCorto(h.fecha)}</span></li>
+                        ))}
+                    </ol>
+                </>
+            )}
+            <div className="g-sugiere"><strong>Bartez AI sugiere</strong><p>{n.sugerencia}</p></div>
+            <Acciones acciones={n.acciones} irA={irA} />
+        </section>
+    );
+}
+
+function DetalleAsistente({ a, tareas, elegir, irA, cerrar }: {
+    a: AsistenteMapa | null; tareas: ResumenHoy['foto']['tareas_notion']; elegir: (s: Seleccion) => void; irA: (t: IrA) => void; cerrar: () => void;
+}) {
+    const area: AreaMapa | 'notion' = a?.area ?? 'notion';
+    const nombre = a?.nombre ?? 'Notion';
+    return (
+        <section className="g-detalle" aria-label={`Asistente ${nombre}`}>
+            <div className="g-det-cab">
+                <span className="g-orbe asistente" aria-hidden="true" />
+                <div className="g-det-titulo">
+                    <h2>{nombre}</h2>
+                    <span>{a ? metricaAsistente(a) : plural(tareas.length, 'tarea pendiente', 'tareas pendientes')}{a && a.resueltas_30d > 0 ? ` · ${plural(a.resueltas_30d, 'decisión', 'decisiones')} tuyas en 30 días` : ''}</span>
+                </div>
+                <button className="g-cerrar" onClick={cerrar} aria-label="Cerrar el detalle">×</button>
+            </div>
+            {a ? (
+                a.nodos.length === 0 ? <p className="g-det-vacio">Nada en curso por ahora.</p> : (
+                    <ul className="g-det-lista">
+                        {a.nodos.map((n) => (
+                            <li key={n.id}>
+                                <button onClick={() => elegir({ tipo: 'nodo', area: a.area, id: n.id })}>
+                                    <span className={`g-orbe chico ${n.tipo}`} aria-hidden="true" />
+                                    <span><strong>{n.nombre}</strong><span>{n.subtitulo}</span></span>
+                                </button>
+                            </li>
+                        ))}
+                    </ul>
+                )
+            ) : (
+                tareas.length === 0 ? <p className="g-det-vacio">Sin tareas pendientes en Notion.</p> : (
+                    <ul className="g-det-lista">
+                        {tareas.slice(0, 5).map((t) => (
+                            <li key={t.id}><button onClick={() => irA('notion')}><span className="g-orbe chico tarea" aria-hidden="true" /><span><strong>{t.titulo}</strong><span>{t.cliente}{t.fecha_limite ? ` · vence ${diaCorto(t.fecha_limite)}` : ''}</span></span></button></li>
+                        ))}
+                    </ul>
+                )
+            )}
+            <div className="g-det-botones">
+                <button className="g-btn" onClick={() => irA(PANTALLA[area])}>Abrir {nombre}</button>
+                <button className="g-btn-sec" onClick={() => preguntarABartez(`¿Qué tiene pendiente el asistente de ${nombre} y qué es lo más importante?`)}>Preguntar ✦</button>
+            </div>
+        </section>
+    );
+}
+
+function PanelHoy({ r, irA }: { r: ResumenHoy; irA: (t: IrA) => void }) {
+    const f = r.foto;
+    const hoyIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+    const prioridades = r.prioridades?.items ?? [];
+    const wa = f.whatsapp.sin_responder_en_ventana;
+    const correos = f.correos_3_dias.relevantes.filter((c) => !c.respondido);
+    const tareasHoy = f.tareas_notion.filter((t) => t.estado === 'pendiente' && t.fecha_limite && t.fecha_limite <= hoyIso);
+    return (
+        <section className="g-detalle g-hoy" aria-label="El plan de hoy">
+            <div className="g-det-cab">
+                <div className="g-det-titulo"><h2>El plan de hoy</h2><span>{r.prioridades ? `Armado ${diaCorto(r.prioridades.fecha)} a las ${hora(r.prioridades.fecha)}` : 'Lo arma el asistente de Notion a las 8:30, 13 y 18 h'}</span></div>
+            </div>
+            {prioridades.length === 0 ? (
+                <p className="g-det-vacio">Todavía no hay plan. <button className="enlace" onClick={() => irA('notion')}>Pedirlo ahora</button></p>
+            ) : (
+                <ol className="g-plan">
+                    {prioridades.slice(0, 3).map((x, i) => (
+                        <li key={i}><span className="g-plan-num">{i + 1}</span><span><strong>{x.texto}</strong>{x.por_que && <span>{x.por_que}</span>}</span></li>
+                    ))}
+                </ol>
+            )}
+            <div className="g-hoy-chips">
+                <button onClick={() => irA('whatsapp')} disabled={!wa.length}><strong>{wa.length}</strong> WhatsApp sin responder</button>
+                <button onClick={() => irA('acciones')} disabled={!correos.length}><strong>{correos.length}</strong> {correos.length === 1 ? 'correo' : 'correos'} sin respuesta</button>
+                {tareasHoy.length > 0 && <button onClick={() => irA('notion')}><strong>{tareasHoy.length}</strong> {tareasHoy.length === 1 ? 'tarea' : 'tareas'} para hoy</button>}
+            </div>
+            <p className="g-pista">Tocá un cliente o un asistente del mapa para ver su detalle.</p>
+        </section>
+    );
+}
+
+// ---------- Ganado y perdido por mes ----------
+
+function Flujo({ meses }: { meses: Mapa['meses'] }) {
+    const [foco, setFoco] = useState<number | null>(null);
+    const total = meses.reduce((s, m) => s + m.ganado_usd, 0);
+    const max = Math.max(1, ...meses.map((m) => Math.max(m.ganado_usd, m.perdido_usd)));
+    const vacio = meses.every((m) => !m.ganado_usd && !m.perdido_usd);
+    const ancho = 540, alto = 150, medio = 72, col = ancho / Math.max(meses.length, 1), barra = Math.min(26, col * 0.5);
+    const m = foco != null ? meses[foco] : null;
+    return (
+        <section className="g-flujo" aria-label="Ganado y perdido por mes">
+            <div className="g-flujo-resumen">
+                <h2>Flujo de presupuestos</h2>
+                <span className="g-flujo-etq">Ganado en el año</span>
+                <strong className="g-flujo-num">{usd(total)}</strong>
+                <span className="g-leyenda"><span><i className="gan" />Ganado</span><span><i className="per" />Perdido</span></span>
+                <p className="g-flujo-foco" aria-live="polite">
+                    {m ? <>{MESES_LARGOS[Number(m.mes.slice(5)) - 1]}: ganado <b>{usd(m.ganado_usd)}</b> · perdido <b>{usd(m.perdido_usd)}</b></> : vacio ? 'Se completa cuando marcás presupuestos como ganados o perdidos en el Cotizador.' : 'Pasá por un mes para ver el detalle.'}
+                </p>
+            </div>
+            <svg viewBox={`0 0 ${ancho} ${alto}`} className="g-flujo-svg" role="img" aria-label={meses.map((x) => `${MESES_LARGOS[Number(x.mes.slice(5)) - 1]}: ganado ${usd(x.ganado_usd)}, perdido ${usd(x.perdido_usd)}`).join('. ')}>
+                <line x1={0} y1={medio} x2={ancho} y2={medio} className="g-flujo-eje" />
+                {meses.map((x, i) => {
+                    const cx = col * i + col / 2;
+                    const hg = (x.ganado_usd / max) * (medio - 8), hp = (x.perdido_usd / max) * (medio - 22);
+                    return (
+                        <g key={x.mes} onMouseEnter={() => setFoco(i)} onMouseLeave={() => setFoco(null)} className={foco === i ? 'foco' : undefined}>
+                            <rect x={cx - col / 2} y={0} width={col} height={alto} fill="transparent" />
+                            {hg > 0 && <rect x={cx - barra / 2} y={medio - 2 - hg} width={barra} height={hg} rx={5} className="gan" />}
+                            {hp > 0 && <rect x={cx - barra / 2} y={medio + 2} width={barra} height={hp} rx={5} className="per" />}
+                            <text x={cx} y={alto - 4} textAnchor="middle" className="g-flujo-mes">{MESES[Number(x.mes.slice(5)) - 1]}</text>
+                        </g>
+                    );
+                })}
+            </svg>
+        </section>
     );
 }
 
@@ -89,7 +244,6 @@ function FilaAprobar({ a, idx, abierta, seleccionada, alternar, encolar, irA }: 
                     <span className="ok-l1" title={`${x.destino} · ${x.titulo}`}><strong>{x.destino || '—'}</strong> <span className="tenue">· {x.titulo}</span></span>
                     <span className="ok-l2" title={vista}>{vista}</span>
                 </span>
-                <span className="hora">{hace(a.creado_en)}</span>
                 <span className="ok-rapidas">
                     <button className="rapida aprobar" onClick={(e) => { e.stopPropagation(); encolar(a, 'aprobar'); }} aria-label={`Aprobar y enviar a ${x.destino}`} title="Aprobar y enviar (A)">✓</button>
                     <button className="rapida rechazar" onClick={(e) => { e.stopPropagation(); encolar(a, 'rechazar'); }} aria-label={`Rechazar la respuesta a ${x.destino}`} title="Rechazar (R)">✕</button>
@@ -109,36 +263,44 @@ function FilaAprobar({ a, idx, abierta, seleccionada, alternar, encolar, irA }: 
     );
 }
 
-// ---------- Esqueleto de carga con la forma real del Inicio ----------
-
 function Esqueleto() {
     return (
-        <div className="esqueleto" aria-busy="true" aria-label="Cargando el día">
-            <span className="esq esq-plan" />
-            <div className="esq-trabajo"><span className="esq esq-bloque" /><span className="esq esq-bloque" /></div>
-            <div className="esq-kpis">{[1, 2, 3, 4].map((i) => <span key={i} className="esq esq-kpi" />)}</div>
+        <div className="esqueleto g-esqueleto" aria-busy="true" aria-label="Cargando el día">
+            <span className="esq esq-mapa" />
+            <div className="esq-lado"><span className="esq esq-bloque" /><span className="esq esq-bloque alto" /></div>
         </div>
     );
 }
 
-const semanaCorta = (d: string) => new Date(`${d}T12:00:00-03:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' });
-const semanaLarga = (d: string) => `Semana del ${new Date(`${d}T12:00:00-03:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })}`;
+const esCelular = () => typeof window !== 'undefined' && window.matchMedia?.('(max-width: 700px)').matches;
 
 export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [r, setR] = useState<ResumenHoy | null>(null);
+    const [mapa, setMapa] = useState<Mapa | null>(null);
+    const [errorMapa, setErrorMapa] = useState<string>();
     const [acciones, setAcciones] = useState<AccionPendiente[]>([]);
     const [error, setError] = useState<string>();
     const [cargando, setCargando] = useState(false);
     const [abierta, setAbierta] = useState<string | null>(null);
     const [sel, setSel] = useState<number | null>(null);
-    const [, setTic] = useState(0);
+    const [seleccion, setSeleccion] = useState<Seleccion>(null);
+    const [modo, setModo] = useState<'mapa' | 'lista'>(() => (esCelular() ? 'lista' : 'mapa'));
+    const [soloUrgente, setSoloUrgente] = useState(false);
+    const [pregunta, setPregunta] = useState('');
 
     const cargar = useCallback(async (forzar = false) => {
         setCargando(true);
         try {
-            const [res, ac] = await Promise.all([resumenHoy(forzar), listarAcciones('pendiente')]);
+            const [res, ac, mp] = await Promise.all([
+                resumenHoy(forzar),
+                listarAcciones('pendiente'),
+                mapaNegocio(forzar).then((m) => { setErrorMapa(undefined); return m; }).catch((e: Error) => { setErrorMapa(e.message); return null; }),
+            ]);
             setR(res);
             setAcciones(ac.acciones);
+            // Un backend viejo o una respuesta rara no rompen el Inicio: el mapa muestra el aviso.
+            if (mp && Array.isArray(mp.asistentes) && Array.isArray(mp.meses)) setMapa(mp);
+            else if (mp) setErrorMapa('el servidor todavía no tiene el mapa (reiniciá el backend)');
             setError(undefined);
         } catch (e) {
             setError((e as Error).message);
@@ -150,8 +312,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     useEffect(() => {
         cargar();
         const t = setInterval(() => cargar(), 60_000);
-        const tic = setInterval(() => setTic((n) => n + 1), 30_000);
-        return () => { clearInterval(t); clearInterval(tic); };
+        return () => clearInterval(t);
     }, [cargar]);
 
     // Aprobar o rechazar espera unos segundos con opción de deshacer.
@@ -166,12 +327,14 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     }, [cola.encolar]);
 
     const visibles = acciones.filter((a) => !enCola.some((x) => x.id === a.id));
-    const mostradas = visibles.slice(0, 8);
+    const mostradas = visibles.slice(0, 6);
 
-    // Teclado en Para aprobar: J/K moverse, Enter abrir, A aprobar, R rechazar, E editar.
+    // Teclado: J/K moverse en Para aprobar, Enter abrir, A aprobar, R rechazar, E editar; Esc cierra el detalle.
     useEffect(() => {
         const tecla = (e: KeyboardEvent) => {
-            if (e.ctrlKey || e.metaKey || e.altKey || escribiendo(e.target) || mostradas.length === 0) return;
+            if (e.ctrlKey || e.metaKey || e.altKey || escribiendo(e.target)) return;
+            if (e.key === 'Escape' && seleccion) { setSeleccion(null); return; }
+            if (mostradas.length === 0) return;
             const k = e.key.toLowerCase();
             if (k === 'j' || k === 'k') {
                 e.preventDefault();
@@ -192,41 +355,49 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
         };
         window.addEventListener('keydown', tecla);
         return () => window.removeEventListener('keydown', tecla);
-    }, [mostradas, sel, encolar, irA]);
+    }, [mostradas, sel, encolar, irA, seleccion]);
     useEffect(() => {
         if (sel != null && sel >= mostradas.length) setSel(mostradas.length ? mostradas.length - 1 : null);
     }, [sel, mostradas.length]);
 
+    // Si el nodo elegido desaparece al refrescar, se vuelve al plan del día.
+    const asistenteSel = seleccion && seleccion.area !== 'notion' ? mapa?.asistentes.find((a) => a.area === seleccion.area) ?? null : null;
+    const nodoSel = seleccion?.tipo === 'nodo' ? asistenteSel?.nodos.find((n) => n.id === seleccion.id) ?? null : null;
+    useEffect(() => {
+        if (seleccion?.tipo === 'nodo' && mapa && !nodoSel) setSeleccion(null);
+    }, [seleccion, mapa, nodoSel]);
+
+    // En el celular, al elegir algo se baja al detalle.
+    const elegir = useCallback((s: Seleccion) => {
+        setSeleccion(s);
+        if (s && esCelular()) setTimeout(() => document.querySelector('.g-lado .g-detalle')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }, []);
+
     const fecha = new Date().toLocaleDateString('es-AR', { timeZone: TZ, weekday: 'long', day: 'numeric', month: 'long' });
     const f = r?.foto;
     const p = r?.pulso;
-    const waPendientes = f?.whatsapp.sin_responder_en_ventana ?? [];
-    const correosSinResp = (f?.correos_3_dias.relevantes ?? []).filter((c) => !c.respondido);
-    const hoyIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
-    const tareas = (f?.tareas_notion ?? []).filter((t) => t.estado === 'pendiente');
-    const tareasUrgentes = tareas.filter((t) => t.fecha_limite && t.fecha_limite <= hoyIso);
-    const tareasVencidas = tareasUrgentes.filter((t) => t.fecha_limite! < hoyIso).length;
-    const prioridades = r?.prioridades?.items ?? [];
-    const prioridadesDeHoy = r?.prioridades && new Date(r.prioridades.fecha).toLocaleDateString('en-CA', { timeZone: TZ }) === hoyIso;
-    const paraResponder = waPendientes.length + correosSinResp.length;
-    const esperando = p?.esperando_total ?? 0;
-    const todoAlDia = visibles.length === 0 && paraResponder === 0;
     const l = r?.linea;
+    const tareasNotion = (f?.tareas_notion ?? []).filter((t) => t.estado === 'pendiente');
+    const hayUrgente = mapa?.asistentes.some((a) => a.nodos.some((n) => n.urgente)) ?? false;
     const aprobacion = p && p.kpis.resueltas_30d ? Math.round((p.kpis.aprobadas_30d / p.kpis.resueltas_30d) * 100) : null;
 
+    const enviarPregunta = () => {
+        const t = pregunta.trim();
+        if (!t) return;
+        preguntarABartez(t);
+        setPregunta('');
+    };
+
     return (
-        <div className="hoy">
+        <div className="hoy hoy-g">
             <header className="hoy-cabecera">
                 <div>
                     <div className="eyebrow">{fecha}</div>
-                    <h1>Hoy</h1>
-                    {l && l.entra.total === 0 && l.sale.aprobadas === 0 && (
-                        <p className="hoy-resumen">Todavía no entró ninguna consulta hoy.</p>
-                    )}
-                    {l && (l.entra.total > 0 || l.sale.aprobadas > 0) && (
+                    <h1>Inicio</h1>
+                    {l && (
                         <p className="hoy-resumen">
-                            Entraron <strong>{plural(l.entra.total, 'consulta', 'consultas')}</strong> ({l.entra.correos} por correo, {l.entra.whatsapp} por WhatsApp)
-                            {' · '}los asistentes propusieron {l.propone}{' · '}salieron {l.sale.aprobadas}
+                            {l.entra.total === 0 ? 'Todavía no entró ninguna consulta hoy' : <>Entraron <strong>{plural(l.entra.total, 'consulta', 'consultas')}</strong> hoy</>}
+                            {visibles.length > 0 && <> · <button className="enlace" onClick={() => document.getElementById('para-aprobar')?.scrollIntoView({ behavior: 'smooth' })}>{visibles.length} {visibles.length === 1 ? 'espera' : 'esperan'} tu OK</button></>}
                         </p>
                     )}
                 </div>
@@ -241,202 +412,81 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
 
             {r && f && (
                 <>
-                    {/* ---- El plan de hoy ---- */}
-                    <section className="plan" aria-label="El plan de hoy">
-                        <div className="plan-cab">
-                            <h2>El plan de hoy</h2>
-                            {r.prioridades && !prioridadesDeHoy && <span className="hora">de {diaCorto(r.prioridades.fecha)}</span>}
-                            <button className="enlace" onClick={() => irA('notion')}>Notion →</button>
-                        </div>
-                        {prioridades.length === 0 ? (
-                            <p className="plan-vacio">El asistente de Notion arma el plan a las 8:30, 13 y 18 h. <button className="enlace" onClick={() => irA('notion')}>Pedirlo ahora</button></p>
-                        ) : (
-                            <ol className="plan-items">
-                                {prioridades.slice(0, 3).map((x, i) => (
-                                    <li key={i}>
-                                        <span className="plan-num">{i + 1}</span>
-                                        <span className="plan-texto">
-                                            <strong>{x.texto}</strong>
-                                            {x.por_que && <span>{x.por_que}</span>}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ol>
-                        )}
-                        {(esperando > 0 || tareasUrgentes.length > 0) && (
-                            <p className="plan-ademas">
-                                Además:
-                                {esperando > 0 && <button className="enlace" onClick={() => irA('cotizador')}>{plural(esperando, 'presupuesto sin respuesta', 'presupuestos sin respuesta')}</button>}
-                                {tareasUrgentes.length > 0 && (
-                                    <button className={`enlace ${tareasVencidas ? 'enlace-peligro' : ''}`} onClick={() => irA('notion')}>
-                                        {plural(tareasUrgentes.length, 'tarea para hoy', 'tareas para hoy')}{tareasVencidas ? ` (${tareasVencidas} vencida${tareasVencidas > 1 ? 's' : ''})` : ''}
-                                    </button>
-                                )}
-                            </p>
-                        )}
-                    </section>
-
-                    {/* ---- Mesa de trabajo ---- */}
-                    {todoAlDia ? (
-                        <section className="mesa mesa-al-dia" aria-label="Trabajo de hoy">
-                            <div className="al-dia">
-                                <span className="al-dia-icono" aria-hidden="true">✓</span>
+                    <div className="g-arriba">
+                        <section className={`g-mapa ${modo === 'lista' ? 'en-lista' : ''}`} aria-label="Mapa del negocio">
+                            <div className="g-mapa-cab">
                                 <div>
-                                    <h2>Todo al día</h2>
-                                    <p>No hay nada para aprobar ni nadie esperando respuesta.</p>
+                                    <h2>Mapa del negocio</h2>
+                                    <span>{modo === 'mapa' ? 'Tocá un nodo para ver el detalle' : 'Agrupado por asistente'}</span>
+                                </div>
+                                <div className="g-mapa-herr">
+                                    <div className="g-seg" role="group" aria-label="Vista">
+                                        <button aria-pressed={modo === 'mapa'} onClick={() => setModo('mapa')}>Mapa</button>
+                                        <button aria-pressed={modo === 'lista'} onClick={() => setModo('lista')}>Lista</button>
+                                    </div>
+                                    <button className="g-urgente" aria-pressed={soloUrgente} onClick={() => setSoloUrgente((v) => !v)} disabled={!hayUrgente && !soloUrgente} title={hayUrgente ? 'Resaltar solo lo urgente' : 'No hay nada urgente'}>
+                                        Solo lo urgente
+                                    </button>
                                 </div>
                             </div>
-                            <div className="al-dia-ideas">
-                                <span className="tenue">Buen momento para:</span>
-                                {esperando > 0 && <button className="boton-fantasma" onClick={() => irA('cotizador')}>Seguir {plural(esperando, 'presupuesto', 'presupuestos')} sin respuesta</button>}
-                                {f.pipeline.leads_sin_contacto_7d > 0 && <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Contactar {plural(f.pipeline.leads_sin_contacto_7d, 'lead quieto', 'leads quietos')}</button>}
-                                <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Buscar prospectos nuevos</button>
+                            {!mapa ? (
+                                <p className="g-mapa-error">{errorMapa ? `No se pudo armar el mapa: ${errorMapa}` : 'Armando el mapa…'}</p>
+                            ) : modo === 'mapa' ? (
+                                <MapaNegocio mapa={mapa} tareasNotion={tareasNotion.length} seleccion={seleccion} elegir={elegir} soloUrgente={soloUrgente} />
+                            ) : (
+                                <ListaNegocio mapa={mapa} seleccion={seleccion} elegir={elegir} soloUrgente={soloUrgente} />
+                            )}
+                            <div className="g-mapa-pie">
+                                {modo === 'mapa' && (
+                                    <span className="g-mapa-leyenda" aria-label="Referencias">
+                                        <span><i className="asist" />Asistentes</span><span><i className="cli" />Clientes</span><span><i className="pres" />Presupuestos</span><span><i className="cons" />Consultas</span>
+                                    </span>
+                                )}
+                                <form className="g-preguntar" onSubmit={(e) => { e.preventDefault(); enviarPregunta(); }}>
+                                    <input value={pregunta} onChange={(e) => setPregunta(e.target.value)} placeholder="Preguntale al mapa… ¿quién me debe respuesta?" aria-label="Preguntale a Bartez AI" />
+                                    <button type="submit" disabled={!pregunta.trim()}>↑ Enviar</button>
+                                </form>
                             </div>
                         </section>
-                    ) : (
-                        <section className="mesa" aria-label="Trabajo de hoy">
-                            <div className={`mesa-col mesa-ok ${visibles.length ? 'con-espera' : ''}`}>
-                                <div className="bloque-cabeza">
-                                    <h2>Para aprobar <span className="cuenta">{visibles.length}</span></h2>
-                                    {visibles.length > mostradas.length && <button className="enlace" onClick={() => irA('acciones')}>Ver las {visibles.length} →</button>}
-                                </div>
-                                {visibles.length === 0 ? (
-                                    <p className="mesa-vacio">Nada para aprobar.</p>
-                                ) : (
-                                    <>
-                                        <ul className="lista-seca">
-                                            {mostradas.map((a, i) => (
-                                                <FilaAprobar
-                                                    key={a.id} a={a} idx={i} abierta={abierta === a.id} seleccionada={sel === i}
-                                                    alternar={() => { setSel(i); setAbierta((v) => (v === a.id ? null : a.id)); }}
-                                                    encolar={encolar} irA={irA}
-                                                />
-                                            ))}
-                                        </ul>
-                                        <p className="atajos" aria-hidden="true"><kbd>J</kbd> <kbd>K</kbd> moverse · <kbd>A</kbd> aprobar · <kbd>R</kbd> rechazar · <kbd>E</kbd> editar</p>
-                                    </>
-                                )}
-                            </div>
 
-                            <div className="mesa-col mesa-lado" id="para-responder">
-                                <div className="bloque-cabeza">
-                                    <h2>Para responder <span className="cuenta">{paraResponder}</span></h2>
-                                    {waPendientes.length > 0 && <button className="enlace" onClick={() => irA('whatsapp')}>WhatsApp →</button>}
-                                </div>
-                                {paraResponder === 0 ? (
-                                    <p className="mesa-vacio">Nadie esperando respuesta.</p>
-                                ) : (
+                        <div className="g-lado">
+                            {p && <TarjetaGanado p={p} cierre={mapa?.cierre_pct ?? null} irA={irA} />}
+                            {nodoSel && asistenteSel ? (
+                                <DetalleNodo key={nodoSel.id} n={nodoSel} area={asistenteSel} irA={irA} cerrar={() => setSeleccion(null)} />
+                            ) : seleccion?.tipo === 'asistente' ? (
+                                <DetalleAsistente key={seleccion.area} a={asistenteSel} tareas={tareasNotion} elegir={elegir} irA={irA} cerrar={() => setSeleccion(null)} />
+                            ) : (
+                                <PanelHoy r={r} irA={irA} />
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="g-abajo">
+                        {mapa ? <Flujo meses={mapa.meses} /> : <section className="g-flujo" />}
+                        <section className="g-aprobar" id="para-aprobar" aria-label="Para aprobar">
+                            <div className="bloque-cabeza">
+                                <h2>Para aprobar <span className="g-cuenta">{visibles.length}</span></h2>
+                                {visibles.length > mostradas.length && <button className="enlace" onClick={() => irA('acciones')}>Ver las {visibles.length} →</button>}
+                            </div>
+                            {visibles.length === 0 ? (
+                                <p className="mesa-vacio">Nada para aprobar. Tus asistentes están al día.</p>
+                            ) : (
+                                <>
                                     <ul className="lista-seca">
-                                        {waPendientes.map((w, i) => (
-                                            <li key={`w${i}`}>
-                                                <button className="fila-2" onClick={() => irA('whatsapp')} title={`${w.contacto}: “${w.ultimo}”`}>
-                                                    <span className="canal canal-enviar_whatsapp">WA</span>
-                                                    <span className="fila-2-texto"><strong>{w.contacto}</strong><span className="tenue">“{w.ultimo}”</span></span>
-                                                    <span className={`hora ${w.hace_horas >= 18 ? 'urgente' : ''}`}>vence {hora(w.vence)}</span>
-                                                </button>
-                                            </li>
-                                        ))}
-                                        {correosSinResp.slice(0, 6).map((c, i) => (
-                                            <li key={`c${i}`}>
-                                                <div className="fila-2" title={`${c.de}: ${c.asunto}`}>
-                                                    <span className="canal canal-enviar_correo">Correo</span>
-                                                    <span className="fila-2-texto"><strong>{c.de}</strong><span className="tenue">{c.asunto}</span></span>
-                                                    <span className="hora">{hace(c.fecha)}</span>
-                                                </div>
-                                            </li>
+                                        {mostradas.map((a, i) => (
+                                            <FilaAprobar
+                                                key={a.id} a={a} idx={i} abierta={abierta === a.id} seleccionada={sel === i}
+                                                alternar={() => { setSel(i); setAbierta((v) => (v === a.id ? null : a.id)); }}
+                                                encolar={encolar} irA={irA}
+                                            />
                                         ))}
                                     </ul>
-                                )}
-                            </div>
-                        </section>
-                    )}
-
-                    {/* ---- El negocio ---- */}
-                    {p && (
-                        <section className="pulso" aria-label="El negocio">
-                            <h2 className="zona-titulo">El negocio</h2>
-                            <Kpis p={p} irA={irA} />
-                            <div className="pulso-graficos">
-                                <div className="grafico">
-                                    <h3>Consultas por semana</h3>
-                                    {p.semanas ? (
-                                        <ColumnasApiladas
-                                            dias={p.semanas.inicio}
-                                            unidad="consultas"
-                                            titulo={semanaLarga}
-                                            eje={semanaCorta}
-                                            cadaEje={1}
-                                            anchas
-                                            series={[
-                                                { nombre: 'Correo', valores: p.semanas.correo, clase: 'serie-1' },
-                                                { nombre: 'WhatsApp', valores: p.semanas.whatsapp, clase: 'serie-2' },
-                                            ]}
-                                        />
-                                    ) : (
-                                        <ColumnasApiladas
-                                            dias={p.dias}
-                                            unidad="consultas"
-                                            series={[
-                                                { nombre: 'Correo', valores: p.consultas_correo, clase: 'serie-1' },
-                                                { nombre: 'WhatsApp', valores: p.consultas_whatsapp, clase: 'serie-2' },
-                                            ]}
-                                        />
-                                    )}
-                                    <p className="nota-tenue">La última columna es la semana en curso.</p>
-                                </div>
-                                <div className="grafico">
-                                    <h3>Embudo de prospectos <button className="enlace" onClick={() => irA('seguimientos')}>Clientes →</button></h3>
-                                    <BarrasEmbudo pasos={[
-                                        { etiqueta: 'Prospectos', valor: p.embudo.prospectos },
-                                        { etiqueta: 'Contactados', valor: p.embudo.contactados },
-                                        { etiqueta: 'Respondieron', valor: p.embudo.respondieron },
-                                        { etiqueta: 'Clientes', valor: p.embudo.clientes },
-                                    ]} />
-                                    <p className="nota-tenue">{plural(f.pipeline.leads_sin_contacto_7d, 'lead', 'leads')} sin contacto hace más de 7 días.</p>
-                                </div>
-                            </div>
-                        </section>
-                    )}
-
-                    <section className="pulso-listas" aria-label="Actividad comercial">
-                        <div className="grafico">
-                            <h3>Cotizaciones recientes <button className="enlace" onClick={() => irA('cotizador')}>Cotizar →</button></h3>
-                            {f.cotizaciones_14_dias.length === 0 ? (
-                                <p className="tenue">Sin cotizaciones en las últimas 2 semanas.</p>
-                            ) : (
-                                <ul className="lista-seca">
-                                    {f.cotizaciones_14_dias.slice(0, 5).map((c, i) => (
-                                        <li key={i} className="fila-dato" title={`${c.cliente} · ${c.renglones} ítems`}>
-                                            <span className="fila-principal"><strong>{c.cliente}</strong> <span className="tenue">{c.numero ? `N° ${c.numero}` : 'sin PDF'} · {diaCorto(c.fecha)}</span></span>
-                                            <span className="monto">{usd(c.total_usd)}</span>
-                                        </li>
-                                    ))}
-                                </ul>
+                                    <p className="atajos" aria-hidden="true"><kbd>J</kbd> <kbd>K</kbd> moverse · <kbd>A</kbd> aprobar · <kbd>R</kbd> rechazar · <kbd>E</kbd> editar</p>
+                                </>
                             )}
-                        </div>
-                        <div className="grafico">
-                            <h3>Leads calientes <button className="enlace" onClick={() => irA('prospeccion')}>Prospección →</button></h3>
-                            {f.pipeline.leads_calientes.length === 0 ? (
-                                <p className="tenue">Todavía no hay leads.</p>
-                            ) : (
-                                <ul className="lista-seca">
-                                    {f.pipeline.leads_calientes.slice(0, 5).map((ld, i) => (
-                                        <li key={i} className="fila-dato" title={ld.nombre}>
-                                            <span className="fila-principal"><strong>{ld.nombre}</strong> <span className="tenue">{ld.ultimo_contacto ? `contacto ${diaCorto(ld.ultimo_contacto)}` : 'sin contactar'}</span></span>
-                                            {ld.icp != null && (
-                                                <span className="icp" title={`Encaje con el cliente ideal: ${ld.icp}/10`}>
-                                                    <span className="icp-barra"><span style={{ width: `${ld.icp * 10}%` }} /></span>
-                                                    <span className="monto">{ld.icp}</span>
-                                                </span>
-                                            )}
-                                        </li>
-                                    ))}
-                                </ul>
-                            )}
-                        </div>
-                    </section>
+                        </section>
+                    </div>
 
-                    {/* ---- Los asistentes y el sistema ---- */}
                     <footer className="hoy-sistema">
                         <span className="hoy-sistema-titulo">Asistentes</span>
                         {aprobacion != null && <button className="enlace" onClick={() => irA('dashboard')}>Aprobás el <b>{aprobacion}%</b> de lo que proponen</button>}
@@ -447,7 +497,6 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                 {x.nombre} <span className="tenue">{x.estado === 'ok' ? `${(x.articulos ?? 0).toLocaleString('es-AR')} art.` : x.estado ?? 'sin conectar'}</span>
                             </span>
                         ))}
-                        <button className="enlace" onClick={() => irA('notion')}>Notion <span className="tenue">{hora(f.generado_en)}</span></button>
                     </footer>
                 </>
             )}

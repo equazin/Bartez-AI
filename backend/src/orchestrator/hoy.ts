@@ -5,6 +5,7 @@
 import { supabase } from '../connectors/supabase.js';
 import { fotoNegocio, FotoNegocio } from './notion_autonomo.js';
 import { calcularPulso, Pulso } from './pulso.js';
+import { invalidarMapa } from './mapa.js';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -72,4 +73,5 @@ export async function resumenHoy(forzar = false): Promise<ResumenHoy> {
 // Cuando se aprueba o rechaza algo, el Inicio tiene que reflejarlo al toque.
 export function invalidarResumenHoy(): void {
     cache = null;
+    invalidarMapa();
 }

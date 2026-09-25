@@ -63,7 +63,7 @@ function Marca() {
     return (
         <span className="marca">
             <span className="marca-punto" aria-hidden="true" />
-            <span className="marca-nombre">BARTEZ</span>
+            <span className="marca-nombre">Bartez</span>
             <span className="marca-ai">AI</span>
         </span>
     );

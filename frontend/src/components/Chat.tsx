@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { cargarMensajes, enviarTarea } from '../api/client.ts';
+import { Sugerencia, cargarMensajes, enviarTarea, sugerenciasBartez } from '../api/client.ts';
+import { EVENTO_PREGUNTAR, Pregunta } from '../lib/bartez.ts';
 
 interface Mensaje {
     rol: 'usuario' | 'sistema';
@@ -17,6 +18,15 @@ const SUGERENCIAS = [
     '¿Qué hablamos con…?',
     'Buscá prospectos: estudios contables en Rosario',
 ];
+
+// Sugerencias que ya se cerraron en esta sesión (no vuelven a aparecer).
+const CERRADAS_KEY = 'bartez.panel.sugerenciasCerradas';
+function leerCerradas(): string[] {
+    try { return JSON.parse(sessionStorage.getItem(CERRADAS_KEY) ?? '[]') as string[]; } catch { return []; }
+}
+function guardarCerradas(v: string[]) {
+    try { sessionStorage.setItem(CERRADAS_KEY, JSON.stringify(v)); } catch { /* sin storage */ }
+}
 
 function leerConv(): string | null {
     try { return localStorage.getItem(CONV_KEY); } catch { return null; }
@@ -39,6 +49,11 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
     const cajaRef = useRef<HTMLElement>(null);
     const finRef = useRef<HTMLDivElement>(null);
     const entradaRef = useRef<HTMLTextAreaElement>(null);
+    // Sugerencias del botón flotante (vienen del mapa del negocio).
+    const [ideas, setIdeas] = useState<Sugerencia[]>([]);
+    const [cerradas, setCerradas] = useState<string[]>(leerCerradas);
+    const [idx, setIdx] = useState(0);
+    const enviarRef = useRef<(t?: string) => void>(() => {});
 
     // Cargar la conversación guardada (y recargarla si cambia en otra pantalla).
     useEffect(() => {
@@ -53,6 +68,41 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
         window.addEventListener(EVENTO_CHAT, alCambiar);
         return () => window.removeEventListener(EVENTO_CHAT, alCambiar);
     }, []);
+
+    // Sugerencias: al entrar y cada 5 minutos. Si falla, el botón queda sin globo.
+    useEffect(() => {
+        if (!barra) return;
+        const traer = () => sugerenciasBartez().then((r) => setIdeas(Array.isArray(r?.sugerencias) ? r.sugerencias : [])).catch(() => {});
+        traer();
+        const t = setInterval(traer, 5 * 60_000);
+        return () => clearInterval(t);
+    }, [barra]);
+    const vivas = ideas.filter((x) => !cerradas.includes(x.texto));
+    // El globo va rotando entre las sugerencias abiertas.
+    useEffect(() => {
+        if (!barra || abierto || vivas.length < 2) return;
+        const t = setInterval(() => setIdx((i) => i + 1), 9000);
+        return () => clearInterval(t);
+    }, [barra, abierto, vivas.length]);
+    const idea = vivas.length ? vivas[idx % vivas.length] : undefined;
+    const cerrarIdea = (texto: string) => {
+        const v = [...cerradas, texto];
+        setCerradas(v);
+        guardarCerradas(v);
+    };
+
+    // Otras pantallas abren Bartez AI con un pedido (ver lib/bartez.ts).
+    useEffect(() => {
+        if (!barra) return;
+        const alPreguntar = (e: Event) => {
+            const { texto, enviar: mandar } = (e as CustomEvent<Pregunta>).detail;
+            setAbierto(true);
+            if (mandar) enviarRef.current(texto);
+            else { setEntrada(texto); setTimeout(() => entradaRef.current?.focus(), 30); }
+        };
+        window.addEventListener(EVENTO_PREGUNTAR, alPreguntar);
+        return () => window.removeEventListener(EVENTO_PREGUNTAR, alPreguntar);
+    }, [barra]);
 
     useEffect(() => {
         const caja = finRef.current?.parentElement;
@@ -75,7 +125,7 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
             }
         };
         const fuera = (e: MouseEvent) => {
-            if (abierto && cajaRef.current && !cajaRef.current.contains(e.target as Node)) setAbierto(false);
+            if (abierto && cajaRef.current && !cajaRef.current.contains(e.target as Node) && !(e.target as Element).closest?.('[data-abre-bartez]')) setAbierto(false);
         };
         window.addEventListener('keydown', tecla);
         document.addEventListener('mousedown', fuera);
@@ -104,6 +154,8 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
             entradaRef.current?.focus();
         }
     }
+
+    enviarRef.current = enviar;
 
     function nuevaConversacion() {
         if (historial.length > 0 && !confirm('¿Empezar una conversación nueva? La actual queda guardada en la Bitácora.')) return;
@@ -174,18 +226,28 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
     if (barra) {
         if (!abierto) {
             return (
-                <button className="chat-fab" onClick={() => setAbierto(true)} aria-label="Abrir el chat de Bartez AI" title="Preguntale algo a Bartez AI (Ctrl+K)">
-                    <span className="chat-fab-icono" aria-hidden="true">✦</span>
-                    <span className="chat-fab-texto">Preguntar</span>
-                    <kbd className="chat-fab-atajo" aria-hidden="true">Ctrl K</kbd>
-                    {cargando && <span className="chat-fab-punto" aria-label="respondiendo" />}
-                </button>
+                <div className="bartez-fab-zona">
+                    {idea && (
+                        <div className="bartez-globo" role="status">
+                            <button className="bartez-globo-texto" data-abre-bartez onClick={() => { setAbierto(true); setEntrada(idea.pedido); setTimeout(() => entradaRef.current?.focus(), 30); }}>
+                                <span className="bartez-globo-etq">Bartez AI sugiere{vivas.length > 1 ? ` · ${(idx % vivas.length) + 1} de ${vivas.length}` : ''}</span>
+                                {idea.texto}
+                            </button>
+                            <button className="bartez-globo-cerrar" onClick={() => cerrarIdea(idea.texto)} aria-label="Descartar esta sugerencia">×</button>
+                        </div>
+                    )}
+                    <button className="bartez-fab" data-abre-bartez onClick={() => setAbierto(true)} aria-label="Hablar con Bartez AI" title="Hablar con Bartez AI (Ctrl+K)">
+                        <span className="bartez-orbe" aria-hidden="true">✦</span>
+                        {cargando && <span className="chat-fab-punto" aria-label="respondiendo" />}
+                        {!cargando && vivas.length > 0 && <span className="bartez-fab-cuenta" aria-label={`${vivas.length} sugerencias`}>{vivas.length}</span>}
+                    </button>
+                </div>
             );
         }
         return (
             <section ref={cajaRef} className="chat chat-flotante" role="dialog" aria-label="Chat con Bartez AI">
                 <div className="barra-cab">
-                    <strong>Bartez AI</strong>
+                    <strong className="barra-cab-titulo"><span className="bartez-orbe chico" aria-hidden="true">✦</span>Bartez AI</strong>
                     <span className="barra-cab-acciones">
                         {historial.length > 0 && <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva</button>}
                         {alAbrirChat && <button className="enlace" onClick={() => { setAbierto(false); alAbrirChat(); }} title="Abrir en pantalla completa">Ampliar</button>}
@@ -193,7 +255,18 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
                     </span>
                 </div>
                 <div className="chat-flotante-cuerpo">
-                    {historial.length === 0 && !cargando ? sugerencias : hilo(historial)}
+                    {historial.length === 0 && !cargando ? (
+                        <div className="chat-bienvenida">
+                            <span className="bartez-orbe grande" aria-hidden="true">✦</span>
+                            <strong>¿En qué te ayudo?</strong>
+                            {vivas.length > 0 && (
+                                <ul className="chat-ideas">
+                                    {vivas.map((x) => <li key={x.texto}><button onClick={() => enviar(x.pedido)}>{x.texto}</button></li>)}
+                                </ul>
+                            )}
+                            {sugerencias}
+                        </div>
+                    ) : hilo(historial)}
                 </div>
                 {campo}
             </section>

@@ -18,6 +18,7 @@ import { actualizarProspectoEnNotion, backfillProspectosANotion, catalogoDbId, g
 import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
 import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
+import { calcularMapa } from './orchestrator/mapa.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -1005,6 +1006,16 @@ app.post('/metricas/negocio/hoy', async (req, res) => {
 app.get('/hoy', async (req) => {
     const q = req.query as { refrescar?: string };
     return resumenHoy(q.refrescar === '1');
+});
+
+// Mapa del negocio del Inicio y sugerencias del botón flotante de Bartez AI.
+app.get('/mapa', async (req) => {
+    const q = req.query as { refrescar?: string };
+    return calcularMapa(q.refrescar === '1');
+});
+
+app.get('/sugerencias', async () => {
+    try { return { sugerencias: (await calcularMapa()).sugerencias }; } catch { return { sugerencias: [] }; }
 });
 
 app.get('/metricas/hoy', async () => {

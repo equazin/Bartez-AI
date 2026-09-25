@@ -1034,3 +1034,52 @@ export interface Pulso {
 export async function resumenHoy(refrescar = false): Promise<ResumenHoy> {
     return jsonOError(await apiFetch(`${BASE}/hoy${refrescar ? '?refrescar=1' : ''}`));
 }
+
+// ---------- Mapa del negocio (Inicio) y sugerencias de Bartez AI ----------
+
+export type AreaMapa = 'seguimientos' | 'cotizador' | 'correo' | 'whatsapp' | 'prospeccion';
+export type DestinoMapa = 'acciones' | 'cotizador' | 'seguimientos' | 'whatsapp' | 'prospeccion';
+
+export interface NodoMapa {
+    id: string;
+    tipo: 'cliente' | 'presupuesto' | 'conversacion';
+    nombre: string;
+    subtitulo: string;
+    urgente: boolean;
+    consultas: number;
+    presupuestos: number;
+    en_juego_usd: number | null;
+    dias_sin_respuesta: number | null;
+    compras: number | null;
+    historia: Array<{ fecha: string; texto: string; tipo: 'consulta' | 'presupuesto' | 'venta' | 'contacto' }>;
+    sugerencia: string;
+    acciones: Array<{ etiqueta: string; tipo: 'chat' | 'ir'; texto?: string; destino?: DestinoMapa }>;
+}
+
+export interface AsistenteMapa {
+    area: AreaMapa;
+    nombre: string;
+    aprobacion_pct: number | null;
+    resueltas_30d: number;
+    pendientes: number;
+    nodos: NodoMapa[];
+    mas: number;
+}
+
+export interface Sugerencia { texto: string; pedido: string }
+
+export interface Mapa {
+    cierre_pct: number | null;
+    asistentes: AsistenteMapa[];
+    meses: Array<{ mes: string; ganado_usd: number; perdido_usd: number }>;
+    sugerencias: Sugerencia[];
+    generado_en: string;
+}
+
+export async function mapaNegocio(refrescar = false): Promise<Mapa> {
+    return jsonOError(await apiFetch(`${BASE}/mapa${refrescar ? '?refrescar=1' : ''}`));
+}
+
+export async function sugerenciasBartez(): Promise<{ sugerencias: Sugerencia[] }> {
+    return jsonOError(await apiFetch(`${BASE}/sugerencias`));
+}
