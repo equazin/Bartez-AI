@@ -2929,6 +2929,11 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .mem-notas li > div { flex: 1; min-width: 0; }
 .mem-notas p { margin: 0 0 2px; font-size: var(--t-sm); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .mem-fecha { font-size: var(--t-xs); color: var(--sutil); font-variant-numeric: tabular-nums; }
+.mem-largo { font-weight: 600; color: var(--texto); }
+.mem-largo.pasado { color: var(--peligro); }
+.mem-nota-resumen { border-left: 3px solid var(--marca); padding: 2px 0 2px 10px; margin-bottom: 4px; }
+.mem-nota-etq { display: block; font-size: var(--t-xs); font-weight: 650; color: var(--marca-texto); margin-bottom: 2px; }
+.mem-resumen p { max-height: 420px; overflow: auto; }
 .mem-x {
     flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; border-radius: 6px;
     border: 0; background: none; color: var(--sutil); font-size: 18px; line-height: 1; cursor: pointer;

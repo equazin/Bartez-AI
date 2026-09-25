@@ -10,11 +10,15 @@ import { supabase } from '../connectors/supabase.js';
 
 export const BUCKET_DOCUMENTOS = 'documentos-clientes';
 export const MAX_BYTES_DOCUMENTO = 12 * 1024 * 1024;
+// Una nota puede ser una conversación de WhatsApp pegada entera. Las largas
+// se resumen con IA: el resumen es lo que va en cada respuesta de los asistentes.
+export const MAX_CHARS_NOTA = 60_000;
+export const NOTA_LARGA = 1500;
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const dia = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ, day: 'numeric', month: 'numeric', year: '2-digit' });
 
-export interface Nota { id: string; texto: string; creado_en: string }
+export interface Nota { id: string; texto: string; resumen: string | null; creado_en: string }
 export interface Documento {
     id: string; nombre: string; tipo_mime: string | null; tamano_bytes: number | null;
     estado: 'procesando' | 'listo' | 'error'; tipo_documento: string | null; resumen: string | null;
@@ -28,7 +32,7 @@ export interface InformeGuardado {
 // ---------- Lectura ----------
 
 export async function notasDeCliente(clienteId: string, limite = 30): Promise<Nota[]> {
-    const { data, error } = await supabase.from('cliente_notas').select('id, texto, creado_en')
+    const { data, error } = await supabase.from('cliente_notas').select('id, texto, resumen, creado_en')
         .eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(limite);
     if (error) throw new Error(error.message);
     return (data ?? []) as Nota[];
@@ -69,7 +73,8 @@ export async function bloqueMemoria(clienteId: string | null | undefined, opts: 
         if (informe) partes.push(`Último informe (${dia(informe.creado_en)}):\n${informe.resumen_md.slice(0, 2200)}`);
         if (notas.length) {
             partes.push('Notas de Andrés (verdad aportada por el operador, más nuevas primero):\n' +
-                notas.map((n) => `- [${dia(n.creado_en)}] ${n.texto.replace(/\s+/g, ' ').slice(0, 400)}`).join('\n'));
+                // Las más nuevas van completas (o su resumen); las viejas, recortadas.
+                notas.map((n, i) => `- [${dia(n.creado_en)}] ${textoDeNota(n, i < 6 ? NOTA_LARGA : 300)}`).join('\n'));
         }
         if (listos.length) {
             partes.push('Documentos del cliente (resúmenes):\n' + listos.slice(0, 12).map((d) =>
@@ -92,12 +97,57 @@ export async function conMemoria(system: string, clienteId: string | null | unde
 // ---------- Notas ----------
 
 export async function crearNota(clienteId: string, texto: string): Promise<Nota> {
-    const limpio = texto.trim().slice(0, 4000);
+    const limpio = texto.trim();
     if (!limpio) throw new Error('La nota está vacía');
+    if (limpio.length > MAX_CHARS_NOTA) {
+        throw new Error(`La nota tiene ${limpio.length.toLocaleString('es-AR')} caracteres y el máximo es ${MAX_CHARS_NOTA.toLocaleString('es-AR')}. Si es más larga, guardala en un .txt y subila como documento.`);
+    }
     const { data, error } = await supabase.from('cliente_notas').insert({ cliente_id: clienteId, texto: limpio })
-        .select('id, texto, creado_en').single();
+        .select('id, texto, resumen, creado_en').single();
     if (error) throw new Error(error.message);
-    return data as Nota;
+    const nota = data as Nota;
+    if (limpio.length > NOTA_LARGA) {
+        // El resumen tarda unos segundos: se hace en segundo plano y el panel consulta.
+        void resumirNota(nota.id, limpio, clienteId).catch((err) => console.warn('[memoria] resumir nota', nota.id, (err as Error).message));
+    }
+    return nota;
+}
+
+// Lo que ven los asistentes de una nota: el resumen si es larga, si no el texto.
+export function textoDeNota(n: Pick<Nota, 'texto' | 'resumen'>, max: number): string {
+    const base = n.resumen?.trim() || n.texto;
+    const plano = base.replace(/\s+/g, ' ').trim();
+    const limite = n.resumen ? Math.max(max, 1400) : max;
+    return plano.length > limite ? `${plano.slice(0, limite)}… (recortada)` : plano;
+}
+
+const PROMPT_NOTA = `Sos el archivista de Bartez Tecnología (mayorista de informática en Rosario).
+Andrés pegó en la ficha de un cliente un texto largo: casi siempre una conversación
+de WhatsApp o de correo, o apuntes de una llamada. Dejá un resumen que después usan
+los asistentes (correo, WhatsApp, seguimientos, informes) para no preguntar de nuevo
+lo que ya se habló.
+
+Respondé en markdown corto (máximo 15 líneas, viñetas), solo con datos del texto:
+- Quién es quién (nombre, empresa, teléfono si aparece).
+- Qué pide o qué se cotizó: productos con modelo, especificaciones, cantidades.
+- Precios, moneda, condiciones (pago, entrega, validez) si se mencionan.
+- Qué quedó acordado, qué quedó pendiente y de quién es el próximo paso, con fechas.
+- Si no está claro, no lo inventes.`;
+
+async function resumirNota(id: string, texto: string, clienteId: string): Promise<void> {
+    const { data: cliente } = await supabase.from('clientes').select('nombre').eq('id', clienteId).maybeSingle();
+    const modelo = 'sonnet' as const;
+    const r = await anthropic.messages.create({
+        model: idModelo(modelo),
+        max_tokens: 1200,
+        system: PROMPT_NOTA,
+        messages: [{ role: 'user', content: `Cliente: ${cliente?.nombre ?? 'sin nombre'}\n\n<texto>\n${texto}\n</texto>` }],
+    });
+    const resumen = r.content.map((c) => (c.type === 'text' ? c.text : '')).join('').trim();
+    if (!resumen) return;
+    await supabase.from('cliente_notas').update({
+        resumen: resumen.slice(0, 4000), costo_usd: calcularCosto(modelo, r.usage.input_tokens, r.usage.output_tokens),
+    }).eq('id', id);
 }
 
 export async function borrarNota(id: string): Promise<void> {

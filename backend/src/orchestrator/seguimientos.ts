@@ -92,7 +92,7 @@ export async function generarSeguimientoIndividual(
         : '';
 
     const bloqueExtra = opts.contexto_extra?.trim()
-        ? `\n\nCONTEXTO ADICIONAL DEL OPERADOR (info que NO está en los correos — llamadas, WhatsApp, mensajes verbales, notas propias):\n${opts.contexto_extra.trim().slice(0, 1500)}\n\nTratalo como fuente de verdad — el operador lo aporta desde canales que el sistema no ve. Referí a esta info al redactar el correo si corresponde.`
+        ? `\n\nCONTEXTO ADICIONAL DEL OPERADOR (info que NO está en los correos — llamadas, WhatsApp, mensajes verbales, notas propias):\n${opts.contexto_extra.trim().slice(0, 20_000)}\n\nTratalo como fuente de verdad — el operador lo aporta desde canales que el sistema no ve. Referí a esta info al redactar el correo si corresponde.`
         : '';
 
     const contexto = [

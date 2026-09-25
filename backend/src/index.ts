@@ -19,7 +19,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
 import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { calcularMapa } from './orchestrator/mapa.js';
-import { borrarDocumento, borrarNota, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
+import { NOTA_LARGA, borrarDocumento, borrarNota, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -242,9 +242,16 @@ app.post('/seguimientos/empresas/:id/redactar', async (req, res) => {
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
     // Lo que escribió el operador queda como nota del cliente (memoria) y le
-    // llega al asistente por ahí, igual que el último informe guardado.
-    if (parseo.data.contexto_extra?.trim()) await crearNota(id, parseo.data.contexto_extra);
-    const r = await generarSeguimientoIndividual(id, { informe_previo: parseo.data.informe_previo });
+    // llega al asistente por ahí, igual que el último informe guardado. Si es
+    // largo (una conversación pegada), el resumen tarda: esta vez va entero.
+    const extra = parseo.data.contexto_extra?.trim() ?? '';
+    if (extra) {
+        try { await crearNota(id, extra); } catch (err) { return res.status(400).send({ error: (err as Error).message }); }
+    }
+    const r = await generarSeguimientoIndividual(id, {
+        informe_previo: parseo.data.informe_previo,
+        contexto_extra: extra.length > NOTA_LARGA ? extra.slice(0, 20_000) : undefined,
+    });
     if (!r.ok) return res.status(500).send({ error: r.detalle });
     return r;
 });
@@ -270,12 +277,13 @@ app.get('/seguimientos/empresas/:id/memoria', async (req) => {
     return { informes, notas, documentos };
 });
 
-const NotaSchema = z.object({ texto: z.string().min(1).max(4000) });
+// El largo lo valida crearNota, con un mensaje que dice cuánto sobra.
+const NotaSchema = z.object({ texto: z.string() });
 app.post('/seguimientos/empresas/:id/notas', async (req, res) => {
     const { id } = req.params as { id: string };
     if (id.startsWith('det:')) return res.status(400).send({ error: 'Primero convertí este contacto en prospecto' });
     const parseo = NotaSchema.safeParse(req.body ?? {});
-    if (!parseo.success) return res.status(400).send({ error: 'La nota está vacía o es demasiado larga' });
+    if (!parseo.success) return res.status(400).send({ error: 'Falta el texto de la nota' });
     try { return { nota: await crearNota(id, parseo.data.texto) }; } catch (err) { return res.status(400).send({ error: (err as Error).message }); }
 });
 

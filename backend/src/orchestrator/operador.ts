@@ -10,7 +10,7 @@ import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { cotizar } from './cotizador.js';
-import { documentosDeCliente, notasDeCliente, ultimoInforme } from './memoria.js';
+import { documentosDeCliente, notasDeCliente, textoDeNota, ultimoInforme } from './memoria.js';
 import { resumenHoy } from './hoy.js';
 import { mensajesWhatsappDeCliente } from './whatsapp.js';
 import type { ModeloClaude } from './types.js';
@@ -162,7 +162,7 @@ async function ejecutarTool(nombre: string, e: any): Promise<string> {
                 cotizaciones: cots.data ?? [],
                 // Memoria del cliente: lo que Andrés anotó, los documentos que subió y el último informe.
                 ultimo_informe: informe ? { fecha: informe.creado_en.slice(0, 10), texto: informe.resumen_md.slice(0, 2500) } : null,
-                notas_de_andres: notas.map((n) => ({ fecha: n.creado_en.slice(0, 10), texto: n.texto.slice(0, 600) })),
+                notas_de_andres: notas.map((n) => ({ fecha: n.creado_en.slice(0, 10), texto: textoDeNota(n, 600) })),
                 documentos: docs.filter((d) => d.estado === 'listo').map((d) => ({ fecha: d.creado_en.slice(0, 10), archivo: d.nombre, tipo: d.tipo_documento, resumen: (d.resumen ?? '').slice(0, 1200) })),
             },
         });

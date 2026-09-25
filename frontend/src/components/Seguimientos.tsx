@@ -12,7 +12,7 @@ import {
     promoverContactoDetectado,
     redactarSeguimiento,
 } from '../api/client.ts';
-import { MemoriaCliente, PestanaMemoria, fechaHora } from './seguimientos/MemoriaCliente.tsx';
+import { MemoriaCliente, PestanaMemoria, fechaHora, notaResumiendose } from './seguimientos/MemoriaCliente.tsx';
 import { movimientoReducido } from '../lib/animar.ts';
 
 type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
@@ -89,9 +89,11 @@ export function Seguimientos() {
         finally { if (idActual.current === id) setCargando(false); }
     }
 
-    // Mientras Bartez lee un documento, se consulta cada pocos segundos.
+    // Mientras Bartez lee un documento o resume una nota larga, se consulta cada pocos segundos.
     useEffect(() => {
-        if (!memoria?.documentos.some((d) => d.estado === 'procesando')) return;
+        const leyendo = memoria?.documentos.some((d) => d.estado === 'procesando')
+            || memoria?.notas.some(notaResumiendose);
+        if (!leyendo) return;
         const t = window.setTimeout(() => { void recargarMemoria(); }, 4000);
         return () => window.clearTimeout(t);
     }, [memoria]);

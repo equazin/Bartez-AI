@@ -6,8 +6,10 @@ import { useEffect, useRef, useState } from 'react';
 import {
     DocumentoCliente,
     InformeCliente,
+    MAX_CHARS_NOTA,
     MAX_MB_DOCUMENTO,
     MemoriaCliente as Memoria,
+    NOTA_LARGA,
     NotaCliente,
     borrarDocumentoCliente,
     borrarNotaCliente,
@@ -20,6 +22,12 @@ import {
 export type PestanaMemoria = 'informe' | 'notas' | 'documentos';
 
 const ACEPTA = '.pdf,.jpg,.jpeg,.png,.webp,.gif,.xlsx,.docx,.txt,.csv,.md,application/pdf,image/*';
+
+// Una nota larga recién guardada, que la IA todavía está resumiendo. Si en unos
+// minutos no llegó el resumen, se deja de esperar (los asistentes usan el texto).
+export function notaResumiendose(n: NotaCliente): boolean {
+    return n.texto.length > NOTA_LARGA && !n.resumen && Date.now() - new Date(n.creado_en).getTime() < 3 * 60_000;
+}
 
 interface Props {
     clienteId: string;
@@ -176,9 +184,12 @@ function PestanaNotas(p: {
 }) {
     const [guardando, setGuardando] = useState(false);
 
+    const largo = p.borrador.trim().length;
+    const pasado = largo > MAX_CHARS_NOTA;
+
     async function guardar() {
         const texto = p.borrador.trim();
-        if (!texto || guardando) return;
+        if (!texto || guardando || pasado) return;
         setGuardando(true);
         p.limpiarError();
         try {
@@ -210,8 +221,15 @@ function PestanaNotas(p: {
                     rows={3}
                 />
                 <div className="mem-fila">
-                    <span className="mem-ayuda">Lo que Bartez no ve: llamadas, acuerdos, precios pactados. Si redactás o pedís el informe con algo escrito acá, también se guarda.</span>
-                    <button type="button" className="btn-primario chico" onClick={guardar} disabled={!p.borrador.trim() || guardando}>
+                    <span className="mem-ayuda">
+                        {largo > NOTA_LARGA ? (
+                            <span className={pasado ? 'mem-largo pasado' : 'mem-largo'}>
+                                {largo.toLocaleString('es-AR')} de {MAX_CHARS_NOTA.toLocaleString('es-AR')} caracteres
+                                {pasado ? ' · es demasiado largo: guardalo en un .txt y subilo en Documentos.' : ' · es largo: Bartez lo guarda entero y le hace un resumen.'}
+                            </span>
+                        ) : 'Lo que Bartez no ve: llamadas, acuerdos, precios pactados o una conversación de WhatsApp pegada entera. Si redactás o pedís el informe con algo escrito acá, también se guarda.'}
+                    </span>
+                    <button type="button" className="btn-primario chico" onClick={guardar} disabled={!p.borrador.trim() || guardando || pasado}>
                         {guardando ? 'Guardando…' : 'Guardar nota'}
                     </button>
                 </div>
@@ -223,7 +241,7 @@ function PestanaNotas(p: {
                     {p.notas.map((n) => (
                         <li key={n.id}>
                             <div>
-                                <p>{n.texto}</p>
+                                <TextoNota nota={n} />
                                 <span className="mem-fecha">{fechaHora(n.creado_en)}</span>
                             </div>
                             <button type="button" className="mem-x" aria-label="Borrar nota" title="Borrar nota" onClick={() => borrar(n)}>×</button>
@@ -231,6 +249,30 @@ function PestanaNotas(p: {
                     ))}
                 </ul>
             )}
+        </>
+    );
+}
+
+// Las notas largas muestran el resumen de Bartez y el texto completo plegado.
+function TextoNota({ nota }: { nota: NotaCliente }) {
+    if (nota.texto.length <= 600) return <p>{nota.texto}</p>;
+    return (
+        <>
+            {nota.resumen ? (
+                <div className="mem-nota-resumen">
+                    <span className="mem-nota-etq">Resumen de Bartez</span>
+                    <p>{nota.resumen}</p>
+                </div>
+            ) : (
+                <>
+                    <p>{nota.texto.slice(0, 280).trimEnd()}…</p>
+                    {notaResumiendose(nota) && <div className="mem-estado leyendo">Bartez la está resumiendo…</div>}
+                </>
+            )}
+            <details className="mem-resumen">
+                <summary>Ver texto completo · {nota.texto.length.toLocaleString('es-AR')} caracteres</summary>
+                <p>{nota.texto}</p>
+            </details>
         </>
     );
 }

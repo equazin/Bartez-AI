@@ -81,7 +81,9 @@ export async function generarInformeCliente(
     if (!cliente) return vacio('Cliente no encontrado');
 
     // Lo que escribió el operador queda guardado como nota: es memoria, no se pierde.
-    if (opts.contexto_extra?.trim()) await crearNota(clienteId, opts.contexto_extra);
+    if (opts.contexto_extra?.trim()) {
+        try { await crearNota(clienteId, opts.contexto_extra); } catch (err) { return vacio((err as Error).message); }
+    }
 
     const previo = opts.desdeCero ? null : await ultimoInforme(clienteId);
     const desde = previo?.creado_en ?? null;
@@ -124,7 +126,9 @@ export async function generarInformeCliente(
             armado: String(q.creado_en).slice(0, 10), enviado: q.enviada_en ? String(q.enviada_en).slice(0, 10) : null,
             cerrado: q.cerrada_en ? String(q.cerrada_en).slice(0, 10) : null, motivo_cierre: q.motivo_cierre,
         }));
-    const notasNuevas = notas.filter((n) => despues(n.creado_en, desde)).map((n) => ({ fecha: n.creado_en.slice(0, 10), texto: n.texto.slice(0, 800) }));
+    // Las notas nuevas van completas (una conversación pegada puede ser larga):
+    // es la única vez que el informe las lee enteras.
+    const notasNuevas = notas.filter((n) => despues(n.creado_en, desde)).map((n) => ({ fecha: n.creado_en.slice(0, 10), texto: n.texto.slice(0, 20_000) }));
     const documentos = docs.filter((d) => d.estado === 'listo' && despues(d.creado_en, desde)).map((d) => ({
         fecha: d.creado_en.slice(0, 10), archivo: d.nombre, tipo: d.tipo_documento, resumen: (d.resumen ?? '').slice(0, 1500),
     }));

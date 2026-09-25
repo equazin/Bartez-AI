@@ -714,7 +714,10 @@ export interface InformeGuardado {
     creado_en: string;
 }
 
-export interface NotaCliente { id: string; texto: string; creado_en: string }
+// Las notas largas (una conversación pegada) las resume la IA en segundo plano.
+export interface NotaCliente { id: string; texto: string; resumen?: string | null; creado_en: string }
+export const MAX_CHARS_NOTA = 60_000;
+export const NOTA_LARGA = 1500;
 
 export interface DocumentoCliente {
     id: string;
