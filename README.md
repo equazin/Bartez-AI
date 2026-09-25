@@ -46,6 +46,11 @@ npm install
 npm run dev
 ```
 
+## Deploy
+
+- **Panel:** GitHub Pages, automático en cada push a `main` (`.github/workflows/pages.yml`).
+- **Backend:** Railway. Guía paso a paso en [`docs/DEPLOY-RAILWAY.md`](docs/DEPLOY-RAILWAY.md).
+
 ## Servicios necesarios
 
 Cada uno debe crearse a mano y sus credenciales van en `backend/.env`:
