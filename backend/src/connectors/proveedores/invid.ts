@@ -59,11 +59,21 @@ function mapear(a: ArticuloInvid): ItemCatalogo | null {
 }
 
 async function login(): Promise<string> {
-    const j = await pedirJson(`${URL_BASE}/auth.php`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ username: usuario(), password: clave() }),
-    }, 'Invid') as { status?: number; access_token?: string; message?: string };
+    let j: { status?: number; access_token?: string; message?: string };
+    try {
+        j = await pedirJson(`${URL_BASE}/auth.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ username: usuario(), password: clave() }),
+        }, 'Invid') as typeof j;
+    } catch (err) {
+        // El usuario y la clave de la web de Invid no sirven para la API: hace
+        // falta un usuario de integrador, que lo da Invid a pedido.
+        if (/HTTP 40[13]/.test((err as Error).message)) {
+            throw new Error('Invid rechazó el usuario (401). Hace falta un usuario de integrador de la API, distinto del login de la web: pedíselo a tu ejecutivo de cuenta de Invid y cargalo en INVID_USER / INVID_PASSWORD.');
+        }
+        throw err;
+    }
     if (!j.access_token) throw new Error(`Invid: ${j.message ?? 'el login no devolvió token'}`);
     return j.access_token;
 }
