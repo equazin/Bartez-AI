@@ -12,6 +12,7 @@ import {
     sincronizarWa,
     vincularClienteWa,
 } from '../api/client.ts';
+import { ConfigPlantillas, RetomarConPlantilla } from './whatsapp/Plantillas.tsx';
 
 type Filtro = 'todas' | 'escaladas' | 'ventana' | 'pendientes' | 'sin_cliente';
 
@@ -36,6 +37,8 @@ export function WhatsApp() {
     const [error, setError] = useState<string>();
     const [aviso, setAviso] = useState<string>();
     const [clientes, setClientes] = useState<EmpresaSeguimiento[]>([]);
+    const [verPlantillas, setVerPlantillas] = useState(false);
+    const [versionPl, setVersionPl] = useState(0);
 
     async function cargar() {
         try {
@@ -138,13 +141,18 @@ export function WhatsApp() {
                     <h2>WhatsApp</h2>
                     <p className="sub">
                         Conversaciones del bot de bartez.com.ar. El bot atiende el primer contacto; cuando deriva a una persona,
-                        el asistente propone la respuesta y la tenés en Acciones para aprobar. Se actualiza sola cada 2 minutos.
+                        el asistente propone la respuesta y la tenés en Para aprobar. Se actualiza sola cada 2 minutos.
                     </p>
                 </div>
-                <button className="primario" onClick={sincronizar} disabled={ocupado === 'sync'}>
-                    {ocupado === 'sync' ? 'Sincronizando…' : 'Sincronizar ahora'}
-                </button>
+                <div className="wa-cab-acciones">
+                    <button className="secundario" onClick={() => setVerPlantillas((v) => !v)}>Plantillas</button>
+                    <button className="primario" onClick={sincronizar} disabled={ocupado === 'sync'}>
+                        {ocupado === 'sync' ? 'Sincronizando…' : 'Sincronizar ahora'}
+                    </button>
+                </div>
             </div>
+
+            {verPlantillas && <ConfigPlantillas alCerrar={() => setVerPlantillas(false)} alGuardar={() => setVersionPl((v) => v + 1)} />}
 
             {error && <p className="error">Error: {error}</p>}
             {aviso && <div className="msg-ok">{aviso}</div>}
@@ -223,20 +231,30 @@ export function WhatsApp() {
                                         ? `Ventana abierta hasta ${actual.ventana_hasta ? hora(actual.ventana_hasta) : ''}: se puede responder con texto libre.`
                                         : 'Pasaron más de 24 h del último mensaje del cliente: WhatsApp solo permite escribirle con una plantilla aprobada.'}
                                 </div>
-                                <textarea
+                                {!actual.en_ventana && (
+                                    <RetomarConPlantilla
+                                        key={`${actual.wa_id}-${versionPl}`}
+                                        waId={actual.wa_id}
+                                        nombre={actual.cliente_nombre ?? actual.nombre}
+                                        deshabilitado={actual.respuesta_pendiente}
+                                        alProponer={(m) => { setAviso(m); cargar(); }}
+                                        alConfigurar={() => setVerPlantillas(true)}
+                                    />
+                                )}
+                                {actual.en_ventana && <textarea
                                     rows={2}
                                     value={contexto}
                                     onChange={(e) => setContexto(e.target.value)}
                                     placeholder="Contexto opcional para el asistente (ej. «ya lo llamé, quiere 5 notebooks para el lunes»)"
-                                />
-                                <button
+                                />}
+                                {actual.en_ventana && <button
                                     className="primario"
                                     onClick={proponer}
                                     disabled={ocupado === 'proponer' || actual.respuesta_pendiente || !actual.en_ventana}
                                     title={actual.respuesta_pendiente ? 'Ya hay una respuesta esperando en Acciones' : undefined}
                                 >
-                                    {ocupado === 'proponer' ? 'Redactando…' : actual.respuesta_pendiente ? 'Ya hay una propuesta en Acciones' : 'Proponer respuesta'}
-                                </button>
+                                    {ocupado === 'proponer' ? 'Redactando…' : actual.respuesta_pendiente ? 'Ya hay una propuesta en Para aprobar' : 'Proponer respuesta'}
+                                </button>}
                             </div>
                         </>
                     )}

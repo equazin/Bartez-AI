@@ -2240,3 +2240,27 @@ input, textarea, select { color: var(--texto); }
 .adjunto-icono { width: 36px; height: 42px; display: grid; place-items: center; border-radius: 4px; background: var(--peligro-soft); color: var(--peligro); font-family: var(--f-mono); font-size: 10px; font-weight: 700; }
 .adjunto-texto { display: flex; flex-direction: column; flex: 1; min-width: 160px; font-size: var(--t-sm); }
 .adjunto-texto .tenue { font-size: var(--t-xs); }
+
+/* ---- Plantillas de WhatsApp ---- */
+.wa-cab-acciones { display: flex; gap: 8px; align-items: center; }
+.wa-plantillas .sub { margin: 0 0 12px; font-size: var(--t-sm); }
+.wa-pl-fila { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 0; font-size: var(--t-sm); }
+.wa-pl-nombre { display: flex; flex-direction: column; min-width: 0; }
+.wa-pl-nombre .tenue { font-size: var(--t-xs); }
+.wa-pl-texto { color: var(--sutil); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.wa-pl-botones { display: flex; gap: 12px; }
+.contenido .enlace-peligro { color: var(--peligro); background: none; border: 0; padding: 0; }
+.wa-pl-form { display: grid; grid-template-columns: 1fr 140px; gap: 10px 12px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--borde-soft); }
+.wa-pl-form label, .wa-retomar label { display: flex; flex-direction: column; gap: 4px; }
+.wa-pl-form label.ancho { grid-column: 1 / -1; }
+.wa-pl-form label > span, .wa-retomar label > span { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sutil); }
+.wa-pl-form input, .wa-pl-form textarea, .wa-retomar input, .wa-retomar select {
+    font: inherit; font-size: var(--t-sm); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--borde); background: var(--hundido); color: var(--texto);
+}
+.wa-pl-acciones { grid-column: 1 / -1; display: flex; gap: 8px; }
+.wa-retomar { display: flex; flex-direction: column; gap: 10px; }
+.wa-retomar > .tenue { font-size: var(--t-sm); }
+.wa-retomar-valores { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.wa-retomar .wa-burbuja.propuesta { max-width: 100%; }
+.wa-retomar .btn-primario { align-self: flex-start; }
+@media (max-width: 760px) { .wa-pl-fila { grid-template-columns: 1fr; } .wa-pl-form { grid-template-columns: 1fr; } }

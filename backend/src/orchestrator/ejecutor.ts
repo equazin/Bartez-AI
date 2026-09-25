@@ -3,7 +3,7 @@
 // /acciones/:id/aprobar (cuando la aprueba un humano).
 
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
-import { enviarWhatsapp } from './whatsapp.js';
+import { enviarPlantillaWa, enviarWhatsapp } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { numeroPresupuesto, obtenerCotizacion } from './cotizador.js';
 import { generarPresupuestoPdf } from '../pdf/presupuesto.js';
@@ -29,7 +29,10 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
             const waId = String(p.waId ?? '');
             const cuerpo = String(p.cuerpo ?? '').trim();
             if (!waId || !cuerpo) return { ok: false, detalle: 'payload sin waId/cuerpo' };
-            const r = await enviarWhatsapp(waId, cuerpo, (p.clienteId as string | null | undefined) ?? null);
+            const plantilla = p.plantilla as { nombre: string; idioma: string; parametros: string[] } | undefined;
+            const r = plantilla?.nombre
+                ? await enviarPlantillaWa(waId, plantilla, cuerpo, (p.clienteId as string | null | undefined) ?? null)
+                : await enviarWhatsapp(waId, cuerpo, (p.clienteId as string | null | undefined) ?? null);
             return r.ok ? { ok: true, resultado: { mensaje_id: r.id } } : { ok: false, detalle: r.detalle };
         }
 

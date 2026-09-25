@@ -21,7 +21,7 @@ import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
-import {
+import { guardarPlantillasWa, listarPlantillasWa, proponerPlantillaWa,
     crearClienteDesdeWa, detalleConversacionWa, listarConversacionesWa, proponerRespuestaWhatsapp,
     sincronizarWhatsapp, vincularClienteWa,
 } from './orchestrator/whatsapp.js';
@@ -436,6 +436,32 @@ app.post('/whatsapp/conversaciones/:waId/proponer', async (req, res) => {
     if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
     const r = await proponerRespuestaWhatsapp(waId, parseo.data);
     if (!r.ok) return res.status(400).send({ error: r.detalle });
+    return r;
+});
+
+const PlantillaSchema = z.object({
+    nombre: z.string().regex(/^[a-z0-9_]{1,512}$/, 'El nombre va en minúsculas, números y guiones bajos, igual que en Meta'),
+    idioma: z.string().min(2).max(10),
+    texto: z.string().min(1).max(1024),
+    descripcion: z.string().max(200).optional(),
+});
+
+app.get('/whatsapp/plantillas', async () => ({ plantillas: await listarPlantillasWa() }));
+
+app.put('/whatsapp/plantillas', async (req, res) => {
+    const parseo = z.object({ plantillas: z.array(PlantillaSchema).max(50) }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.issues[0]?.message ?? 'datos inválidos' });
+    await guardarPlantillasWa(parseo.data.plantillas);
+    return { ok: true };
+});
+
+app.post('/whatsapp/conversaciones/:waId/plantilla', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ nombre: z.string(), parametros: z.array(z.string().max(1000)).max(10) }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    const r = await proponerPlantillaWa(waId, parseo.data.nombre, parseo.data.parametros);
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    invalidarResumenHoy();
     return r;
 });
 

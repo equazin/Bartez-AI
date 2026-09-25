@@ -916,6 +916,26 @@ export async function sincronizarWa(): Promise<{ resultado: ResultadoSyncWa }> {
     return jsonOError(await apiFetch(`${BASE}/whatsapp/sincronizar`, { method: 'POST' }));
 }
 
+// Plantillas aprobadas en Meta: las únicas que WhatsApp deja mandar fuera de
+// la ventana de 24 h. {{1}}, {{2}}… son los valores de cada envío.
+export interface PlantillaWa { nombre: string; idioma: string; texto: string; descripcion?: string }
+
+export async function listarPlantillasWa(): Promise<{ plantillas: PlantillaWa[] }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/plantillas`));
+}
+
+export async function guardarPlantillasWa(plantillas: PlantillaWa[]): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/plantillas`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ plantillas }),
+    }));
+}
+
+export async function proponerPlantillaWa(waId: string, nombre: string, parametros: string[]): Promise<{ ok: boolean; accion_id?: string }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/plantilla`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre, parametros }),
+    }));
+}
+
 export async function listarConversacionesWa(): Promise<{ conversaciones: ConversacionWa[] }> {
     return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones`));
 }

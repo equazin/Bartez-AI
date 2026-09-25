@@ -16,6 +16,7 @@ import { textoWebBartez } from '../connectors/bartez_web.js';
 import {
     ConversacionStudio,
     MensajeStudio,
+    enviarPlantillaStudio,
     enviarTextoStudio,
     listarConversacionesStudio,
     obtenerConversacionStudio,
@@ -431,4 +432,109 @@ export async function crearClienteDesdeWa(waId: string, nombre?: string): Promis
     if (error) return { ok: false, detalle: error.message };
     await vincularClienteWa(waId, nuevo.id as string);
     return { ok: true, cliente_id: nuevo.id as string };
+}
+
+// ---------- Plantillas (para escribir fuera de la ventana de 24 h) ----------
+//
+// WhatsApp solo deja iniciar o retomar una conversación vencida con una
+// plantilla aprobada por Meta. La API del bot no las lista, así que se cargan
+// acá con el mismo nombre, idioma y texto que tienen en Meta ({{1}}, {{2}}…
+// son los valores que se completan en cada envío).
+
+export interface PlantillaWa {
+    nombre: string;
+    idioma: string;
+    texto: string;
+    descripcion?: string;
+}
+
+const CLAVE_PLANTILLAS = 'wa_plantillas';
+
+export async function listarPlantillasWa(): Promise<PlantillaWa[]> {
+    const { data } = await supabase.from('integraciones_config').select('valor').eq('clave', CLAVE_PLANTILLAS).maybeSingle();
+    try { return data?.valor ? (JSON.parse(data.valor as string) as PlantillaWa[]) : []; } catch { return []; }
+}
+
+export async function guardarPlantillasWa(plantillas: PlantillaWa[]): Promise<void> {
+    await supabase.from('integraciones_config').upsert({ clave: CLAVE_PLANTILLAS, valor: JSON.stringify(plantillas), actualizado_en: new Date().toISOString() });
+}
+
+export const cantidadParametros = (texto: string) =>
+    Math.max(0, ...[...texto.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])));
+
+export const textoConParametros = (texto: string, parametros: string[]) =>
+    texto.replace(/\{\{(\d+)\}\}/g, (_m, n: string) => parametros[Number(n) - 1] ?? `{{${n}}}`);
+
+// Deja en Para aprobar el envío de una plantilla (nada sale sin tu OK).
+export async function proponerPlantillaWa(
+    waId: string,
+    nombre: string,
+    parametros: string[],
+): Promise<{ ok: boolean; accion_id?: string; detalle?: string }> {
+    const plantilla = (await listarPlantillasWa()).find((p) => p.nombre === nombre);
+    if (!plantilla) return { ok: false, detalle: 'Esa plantilla no está cargada' };
+    const faltan = cantidadParametros(plantilla.texto) - parametros.filter((p) => p.trim()).length;
+    if (faltan > 0) return { ok: false, detalle: `Faltan ${faltan} valor${faltan > 1 ? 'es' : ''} para completar la plantilla` };
+    const { data: conv } = await supabase.from('wa_conversaciones').select('*').eq('wa_id', waId).maybeSingle() as { data: FilaConv | null };
+    if (!conv) return { ok: false, detalle: 'Conversación no encontrada (sincronizá primero)' };
+    if (await hayPendiente(waId)) return { ok: false, detalle: 'Ya hay un mensaje esperando aprobación para este contacto' };
+
+    let nombreCliente: string | null = null;
+    if (conv.cliente_id) {
+        const { data } = await supabase.from('clientes').select('nombre').eq('id', conv.cliente_id).maybeSingle();
+        nombreCliente = (data?.nombre as string | null) ?? null;
+    }
+    const msgs = await mensajesDe(waId, 8);
+    const { data: asist } = await supabase.from('asistentes').select('id').eq('area', 'whatsapp').maybeSingle();
+    const vista = textoConParametros(plantilla.texto, parametros);
+    const { data: accion, error } = await supabase.from('acciones_pendientes').insert({
+        asistente_id: asist?.id ?? null,
+        accion: 'enviar_whatsapp',
+        estado: 'pendiente',
+        payload: {
+            waId,
+            cuerpo: vista,
+            plantilla: { nombre: plantilla.nombre, idioma: plantilla.idioma, parametros },
+            nombreContacto: conv.nombre,
+            nombreCliente,
+            clienteId: conv.cliente_id,
+            ultimoEntranteEn: conv.ultimo_entrante_en,
+            conversacion: msgs.slice(-8).map((m) => ({ origen: m.origen, cuerpo: m.cuerpo, fecha: m.creado_en })),
+        },
+        respuesta: { por: 'humano', origen: 'plantilla_whatsapp' },
+    }).select('id').single();
+    if (error) return { ok: false, detalle: error.message };
+    return { ok: true, accion_id: accion.id as string };
+}
+
+export async function enviarPlantillaWa(
+    waId: string,
+    plantilla: { nombre: string; idioma: string; parametros: string[] },
+    vista: string,
+    clienteId?: string | null,
+): Promise<{ ok: boolean; detalle?: string; id?: string }> {
+    const enviado = await enviarPlantillaStudio(waId, { nombre: plantilla.nombre, idioma: plantilla.idioma, parametros: plantilla.parametros, vista });
+    await supabase.from('wa_mensajes').upsert({
+        id: enviado.id,
+        wa_id: waId,
+        wa_message_id: enviado.waMessageId,
+        direccion: 'outbound',
+        origen: 'humano',
+        tipo: 'template',
+        cuerpo: vista,
+        creado_en: enviado.createdAt ?? new Date().toISOString(),
+    }, { onConflict: 'id' });
+    await supabase.from('wa_conversaciones').update({
+        ultimo_mensaje: vista.slice(0, 500),
+        ultimo_direccion: 'humano',
+        actualizado_en: enviado.createdAt ?? new Date().toISOString(),
+    }).eq('wa_id', waId);
+    if (clienteId) {
+        const { data: c } = await supabase.from('clientes').select('intentos_contacto').eq('id', clienteId).maybeSingle();
+        await supabase.from('clientes').update({
+            ultimo_contacto_en: new Date().toISOString(),
+            intentos_contacto: (c?.intentos_contacto ?? 0) + 1,
+        }).eq('id', clienteId);
+    }
+    return { ok: true, id: enviado.id };
 }

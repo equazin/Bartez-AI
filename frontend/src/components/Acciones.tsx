@@ -124,7 +124,9 @@ function VistaWhatsapp({ payload }: { payload: Record<string, unknown> }) {
                     ))}
                 </div>
             )}
-            <div className="wa-propuesta-label">Respuesta propuesta</div>
+            <div className="wa-propuesta-label">
+                {payload.plantilla ? `Plantilla «${(payload.plantilla as { nombre: string }).nombre}» (aprobada en Meta)` : 'Respuesta propuesta'}
+            </div>
             <div className="wa-burbuja saliente propuesta">{cuerpo}</div>
         </div>
     );
@@ -136,6 +138,9 @@ type Edicion =
     | { id: string; tipo: 'correo'; para: string; asunto: string; cuerpo: string }
     | { id: string; tipo: 'whatsapp'; cuerpo: string }
     | { id: string; tipo: 'json'; texto: string };
+
+// Una plantilla de WhatsApp se manda exactamente como la aprobó Meta.
+const editable = (a: AccionPendiente) => !(a.accion === 'enviar_whatsapp' && a.payload?.plantilla);
 
 function empezarEdicion(a: AccionPendiente): Edicion {
     const p = a.payload ?? {};
@@ -281,7 +286,7 @@ export function Acciones() {
             else if (k === 'k') seleccionar(visibles[Math.max(idxSel - 1, 0)]);
             else if (k === 'a') resolver(sel, 'aprobar');
             else if (k === 'r') setRechazando(sel.id);
-            else if (k === 'e') setEdicion(empezarEdicion(sel));
+            else if (k === 'e') { if (editable(sel)) setEdicion(empezarEdicion(sel)); }
             else return;
             e.preventDefault();
         };
@@ -380,7 +385,12 @@ export function Acciones() {
                             ) : (
                                 <>
                                     <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>Aprobar y enviar</button>
-                                    <button className="boton-fantasma" onClick={() => setEdicion(empezarEdicion(sel))}>Editar</button>
+                                    <button
+                                        className="boton-fantasma"
+                                        onClick={() => setEdicion(empezarEdicion(sel))}
+                                        disabled={!editable(sel)}
+                                        title={editable(sel) ? undefined : 'Las plantillas se mandan tal cual están aprobadas en Meta: si no va, rechazala y armá otra desde WhatsApp.'}
+                                    >Editar</button>
                                     <button className="boton-fantasma peligro" onClick={() => setRechazando(sel.id)}>Rechazar</button>
                                 </>
                             )}
