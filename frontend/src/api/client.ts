@@ -38,6 +38,8 @@ function resolverBackend(): string {
 const BASE = resolverBackend();
 export const BACKEND_URL = BASE;
 export const BACKEND_ES_DEMO = BASE !== DEFAULT_BACKEND;
+// El backend "normal" es el servidor en internet (Railway) o, sin él, el de esta PC.
+export const BACKEND_NORMAL_ES_LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)/.test(DEFAULT_BACKEND);
 
 // Olvida el túnel guardado y vuelve al backend normal (el de esta PC o el publicado).
 export function volverAlBackendNormal(): void {

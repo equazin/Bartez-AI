@@ -13,7 +13,7 @@ import { Login } from './components/Login.tsx';
 import { WhatsApp } from './components/WhatsApp.tsx';
 import { NotionPanel } from './components/NotionPanel.tsx';
 import { EVENTO_RESUELTA } from './components/Deshacer.tsx';
-import { BACKEND_ES_DEMO, BACKEND_URL, EVENTO_LOGOUT, estadoAuth, logout, resumenHoy, volverAlBackendNormal } from './api/client.ts';
+import { BACKEND_ES_DEMO, BACKEND_NORMAL_ES_LOCAL, BACKEND_URL, EVENTO_LOGOUT, estadoAuth, logout, resumenHoy, volverAlBackendNormal } from './api/client.ts';
 
 export type Tab = 'home' | 'chat' | 'acciones' | 'asistentes' | 'rendimiento' | 'prospeccion' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
 
@@ -144,9 +144,9 @@ export function App() {
                     {BACKEND_ES_DEMO ? (
                         <>
                             <p className="error">
-                                No responde el túnel guardado ({new URL(BACKEND_URL).host}). Si era de una demo que ya cerraste, volvé al backend de esta PC.
+                                No responde el túnel guardado ({new URL(BACKEND_URL).host}). Si era de una demo que ya cerraste, volvé al {BACKEND_NORMAL_ES_LOCAL ? 'backend de esta PC' : 'servidor principal'}.
                             </p>
-                            <button className="primario" onClick={volverAlBackendNormal}>Usar el backend de esta PC</button>
+                            <button className="primario" onClick={volverAlBackendNormal}>{BACKEND_NORMAL_ES_LOCAL ? 'Usar el backend de esta PC' : 'Usar el servidor principal'}</button>
                             <button className="secundario-login" onClick={verificar}>Reintentar el túnel</button>
                         </>
                     ) : (
