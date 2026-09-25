@@ -3016,3 +3016,24 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .cot-doc .markdown-simple { font-size: var(--t-sm); }
 .cot-doc .markdown-simple p { margin: 3px 0; }
 .cot-doc .cot-totales { margin-top: 10px; }
+
+/* WhatsApp: responder desde el chat */
+.wa-sugerida { padding: 10px 12px; border-radius: 10px; background: var(--marca-soft); border: 1px dashed var(--marca); font-size: var(--t-sm); }
+.wa-sugerida-etq { display: block; font-size: var(--t-xs); font-weight: 700; color: var(--marca-texto); margin-bottom: 4px; }
+.wa-sugerida p { margin: 0 0 6px; white-space: pre-wrap; line-height: 1.45; }
+.wa-sugerida-acc { display: flex; gap: 14px; }
+.wa-sugerida-acc .enlace { font-size: var(--t-xs); }
+.contenido .wa-sugerida-acc .wa-descartar { color: var(--sutil); font-weight: 500; }
+.wa-escribir { display: flex; flex-direction: column; gap: 6px; }
+.wa-escribir textarea { width: 100%; box-sizing: border-box; min-height: 64px; max-height: 40vh; line-height: 1.45; }
+.wa-escribir textarea:focus { outline: none; border-color: var(--acento); box-shadow: 0 0 0 3px var(--acento-soft); }
+/* A la derecha queda lugar para el botón flotante de Bartez AI (no tapa "Enviar"). */
+.wa-escribir-pie { display: flex; align-items: center; gap: 10px; padding-right: 76px; }
+.wa-escribir-pie .wa-atajo { flex: 1; font-size: var(--t-xs); text-align: right; }
+.wa-proponer .wa-escribir-pie button.primario { align-self: auto; min-width: 96px; }
+.wa-error { margin: 0; font-size: var(--t-xs); color: var(--peligro); }
+.wa-cab-acciones strong { font-weight: 700; }
+@media (max-width: 560px) {
+    .wa-escribir-pie .wa-atajo { display: none; }
+    .wa-escribir-pie { justify-content: space-between; }
+}

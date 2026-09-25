@@ -24,7 +24,7 @@ import {
 } from '../connectors/studio.js';
 import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
-import { conLecciones } from './aprendizaje.js';
+import { conLecciones, registrarCorreccion } from './aprendizaje.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { bloqueMemoria } from './memoria.js';
 
@@ -54,6 +54,38 @@ Reglas:
   que no podés ver: pedile amablemente que te lo escriba o que te cuente qué envió.
 
 Respondé SOLO con el texto del mensaje a enviar, sin comillas ni explicaciones.`;
+
+// ---------- Ajustes: con qué nombre se presenta ----------
+
+const CLAVE_AJUSTES = 'whatsapp_ajustes';
+export interface AjustesWa { presentarse_como: string }
+
+export async function ajustesWa(): Promise<AjustesWa> {
+    const { data } = await supabase.from('integraciones_config').select('valor').eq('clave', CLAVE_AJUSTES).maybeSingle();
+    try {
+        const v = JSON.parse(String(data?.valor ?? '{}')) as Partial<AjustesWa>;
+        return { presentarse_como: typeof v.presentarse_como === 'string' ? v.presentarse_como.trim() : '' };
+    } catch { return { presentarse_como: '' }; }
+}
+
+export async function guardarAjustesWa(a: AjustesWa): Promise<void> {
+    const valor = JSON.stringify({ presentarse_como: a.presentarse_como.trim().slice(0, 60) });
+    const { error } = await supabase.from('integraciones_config').upsert({ clave: CLAVE_AJUSTES, valor, actualizado_en: new Date().toISOString() });
+    if (error) throw new Error(error.message);
+}
+
+// Va siempre, aunque el prompt del asistente se haya editado: sin esto el modelo
+// inventaba un nombre para presentarse ("Soy Magalí del equipo comercial").
+function bloqueIdentidad(nombre: string): string {
+    return [
+        'QUIÉN RESPONDE:',
+        nombre
+            ? `- Escribís en nombre de ${nombre}, del equipo comercial de Bartez. Si te presentás, sos ${nombre}; nunca uses otro nombre.`
+            : '- Si te presentás, decí solo que sos del equipo comercial de Bartez, sin nombre propio.',
+        '- Nunca inventes nombres de personas: ni el tuyo ni los de otros.',
+        '- Si Bartez ya le venía escribiendo en esta conversación, no hace falta presentarse de nuevo.',
+    ].join('\n');
+}
 
 // ---------- Teléfonos ----------
 
@@ -223,13 +255,25 @@ async function proponerSiCorresponde(waId: string): Promise<boolean> {
     return r.ok;
 }
 
-export async function proponerRespuestaWhatsapp(
+interface Redaccion {
+    ok: boolean;
+    detalle?: string;
+    texto?: string;
+    conv?: FilaConv;
+    asistenteId?: string;
+    clienteNombre?: string | null;
+    msgs?: Awaited<ReturnType<typeof mensajesDe>>;
+    ultimoClienteId?: string;
+}
+
+// Pide al asistente el próximo mensaje para la conversación. No envía nada ni
+// deja nada en Para aprobar: eso lo deciden proponerRespuestaWhatsapp o el panel.
+async function redactarWhatsapp(
     waId: string,
-    opts: { contexto_extra?: string },
-): Promise<{ ok: boolean; accion_id?: string; detalle?: string }> {
+    opts: { contexto_extra?: string; borrador_operador?: string },
+): Promise<Redaccion> {
     const { data: conv } = await supabase.from('wa_conversaciones').select('*').eq('wa_id', waId).maybeSingle() as { data: FilaConv | null };
     if (!conv) return { ok: false, detalle: 'Conversación no encontrada (sincronizá primero)' };
-    if (await hayPendiente(waId)) return { ok: false, detalle: 'Ya hay una respuesta esperando aprobación en Acciones' };
 
     const msgs = await mensajesDe(waId, 40);
     if (msgs.length === 0) return { ok: false, detalle: 'La conversación no tiene mensajes' };
@@ -255,8 +299,10 @@ export async function proponerRespuestaWhatsapp(
     }
 
     const web = (await textoWebBartez().catch(() => '')).slice(0, 3000);
+    const { presentarse_como } = await ajustesWa();
     const system = await conLecciones([
         promptBase,
+        bloqueIdentidad(presentarse_como),
         contextoFecha(),
         web ? `\nINFORMACIÓN DE BARTEZ (de la web):\n${web}` : '',
     ].join('\n'), fila?.id as string | undefined);
@@ -276,6 +322,9 @@ export async function proponerRespuestaWhatsapp(
         `\nCONVERSACIÓN DE WHATSAPP (cronológica):\n${hilo}`,
         opts.contexto_extra?.trim()
             ? `\nCONTEXTO DEL OPERADOR (tratalo como verdad, puede venir de llamadas u otros canales):\n${opts.contexto_extra.trim().slice(0, 1500)}`
+            : null,
+        opts.borrador_operador?.trim()
+            ? `\nLO QUE QUIERE DECIR EL OPERADOR (un borrador o una indicación): respetá lo que quiere decir y dejalo listo para enviar, sin agregar datos que no estén:\n${opts.borrador_operador.trim().slice(0, 3000)}`
             : null,
         '\nRedactá el próximo mensaje de Bartez para este cliente.',
     ].filter(Boolean).join('\n');
@@ -297,7 +346,7 @@ export async function proponerRespuestaWhatsapp(
     if (fila?.id) {
         await supabase.from('logs_asistente').insert({
             asistente_id: fila.id,
-            entrada: { origen: 'whatsapp', wa_id: waId },
+            entrada: { origen: 'whatsapp', wa_id: waId, borrador: !!opts.borrador_operador },
             salida: { respuesta: texto },
             tokens_in: resp.usage.input_tokens,
             tokens_out: resp.usage.output_tokens,
@@ -305,16 +354,36 @@ export async function proponerRespuestaWhatsapp(
             duracion_ms: Date.now() - inicio,
         });
     }
+    return { ok: true, texto, conv, asistenteId: fila?.id as string | undefined, clienteNombre: cliente?.nombre ?? null, msgs, ultimoClienteId: ultimoCliente?.id };
+}
+
+// Borrador para la caja del chat: lo que escribió el operador (si escribió algo)
+// pasado en limpio, o una respuesta desde cero. No queda en Para aprobar.
+export async function borradorWhatsapp(waId: string, borradorOperador?: string): Promise<{ ok: boolean; texto?: string; detalle?: string }> {
+    const r = await redactarWhatsapp(waId, { borrador_operador: borradorOperador });
+    return r.ok ? { ok: true, texto: r.texto } : { ok: false, detalle: r.detalle };
+}
+
+// Propuesta que queda en Para aprobar (la usa la sincronización cuando el bot
+// deriva una conversación).
+export async function proponerRespuestaWhatsapp(
+    waId: string,
+    opts: { contexto_extra?: string },
+): Promise<{ ok: boolean; accion_id?: string; detalle?: string }> {
+    if (await hayPendiente(waId)) return { ok: false, detalle: 'Ya hay una respuesta esperando aprobación en Acciones' };
+    const r = await redactarWhatsapp(waId, opts);
+    if (!r.ok || !r.texto || !r.conv || !r.msgs) return { ok: false, detalle: r.detalle };
+    const { texto, conv, msgs } = r;
 
     const { data: accion, error } = await supabase.from('acciones_pendientes').insert({
-        asistente_id: fila?.id ?? null,
+        asistente_id: r.asistenteId ?? null,
         accion: 'enviar_whatsapp',
         estado: 'pendiente',
         payload: {
             waId,
             cuerpo: texto,
             nombreContacto: conv.nombre,
-            nombreCliente: cliente?.nombre ?? null,
+            nombreCliente: r.clienteNombre ?? null,
             clienteId: conv.cliente_id,
             ultimoEntranteEn: conv.ultimo_entrante_en,
             conversacion: msgs.slice(-8).map((m) => ({ origen: m.origen, cuerpo: m.cuerpo, fecha: m.creado_en })),
@@ -323,7 +392,7 @@ export async function proponerRespuestaWhatsapp(
     }).select('id').single();
     if (error) return { ok: false, detalle: error.message };
 
-    if (ultimoCliente) await supabase.from('wa_conversaciones').update({ borrador_para_msg: ultimoCliente.id }).eq('wa_id', waId);
+    if (r.ultimoClienteId) await supabase.from('wa_conversaciones').update({ borrador_para_msg: r.ultimoClienteId }).eq('wa_id', waId);
     return { ok: true, accion_id: accion.id as string };
 }
 
@@ -363,6 +432,38 @@ export async function enviarWhatsapp(waId: string, cuerpo: string, clienteId?: s
     return { ok: true, id: enviado.id };
 }
 
+// ---------- Respuesta a mano desde el panel ----------
+
+// Manda lo que escribió el operador (dentro de las 24 h). Si había una propuesta
+// esperando en Para aprobar, queda descartada para que no salga después; si el
+// texto partió de esa propuesta, lo que cambió se guarda como aprendizaje.
+export async function responderWhatsappAMano(
+    waId: string,
+    texto: string,
+    desdePropuesta?: string | null,
+): Promise<{ ok: boolean; detalle?: string; mensaje?: { id: string; cuerpo: string; origen: 'humano'; creado_en: string } }> {
+    const cuerpo = texto.trim();
+    if (!cuerpo) return { ok: false, detalle: 'El mensaje está vacío' };
+    const { data: conv } = await supabase.from('wa_conversaciones').select('cliente_id').eq('wa_id', waId).maybeSingle();
+    if (!conv) return { ok: false, detalle: 'Conversación no encontrada (sincronizá primero)' };
+    const r = await enviarWhatsapp(waId, cuerpo, conv.cliente_id as string | null);
+    if (!r.ok) return { ok: false, detalle: r.detalle };
+
+    const { data: pendientes } = await supabase.from('acciones_pendientes').select('*')
+        .eq('accion', 'enviar_whatsapp').eq('estado', 'pendiente').contains('payload', { waId });
+    for (const a of pendientes ?? []) {
+        if (a.id === desdePropuesta) {
+            void registrarCorreccion(a, 'edicion', { payloadNuevo: { ...(a.payload as Record<string, unknown>), cuerpo } });
+        }
+        await supabase.from('acciones_pendientes').update({
+            estado: 'descartada',
+            respuesta: { por: 'humano', nota: 'Respondido a mano desde el chat de WhatsApp', enviado: cuerpo.slice(0, 500) },
+            resuelto_en: new Date().toISOString(),
+        }).eq('id', a.id).eq('estado', 'pendiente');
+    }
+    return { ok: true, mensaje: { id: r.id ?? `local-${Date.now()}`, cuerpo, origen: 'humano', creado_en: new Date().toISOString() } };
+}
+
 // ---------- Consultas para el panel ----------
 
 export async function listarConversacionesWa() {
@@ -398,7 +499,15 @@ export async function detalleConversacionWa(waId: string) {
     const { data: conv } = await supabase.from('wa_conversaciones').select('*, clientes(nombre, email)').eq('wa_id', waId).maybeSingle();
     if (!conv) return null;
     const mensajes = await mensajesDe(waId, 500);
-    return { conversacion: { ...conv, en_ventana: dentroDeVentana(conv.ultimo_entrante_en as string | null) }, mensajes };
+    // La propuesta de Bartez que espera en Para aprobar, para usarla desde el chat.
+    const { data: pend } = await supabase.from('acciones_pendientes').select('id, payload, creado_en')
+        .eq('accion', 'enviar_whatsapp').eq('estado', 'pendiente').contains('payload', { waId })
+        .order('creado_en', { ascending: false }).limit(1);
+    const p = pend?.[0];
+    const propuesta = p && typeof (p.payload as { cuerpo?: unknown })?.cuerpo === 'string'
+        ? { accion_id: p.id as string, cuerpo: (p.payload as { cuerpo: string }).cuerpo, creado_en: p.creado_en as string }
+        : null;
+    return { conversacion: { ...conv, en_ventana: dentroDeVentana(conv.ultimo_entrante_en as string | null) }, mensajes, propuesta };
 }
 
 export async function mensajesWhatsappDeCliente(clienteId: string, limite = 30) {
@@ -507,6 +616,30 @@ export async function proponerPlantillaWa(
     }).select('id').single();
     if (error) return { ok: false, detalle: error.message };
     return { ok: true, accion_id: accion.id as string };
+}
+
+// La elige y completa el operador: sale ya, sin pasar por Para aprobar.
+export async function enviarPlantillaAMano(
+    waId: string,
+    nombre: string,
+    parametros: string[],
+): Promise<{ ok: boolean; detalle?: string; mensaje?: { id: string; cuerpo: string; origen: 'humano'; creado_en: string } }> {
+    const plantilla = (await listarPlantillasWa()).find((p) => p.nombre === nombre);
+    if (!plantilla) return { ok: false, detalle: 'Esa plantilla no está cargada' };
+    const faltan = cantidadParametros(plantilla.texto) - parametros.filter((p) => p.trim()).length;
+    if (faltan > 0) return { ok: false, detalle: `Faltan ${faltan} valor${faltan > 1 ? 'es' : ''} para completar la plantilla` };
+    const { data: conv } = await supabase.from('wa_conversaciones').select('cliente_id').eq('wa_id', waId).maybeSingle();
+    if (!conv) return { ok: false, detalle: 'Conversación no encontrada (sincronizá primero)' };
+    const vista = textoConParametros(plantilla.texto, parametros);
+    const r = await enviarPlantillaWa(waId, { nombre: plantilla.nombre, idioma: plantilla.idioma, parametros }, vista, conv.cliente_id as string | null);
+    if (!r.ok) return { ok: false, detalle: r.detalle };
+    // Lo que esperaba en Para aprobar para este contacto ya no hace falta.
+    await supabase.from('acciones_pendientes').update({
+        estado: 'descartada',
+        respuesta: { por: 'humano', nota: 'Se mandó una plantilla a mano desde el chat de WhatsApp' },
+        resuelto_en: new Date().toISOString(),
+    }).eq('accion', 'enviar_whatsapp').eq('estado', 'pendiente').contains('payload', { waId });
+    return { ok: true, mensaje: { id: r.id ?? `local-${Date.now()}`, cuerpo: vista, origen: 'humano', creado_en: new Date().toISOString() } };
 }
 
 export async function enviarPlantillaWa(

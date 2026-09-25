@@ -2,7 +2,7 @@
 // el formulario para retomar una conversación vencida con una de ellas.
 
 import { useEffect, useState } from 'react';
-import { PlantillaWa, guardarPlantillasWa, listarPlantillasWa, proponerPlantillaWa } from '../../api/client.ts';
+import { MensajeWa, PlantillaWa, enviarPlantillaWaAMano, guardarPlantillasWa, listarPlantillasWa } from '../../api/client.ts';
 
 const cantidadParametros = (texto: string) => Math.max(0, ...[...texto.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])));
 const conParametros = (texto: string, valores: string[]) =>
@@ -76,8 +76,8 @@ export function ConfigPlantillas({ alCerrar, alGuardar }: { alCerrar: () => void
     );
 }
 
-export function RetomarConPlantilla({ waId, nombre, deshabilitado, alProponer, alConfigurar }: {
-    waId: string; nombre: string | null; deshabilitado: boolean; alProponer: (msg: string) => void; alConfigurar: () => void;
+export function RetomarConPlantilla({ waId, nombre, deshabilitado, alEnviar, alConfigurar }: {
+    waId: string; nombre: string | null; deshabilitado?: boolean; alEnviar: (m: MensajeWa) => void; alConfigurar: () => void;
 }) {
     const [lista, setLista] = useState<PlantillaWa[] | null>(null);
     const [elegida, setElegida] = useState('');
@@ -97,13 +97,14 @@ export function RetomarConPlantilla({ waId, nombre, deshabilitado, alProponer, a
         setValores(Array.from({ length: cant }, (_, i) => (i === 0 && nombre ? nombre.split(' ')[0]! : '')));
     }
 
-    async function proponer() {
+    // La elegís y la completás vos: sale ya, sin pasar por Para aprobar.
+    async function enviar() {
         if (!plantilla) return;
         setOcupado(true);
         setError(undefined);
         try {
-            await proponerPlantillaWa(waId, plantilla.nombre, valores);
-            alProponer('✓ Plantilla lista en Para aprobar. Sale cuando la apruebes.');
+            const { mensaje } = await enviarPlantillaWaAMano(waId, plantilla.nombre, valores);
+            alEnviar(mensaje);
             setElegida('');
         } catch (e) { setError((e as Error).message); }
         finally { setOcupado(false); }
@@ -137,7 +138,7 @@ export function RetomarConPlantilla({ waId, nombre, deshabilitado, alProponer, a
                         </div>
                     )}
                     <div className="wa-burbuja saliente wa-propuesta">{conParametros(plantilla.texto, valores)}</div>
-                    <button className="btn-primario" onClick={proponer} disabled={ocupado || deshabilitado}>{ocupado ? 'Preparando…' : 'Proponer plantilla'}</button>
+                    <button className="btn-primario" onClick={enviar} disabled={ocupado || deshabilitado}>{ocupado ? 'Enviando…' : 'Enviar plantilla'}</button>
                 </>
             )}
             {error && <p className="error">{error}</p>}

@@ -3,12 +3,16 @@ import {
     ConversacionWa,
     EmpresaSeguimiento,
     MensajeWa,
+    ajustesWhatsapp,
+    borradorWhatsapp,
     crearClienteDesdeWa,
     detalleConversacionWa,
+    enviarWhatsappAMano,
     estadoWhatsapp,
+    guardarAjustesWhatsapp,
     listarConversacionesWa,
     listarEmpresasSeguimiento,
-    proponerRespuestaWa,
+    resolverAccion,
     sincronizarWa,
     vincularClienteWa,
 } from '../api/client.ts';
@@ -24,6 +28,9 @@ const ESTADOS: Record<string, string> = {
 const QUIEN: Record<string, string> = { cliente: 'Cliente', bot: 'Bot web', humano: 'Bartez' };
 
 const hora = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+// En el celular Enter hace un salto de línea; en la compu, Enter envía (como WhatsApp Web).
+const esTactil = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+type Propuesta = { accion_id: string; cuerpo: string; creado_en: string };
 
 export function WhatsApp() {
     const [configurado, setConfigurado] = useState<boolean | null>(null);
@@ -32,7 +39,15 @@ export function WhatsApp() {
     const [busqueda, setBusqueda] = useState('');
     const [sel, setSel] = useState<string | null>(null);
     const [mensajes, setMensajes] = useState<MensajeWa[]>([]);
-    const [contexto, setContexto] = useState('');
+    // Lo que se está escribiendo para mandar. Se guarda por conversación al cambiar de chat.
+    const [texto, setTexto] = useState('');
+    const borradores = useRef(new Map<string, { texto: string; desde: string | null }>());
+    // Si el texto salió de la propuesta que esperaba en Para aprobar.
+    const [desdePropuesta, setDesdePropuesta] = useState<string | null>(null);
+    const [propuesta, setPropuesta] = useState<Propuesta | null>(null);
+    const [errorEnvio, setErrorEnvio] = useState<string>();
+    const [firma, setFirma] = useState<string | null>(null);
+    const cajaRef = useRef<HTMLTextAreaElement>(null);
     const [ocupado, setOcupado] = useState<string | null>(null);
     const [error, setError] = useState<string>();
     const [aviso, setAviso] = useState<string>();
@@ -53,16 +68,29 @@ export function WhatsApp() {
     }
 
     async function abrir(waId: string) {
+        if (sel && sel !== waId) {
+            if (texto.trim()) borradores.current.set(sel, { texto, desde: desdePropuesta });
+            else borradores.current.delete(sel);
+        }
+        if (sel !== waId) {
+            const b = borradores.current.get(waId);
+            setTexto(b?.texto ?? '');
+            setDesdePropuesta(b?.desde ?? null);
+            setPropuesta(null);
+            setErrorEnvio(undefined);
+        }
         setSel(waId);
-        setContexto('');
         setAviso(undefined);
         try {
-            setMensajes((await detalleConversacionWa(waId)).mensajes);
+            const d = await detalleConversacionWa(waId);
+            setMensajes(d.mensajes);
+            setPropuesta(d.propuesta ?? null);
         } catch (e) { setError((e as Error).message); }
     }
 
     useEffect(() => {
         estadoWhatsapp().then((r) => setConfigurado(r.configurado)).catch(() => setConfigurado(false));
+        ajustesWhatsapp().then((r) => setFirma(r.ajustes.presentarse_como)).catch(() => setFirma(null));
         cargar();
         listarEmpresasSeguimiento().then((r) => setClientes(r.empresas.filter((e) => !e.id.startsWith('det:')))).catch(() => {});
         // La sincronización corre sola cada 2 min en el backend: refrescamos la lista.
@@ -83,17 +111,65 @@ export function WhatsApp() {
         finally { setOcupado(null); }
     }
 
-    async function proponer() {
-        if (!sel) return;
-        setOcupado('proponer');
-        setError(undefined);
+    // Manda lo escrito, sin pasar por Para aprobar.
+    async function enviar() {
+        const waId = sel;
+        const cuerpo = texto.trim();
+        if (!waId || !cuerpo || ocupado === 'enviar') return;
+        setOcupado('enviar');
+        setErrorEnvio(undefined);
         try {
-            await proponerRespuestaWa(sel, contexto.trim() || undefined);
-            setAviso('✓ Respuesta propuesta: la tenés en Acciones para revisar y aprobar.');
-            setContexto('');
+            const { mensaje } = await enviarWhatsappAMano(waId, cuerpo, desdePropuesta);
+            borradores.current.delete(waId);
+            if (sel === waId) {
+                setMensajes((m) => [...m, mensaje]);
+                setTexto('');
+                setDesdePropuesta(null);
+                setPropuesta(null);
+            }
             await cargar();
-        } catch (e) { setError((e as Error).message); }
+        } catch (e) { setErrorEnvio((e as Error).message); }
         finally { setOcupado(null); }
+    }
+
+    // Bartez redacta en la caja: desde cero o a partir de lo que escribiste.
+    async function redactarConBartez() {
+        if (!sel) return;
+        setOcupado('borrador');
+        setErrorEnvio(undefined);
+        try {
+            const r = await borradorWhatsapp(sel, texto.trim() || undefined);
+            setTexto(r.texto);
+            setDesdePropuesta(null);
+            cajaRef.current?.focus();
+        } catch (e) { setErrorEnvio((e as Error).message); }
+        finally { setOcupado(null); }
+    }
+
+    function usarPropuesta() {
+        if (!propuesta) return;
+        setTexto(propuesta.cuerpo);
+        setDesdePropuesta(propuesta.accion_id);
+        cajaRef.current?.focus();
+    }
+
+    async function descartarPropuesta() {
+        if (!propuesta) return;
+        setOcupado('descartar');
+        try {
+            await resolverAccion(propuesta.accion_id, 'rechazar', { nota: 'Descartada desde el chat de WhatsApp' });
+            if (desdePropuesta === propuesta.accion_id) setDesdePropuesta(null);
+            setPropuesta(null);
+            await cargar();
+        } catch (e) { setErrorEnvio((e as Error).message); }
+        finally { setOcupado(null); }
+    }
+
+    async function cambiarFirma() {
+        const v = window.prompt('¿Con qué nombre se presenta Bartez cuando redacta por WhatsApp? (vacío = sin nombre, "del equipo comercial")', firma ?? '');
+        if (v === null) return;
+        try { setFirma((await guardarAjustesWhatsapp({ presentarse_como: v.trim() })).ajustes.presentarse_como); }
+        catch (e) { setError((e as Error).message); }
     }
 
     async function crearCliente(c: ConversacionWa) {
@@ -146,11 +222,16 @@ export function WhatsApp() {
                 <div>
                     <h2>WhatsApp</h2>
                     <p className="sub">
-                        Conversaciones del bot de bartez.com.ar. El bot atiende el primer contacto; cuando deriva a una persona,
-                        el asistente propone la respuesta y la tenés en Para aprobar. Se actualiza sola cada 2 minutos.
+                        Conversaciones del bot de bartez.com.ar. Respondé desde acá cuando quieras: lo que escribís sale directo.
+                        Si querés, Bartez te lo redacta. Se actualiza sola cada 2 minutos.
                     </p>
                 </div>
                 <div className="wa-cab-acciones">
+                    {firma !== null && (
+                        <button className="secundario" onClick={cambiarFirma} title="Nombre con el que se presenta Bartez cuando redacta">
+                            {firma ? <>Te presentás como <strong>{firma}</strong></> : 'Sin nombre al presentarse'}
+                        </button>
+                    )}
                     <button className="secundario" onClick={() => setVerPlantillas((v) => !v)}>Plantillas</button>
                     <button className="primario" onClick={sincronizar} disabled={ocupado === 'sync'}>
                         {ocupado === 'sync' ? 'Sincronizando…' : 'Sincronizar ahora'}
@@ -252,25 +333,46 @@ export function WhatsApp() {
                                         key={`${actual.wa_id}-${versionPl}`}
                                         waId={actual.wa_id}
                                         nombre={actual.cliente_nombre ?? actual.nombre}
-                                        deshabilitado={actual.respuesta_pendiente}
-                                        alProponer={(m) => { setAviso(m); cargar(); }}
+                                        alEnviar={(m) => { setMensajes((prev) => [...prev, m]); setPropuesta(null); setAviso('✓ Plantilla enviada.'); cargar(); }}
                                         alConfigurar={() => setVerPlantillas(true)}
                                     />
                                 )}
-                                {actual.en_ventana && <textarea
-                                    rows={2}
-                                    value={contexto}
-                                    onChange={(e) => setContexto(e.target.value)}
-                                    placeholder="Contexto opcional para el asistente (ej. «ya lo llamé, quiere 5 notebooks para el lunes»)"
-                                />}
-                                {actual.en_ventana && <button
-                                    className="primario"
-                                    onClick={proponer}
-                                    disabled={ocupado === 'proponer' || actual.respuesta_pendiente || !actual.en_ventana}
-                                    title={actual.respuesta_pendiente ? 'Ya hay una respuesta esperando en Acciones' : undefined}
-                                >
-                                    {ocupado === 'proponer' ? 'Redactando…' : actual.respuesta_pendiente ? 'Ya hay una propuesta en Para aprobar' : 'Proponer respuesta'}
-                                </button>}
+                                {actual.en_ventana && propuesta && desdePropuesta !== propuesta.accion_id && (
+                                    <div className="wa-sugerida">
+                                        <span className="wa-sugerida-etq">✦ Bartez propuso esta respuesta (está en Para aprobar)</span>
+                                        <p>{propuesta.cuerpo}</p>
+                                        <div className="wa-sugerida-acc">
+                                            <button type="button" className="enlace" onClick={usarPropuesta}>Usar y editar</button>
+                                            <button type="button" className="enlace wa-descartar" onClick={descartarPropuesta} disabled={ocupado === 'descartar'}>Descartar</button>
+                                        </div>
+                                    </div>
+                                )}
+                                {actual.en_ventana && (
+                                    <div className="wa-escribir">
+                                        <textarea
+                                            ref={cajaRef}
+                                            rows={3}
+                                            value={texto}
+                                            aria-label="Tu respuesta"
+                                            onChange={(e) => setTexto(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' && !e.shiftKey && !esTactil() && !e.nativeEvent.isComposing) { e.preventDefault(); void enviar(); }
+                                            }}
+                                            placeholder="Escribí tu respuesta… (o escribí la idea y tocá «Mejorar con Bartez»)"
+                                            disabled={ocupado === 'enviar'}
+                                        />
+                                        {errorEnvio && <p className="wa-error" role="alert">{errorEnvio}</p>}
+                                        <div className="wa-escribir-pie">
+                                            <button type="button" className="secundario" onClick={redactarConBartez} disabled={ocupado === 'borrador' || ocupado === 'enviar'}>
+                                                {ocupado === 'borrador' ? 'Redactando…' : texto.trim() ? '✦ Mejorar con Bartez' : '✦ Redactar con Bartez'}
+                                            </button>
+                                            <span className="tenue wa-atajo">{esTactil() ? '' : 'Enter envía · Shift + Enter, otra línea'}</span>
+                                            <button type="button" className="primario" onClick={enviar} disabled={!texto.trim() || ocupado === 'enviar'}>
+                                                {ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </>
                     )}

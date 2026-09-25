@@ -1060,6 +1060,13 @@ export async function guardarPlantillasWa(plantillas: PlantillaWa[]): Promise<{ 
     }));
 }
 
+// Plantilla elegida y completada por el operador: sale ya, sin Para aprobar.
+export async function enviarPlantillaWaAMano(waId: string, nombre: string, parametros: string[]): Promise<{ ok: boolean; mensaje: MensajeWa }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/plantilla/enviar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre, parametros }),
+    }));
+}
+
 export async function proponerPlantillaWa(waId: string, nombre: string, parametros: string[]): Promise<{ ok: boolean; accion_id?: string }> {
     return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/plantilla`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nombre, parametros }),
@@ -1073,8 +1080,34 @@ export async function listarConversacionesWa(): Promise<{ conversaciones: Conver
 export async function detalleConversacionWa(waId: string): Promise<{
     conversacion: ConversacionWa & { ultimo_entrante_en: string | null; clientes?: { nombre: string; email: string | null } | null };
     mensajes: MensajeWa[];
+    // La respuesta que Bartez dejó en Para aprobar para esta conversación
+    propuesta?: { accion_id: string; cuerpo: string; creado_en: string } | null;
 }> {
     return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}`));
+}
+
+// Lo que escribió el operador sale ya (dentro de las 24 h), sin pasar por Para aprobar.
+export async function enviarWhatsappAMano(waId: string, texto: string, desde_propuesta?: string | null): Promise<{ ok: boolean; mensaje: MensajeWa }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/enviar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto, desde_propuesta: desde_propuesta ?? null }),
+    }));
+}
+
+// Borrador de Bartez para la caja del chat: desde cero o a partir de lo escrito.
+export async function borradorWhatsapp(waId: string, borrador?: string): Promise<{ texto: string }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/borrador`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ borrador: borrador || undefined }),
+    }));
+}
+
+export interface AjustesWa { presentarse_como: string }
+export async function ajustesWhatsapp(): Promise<{ ajustes: AjustesWa }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/ajustes`));
+}
+export async function guardarAjustesWhatsapp(ajustes: AjustesWa): Promise<{ ajustes: AjustesWa }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/ajustes`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(ajustes),
+    }));
 }
 
 export async function proponerRespuestaWa(waId: string, contexto_extra?: string): Promise<{ ok: boolean; accion_id?: string }> {

@@ -23,10 +23,7 @@ import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, comp
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
-import { guardarPlantillasWa, listarPlantillasWa, proponerPlantillaWa,
-    crearClienteDesdeWa, detalleConversacionWa, listarConversacionesWa, proponerRespuestaWhatsapp,
-    sincronizarWhatsapp, vincularClienteWa,
-} from './orchestrator/whatsapp.js';
+import { ajustesWa, borradorWhatsapp, crearClienteDesdeWa, enviarPlantillaAMano, detalleConversacionWa, guardarAjustesWa, guardarPlantillasWa, listarConversacionesWa, listarPlantillasWa, proponerPlantillaWa, proponerRespuestaWhatsapp, responderWhatsappAMano, sincronizarWhatsapp, vincularClienteWa } from './orchestrator/whatsapp.js';
 import { studioConfigurado } from './connectors/studio.js';
 import { DE_DOCUMENTO, actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion, proponerEnvioCotizacion } from './orchestrator/cotizador.js';
 import { generarPresupuestoPdf } from './pdf/presupuesto.js';
@@ -509,6 +506,41 @@ app.get('/whatsapp/conversaciones/:waId', async (req, res) => {
     return d;
 });
 
+// Con qué nombre se presenta el asistente en WhatsApp (vacío = sin nombre propio).
+app.get('/whatsapp/ajustes', async () => ({ ajustes: await ajustesWa() }));
+app.put('/whatsapp/ajustes', async (req, res) => {
+    const parseo = z.object({ presentarse_como: z.string().max(60) }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'El nombre puede tener hasta 60 caracteres' });
+    await guardarAjustesWa(parseo.data);
+    return { ajustes: await ajustesWa() };
+});
+
+// Respuesta escrita por el operador: sale ya, sin pasar por Para aprobar.
+app.post('/whatsapp/conversaciones/:waId/enviar', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ texto: z.string().min(1).max(4000), desde_propuesta: z.string().uuid().nullable().optional() }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'Escribí el mensaje (hasta 4000 caracteres)' });
+    try {
+        const r = await responderWhatsappAMano(waId, parseo.data.texto, parseo.data.desde_propuesta ?? null);
+        if (!r.ok) return res.status(400).send({ error: r.detalle });
+        invalidarResumenHoy();
+        return r;
+    } catch (err) {
+        req.log.error({ err }, 'enviar WhatsApp a mano falló');
+        return res.status(502).send({ error: `No se pudo enviar por la web: ${(err as Error).message}` });
+    }
+});
+
+// Borrador para la caja del chat (no queda en Para aprobar).
+app.post('/whatsapp/conversaciones/:waId/borrador', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ borrador: z.string().max(4000).optional() }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    const r = await borradorWhatsapp(waId, parseo.data.borrador);
+    if (!r.ok) return res.status(400).send({ error: r.detalle });
+    return { texto: r.texto };
+});
+
 app.post('/whatsapp/conversaciones/:waId/proponer', async (req, res) => {
     const { waId } = req.params as { waId: string };
     const parseo = z.object({ contexto_extra: z.string().max(3000).optional() }).safeParse(req.body ?? {});
@@ -542,6 +574,22 @@ app.post('/whatsapp/conversaciones/:waId/plantilla', async (req, res) => {
     if (!r.ok) return res.status(400).send({ error: r.detalle });
     invalidarResumenHoy();
     return r;
+});
+
+// Plantilla elegida por el operador (fuera de las 24 h): sale ya.
+app.post('/whatsapp/conversaciones/:waId/plantilla/enviar', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ nombre: z.string(), parametros: z.array(z.string().max(1000)).max(10) }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    try {
+        const r = await enviarPlantillaAMano(waId, parseo.data.nombre, parseo.data.parametros);
+        if (!r.ok) return res.status(400).send({ error: r.detalle });
+        invalidarResumenHoy();
+        return r;
+    } catch (err) {
+        req.log.error({ err }, 'enviar plantilla de WhatsApp falló');
+        return res.status(502).send({ error: `No se pudo enviar por la web: ${(err as Error).message}` });
+    }
 });
 
 app.post('/whatsapp/conversaciones/:waId/vincular', async (req, res) => {
