@@ -621,6 +621,14 @@ export interface InformeCliente {
     tokens_out: number;
     costo_usd: number;
     duracion_ms: number;
+    // Informe guardado en la memoria del cliente
+    id?: string;
+    creado_en?: string;
+    origen?: 'manual' | 'automatico';
+    // Partió del informe anterior y sumó solo lo nuevo
+    incremental?: boolean;
+    // No había nada nuevo: es el mismo informe de antes, sin costo
+    sin_novedades?: boolean;
 }
 
 export async function listarEmpresasSeguimiento(): Promise<{ empresas: EmpresaSeguimiento[] }> {
@@ -676,17 +684,97 @@ export async function redactarSeguimiento(
     return res.json();
 }
 
-export async function generarInformeCliente(id: string, contexto_extra?: string): Promise<{ informe: InformeCliente }> {
+export async function generarInformeCliente(
+    id: string,
+    opts: { contexto_extra?: string; desde_cero?: boolean } = {},
+): Promise<{ informe: InformeCliente }> {
+    const body: Record<string, unknown> = {};
+    if (opts.contexto_extra) body.contexto_extra = opts.contexto_extra;
+    if (opts.desde_cero) body.desde_cero = true;
     const res = await apiFetch(`${BASE}/seguimientos/empresas/${id}/informe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(contexto_extra ? { contexto_extra } : {}),
+        body: JSON.stringify(body),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || `Backend respondió ${res.status}`);
     }
     return res.json();
+}
+
+// ---------- Memoria del cliente: informes guardados, notas y documentos ----------
+
+export interface InformeGuardado {
+    id: string;
+    resumen_md: string;
+    origen: 'manual' | 'automatico';
+    base_id: string | null;
+    costo_usd: number | null;
+    creado_en: string;
+}
+
+export interface NotaCliente { id: string; texto: string; creado_en: string }
+
+export interface DocumentoCliente {
+    id: string;
+    nombre: string;
+    tipo_mime: string | null;
+    tamano_bytes: number | null;
+    estado: 'procesando' | 'listo' | 'error';
+    tipo_documento: string | null;
+    resumen: string | null;
+    error: string | null;
+    creado_en: string;
+    procesado_en: string | null;
+}
+
+export interface MemoriaCliente { informes: InformeGuardado[]; notas: NotaCliente[]; documentos: DocumentoCliente[] }
+
+export async function memoriaCliente(id: string): Promise<MemoriaCliente> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/empresas/${id}/memoria`));
+}
+
+export async function crearNotaCliente(id: string, texto: string): Promise<{ nota: NotaCliente }> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/empresas/${id}/notas`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto }),
+    }));
+}
+
+export async function borrarNotaCliente(notaId: string): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/notas/${notaId}`, { method: 'DELETE' }));
+}
+
+export const MAX_MB_DOCUMENTO = 12;
+
+export async function subirDocumentoCliente(id: string, archivo: File): Promise<{ documento: DocumentoCliente }> {
+    const datos_base64 = await aBase64(archivo);
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/empresas/${id}/documentos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: archivo.name, tipo_mime: archivo.type || undefined, datos_base64 }),
+    }));
+}
+
+export async function urlDocumentoCliente(docId: string): Promise<{ url: string }> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/documentos/${docId}/url`));
+}
+
+export async function reprocesarDocumentoCliente(docId: string): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/documentos/${docId}/reprocesar`, { method: 'POST' }));
+}
+
+export async function borrarDocumentoCliente(docId: string): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/documentos/${docId}`, { method: 'DELETE' }));
+}
+
+function aBase64(archivo: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const lector = new FileReader();
+        lector.onload = () => resolve(String(lector.result).replace(/^data:[^,]*,/, ''));
+        lector.onerror = () => reject(new Error(`No se pudo leer ${archivo.name}`));
+        lector.readAsDataURL(archivo);
+    });
 }
 
 export interface ResultadoImportCorreos {

@@ -19,6 +19,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
 import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { calcularMapa } from './orchestrator/mapa.js';
+import { borrarDocumento, borrarNota, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -31,7 +32,7 @@ import { actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, list
 import { generarPresupuestoPdf } from './pdf/presupuesto.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { destilarLecciones, destilarPendientes, listarAprendizajes, olvidarCacheLecciones, registrarCorreccion } from './orchestrator/aprendizaje.js';
-import { descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
+import { actualizarMemoriasPendientes, descartarContactoDetectado, detalleContactoDetectado, detalleEmpresa, generarInformeCliente, listarEmpresasParaSeguimiento, promoverContactoDetectado } from './orchestrator/informe_cliente.js';
 
 // trustProxy: detrás del proxy de Railway, req.ip es la IP real del cliente.
 const app = Fastify({ logger: true, trustProxy: true });
@@ -240,22 +241,75 @@ app.post('/seguimientos/empresas/:id/redactar', async (req, res) => {
     const parseo = RedactarSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
 
-    const r = await generarSeguimientoIndividual(id, {
-        informe_previo: parseo.data.informe_previo,
-        contexto_extra: parseo.data.contexto_extra,
-    });
+    // Lo que escribió el operador queda como nota del cliente (memoria) y le
+    // llega al asistente por ahí, igual que el último informe guardado.
+    if (parseo.data.contexto_extra?.trim()) await crearNota(id, parseo.data.contexto_extra);
+    const r = await generarSeguimientoIndividual(id, { informe_previo: parseo.data.informe_previo });
     if (!r.ok) return res.status(500).send({ error: r.detalle });
     return r;
 });
 
-const InformeSchema = z.object({ contexto_extra: z.string().optional() });
+const InformeSchema = z.object({ contexto_extra: z.string().optional(), desde_cero: z.boolean().optional() });
 app.post('/seguimientos/empresas/:id/informe', async (req, res) => {
     const { id } = req.params as { id: string };
+    if (id.startsWith('det:')) return res.status(400).send({ error: 'Primero convertí este contacto en prospecto' });
     const parseo = InformeSchema.safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
-    const r = await generarInformeCliente(id, { contexto_extra: parseo.data.contexto_extra });
+    const r = await generarInformeCliente(id, { contexto_extra: parseo.data.contexto_extra, desdeCero: parseo.data.desde_cero });
     if (!r.ok) return res.status(500).send({ error: r.detalle ?? 'Falló la generación del informe' });
     return { informe: r };
+});
+
+// ---------- Memoria del cliente: informes, notas y documentos ----------
+
+app.get('/seguimientos/empresas/:id/memoria', async (req) => {
+    const { id } = req.params as { id: string };
+    // Los contactos detectados todavía no son clientes: no tienen memoria.
+    if (id.startsWith('det:')) return { informes: [], notas: [], documentos: [] };
+    const [informes, notas, documentos] = await Promise.all([informesDeCliente(id), notasDeCliente(id), documentosDeCliente(id)]);
+    return { informes, notas, documentos };
+});
+
+const NotaSchema = z.object({ texto: z.string().min(1).max(4000) });
+app.post('/seguimientos/empresas/:id/notas', async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (id.startsWith('det:')) return res.status(400).send({ error: 'Primero convertí este contacto en prospecto' });
+    const parseo = NotaSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'La nota está vacía o es demasiado larga' });
+    try { return { nota: await crearNota(id, parseo.data.texto) }; } catch (err) { return res.status(400).send({ error: (err as Error).message }); }
+});
+
+app.delete('/seguimientos/notas/:id', async (req) => {
+    await borrarNota((req.params as { id: string }).id);
+    return { ok: true };
+});
+
+// Los archivos llegan en base64 dentro del JSON (hasta 12 MB de archivo).
+const DocumentoSchema = z.object({ nombre: z.string().min(1).max(200), tipo_mime: z.string().max(120).optional(), datos_base64: z.string().min(1) });
+app.post('/seguimientos/empresas/:id/documentos', { bodyLimit: 20 * 1024 * 1024 }, async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (id.startsWith('det:')) return res.status(400).send({ error: 'Primero convertí este contacto en prospecto' });
+    const parseo = DocumentoSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'Falta el archivo' });
+    try {
+        return { documento: await subirDocumento(id, parseo.data.nombre, parseo.data.tipo_mime, parseo.data.datos_base64) };
+    } catch (err) {
+        return res.status(400).send({ error: (err as Error).message });
+    }
+});
+
+app.get('/seguimientos/documentos/:id/url', async (req, res) => {
+    try { return { url: await urlDocumento((req.params as { id: string }).id) }; } catch (err) { return res.status(404).send({ error: (err as Error).message }); }
+});
+
+app.post('/seguimientos/documentos/:id/reprocesar', async (req) => {
+    await reprocesarDocumento((req.params as { id: string }).id);
+    return { ok: true };
+});
+
+app.delete('/seguimientos/documentos/:id', async (req) => {
+    await borrarDocumento((req.params as { id: string }).id);
+    return { ok: true };
 });
 
 // ---------- Proveedores y Cotizador ----------
@@ -1205,6 +1259,16 @@ async function main() {
             if (n) app.log.info({ asistentes: n }, 'lecciones actualizadas');
         } catch (err) {
             app.log.error({ err }, 'destilar lecciones falló');
+        }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
+
+    // De madrugada se actualiza la memoria de los clientes que tuvieron movimiento.
+    cron.schedule('10 3 * * *', async () => {
+        try {
+            const r = await actualizarMemoriasPendientes();
+            if (r.candidatos) app.log.info(r, 'memoria de clientes actualizada');
+        } catch (err) {
+            app.log.error({ err }, 'actualizar memoria de clientes falló');
         }
     }, { timezone: 'America/Argentina/Buenos_Aires' });
 

@@ -1,15 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
     DetalleEmpresa,
     EmpresaSeguimiento,
     InformeCliente,
+    MemoriaCliente as Memoria,
     descartarContactoDetectado,
     detalleEmpresaSeguimiento,
     generarInformeCliente,
     listarEmpresasSeguimiento,
+    memoriaCliente,
     promoverContactoDetectado,
     redactarSeguimiento,
 } from '../api/client.ts';
+import { MemoriaCliente, PestanaMemoria, fechaHora } from './seguimientos/MemoriaCliente.tsx';
+import { movimientoReducido } from '../lib/animar.ts';
 
 type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
 const ETIQUETA_FILTRO: Record<EstadoFiltro, string> = {
@@ -29,7 +33,14 @@ export function Seguimientos() {
     const [generandoInforme, setGenerandoInforme] = useState(false);
     const [redactando, setRedactando] = useState(false);
     const [mensajeAccion, setMensajeAccion] = useState<string | null>(null);
-    const [contextoExtra, setContextoExtra] = useState('');
+    // Memoria del cliente: informes guardados, notas y documentos
+    const [memoria, setMemoria] = useState<Memoria | null>(null);
+    const [errorMemoria, setErrorMemoria] = useState<string | null>(null);
+    const [pestana, setPestana] = useState<PestanaMemoria>('informe');
+    const [notaBorrador, setNotaBorrador] = useState('');
+    const [avisoInforme, setAvisoInforme] = useState<string | null>(null);
+    const idActual = useRef<string | null>(null);
+    const detalleRef = useRef<HTMLElement>(null);
 
     async function cargar() {
         try {
@@ -41,46 +52,95 @@ export function Seguimientos() {
 
     useEffect(() => { cargar(); }, []);
 
+    async function recargarMemoria(id = idActual.current) {
+        if (!id || id.startsWith('det:')) return;
+        try {
+            const m = await memoriaCliente(id);
+            const lista = <T,>(x: T[] | undefined) => (Array.isArray(x) ? x : []);
+            if (idActual.current === id) {
+                setMemoria({ informes: lista(m?.informes), notas: lista(m?.notas), documentos: lista(m?.documentos) });
+                setErrorMemoria(null);
+            }
+        } catch (e) {
+            if (idActual.current === id) setErrorMemoria((e as Error).message);
+        }
+    }
+
     async function abrir(id: string) {
+        idActual.current = id;
         setCargando(true);
         setInforme(null);
         setMensajeAccion(null);
-        setContextoExtra('');
+        setMemoria(null);
+        setErrorMemoria(null);
+        setPestana('informe');
+        setNotaBorrador('');
+        setAvisoInforme(null);
         setSeleccionadaId(id);
+        void recargarMemoria(id);
+        // En el celular la ficha queda debajo de la lista: se baja hasta ella.
+        if (window.matchMedia?.('(max-width: 900px)').matches) {
+            detalleRef.current?.scrollIntoView({ behavior: movimientoReducido() ? 'auto' : 'smooth', block: 'start' });
+        }
         try {
             const d = await detalleEmpresaSeguimiento(id);
-            setSeleccionada(d);
+            if (idActual.current === id) setSeleccionada(d);
         } catch (e) { setError((e as Error).message); }
-        finally { setCargando(false); }
+        finally { if (idActual.current === id) setCargando(false); }
     }
+
+    // Mientras Bartez lee un documento, se consulta cada pocos segundos.
+    useEffect(() => {
+        if (!memoria?.documentos.some((d) => d.estado === 'procesando')) return;
+        const t = window.setTimeout(() => { void recargarMemoria(); }, 4000);
+        return () => window.clearTimeout(t);
+    }, [memoria]);
 
     async function redactarCorreo() {
         if (!seleccionadaId) return;
+        const id = seleccionadaId;
+        const nota = notaBorrador.trim();
         setRedactando(true);
         setMensajeAccion(null);
         try {
-            await redactarSeguimiento(seleccionadaId, {
-                informe_previo: informe?.resumen_md,
-                contexto_extra: contextoExtra.trim() || undefined,
-            });
-            const partes: string[] = [];
-            if (informe) partes.push('informe');
-            if (contextoExtra.trim()) partes.push('contexto extra');
-            const usa = partes.length > 0 ? ` (usando ${partes.join(' + ')})` : '';
-            setMensajeAccion(`✓ Seguimiento redactado${usa} — va a Acciones para tu aprobación.`);
+            // El asistente ya lee la memoria (informe, notas y documentos). Lo que
+            // quedó escrito sin guardar se guarda como nota.
+            await redactarSeguimiento(id, { contexto_extra: nota || undefined });
+            if (idActual.current !== id) return;
+            if (nota) setNotaBorrador('');
+            setMensajeAccion(`✓ Seguimiento redactado con lo que Bartez sabe de este cliente${nota ? ' (tu nota quedó guardada)' : ''}. Está en Para aprobar.`);
+            if (nota) void recargarMemoria(id);
         } catch (e) { setError((e as Error).message); }
         finally { setRedactando(false); }
     }
 
-    async function pedirInforme() {
+    async function pedirInforme(desdeCero = false) {
         if (!seleccionadaId) return;
+        const id = seleccionadaId;
+        const previo = memoria?.informes[0];
+        const nota = notaBorrador.trim();
         setGenerandoInforme(true);
+        setAvisoInforme(null);
+        setPestana('informe');
         try {
-            const { informe } = await generarInformeCliente(seleccionadaId, contextoExtra.trim() || undefined);
+            const { informe } = await generarInformeCliente(id, { contexto_extra: nota || undefined, desde_cero: desdeCero });
+            if (idActual.current !== id) return;
+            if (nota) setNotaBorrador('');
             setInforme(informe);
+            const costo = informe.costo_usd > 0 ? ` · USD ${informe.costo_usd.toFixed(3)}` : '';
+            setAvisoInforme(
+                informe.sin_novedades
+                    ? `No hubo novedades desde el último informe (${fechaHora(informe.creado_en ?? previo?.creado_en)}). Es el mismo, sin gastar IA.`
+                    : informe.incremental && previo
+                        ? `Actualizado: sumó lo nuevo desde ${fechaHora(previo.creado_en)}${costo}.`
+                        : `Informe ${desdeCero ? 'rehecho desde cero' : 'generado'} y guardado${costo}.`,
+            );
+            await recargarMemoria(id);
         } catch (e) { setError((e as Error).message); }
         finally { setGenerandoInforme(false); }
     }
+
+    const hayInforme = (memoria?.informes.length ?? 0) > 0 || !!informe;
 
     // Filtros
     const filtradas = empresas.filter((e) => {
@@ -157,7 +217,7 @@ export function Seguimientos() {
                     </div>
                 </aside>
 
-                <main className="seg-detalle">
+                <main className="seg-detalle" ref={detalleRef}>
                     {cargando && <p className="vacio">Cargando…</p>}
                     {!seleccionada && !cargando && <p className="vacio">Elegí una empresa de la izquierda para ver su historia.</p>}
                     {seleccionada && (
@@ -221,33 +281,23 @@ export function Seguimientos() {
                                             className="primario"
                                             onClick={redactarCorreo}
                                             disabled={redactando || !seleccionada.cliente.email}
-                                            title={!seleccionada.cliente.email ? 'Este cliente no tiene email cargado' : (informe ? 'Redacta un seguimiento usando el informe y el historial de correos' : 'Redacta un seguimiento basado en el historial de correos de este cliente')}
+                                            title={!seleccionada.cliente.email ? 'Este cliente no tiene email cargado' : 'Redacta un seguimiento con el historial y lo que Bartez sabe de este cliente (informe, notas y documentos)'}
                                         >
-                                            {redactando ? 'Redactando…' : (informe ? 'Redactar seguimiento (con informe)' : 'Redactar seguimiento')}
+                                            {redactando ? 'Redactando…' : 'Redactar seguimiento'}
                                         </button>
-                                        <button className="secundario" onClick={pedirInforme} disabled={generandoInforme}>
-                                            {generandoInforme ? 'Generando…' : (informe ? 'Regenerar informe' : 'Generar informe')}
+                                        <button
+                                            className="secundario"
+                                            onClick={() => pedirInforme()}
+                                            disabled={generandoInforme}
+                                            title={hayInforme ? 'Parte del último informe y suma solo lo nuevo' : 'Lee toda la historia y guarda el informe'}
+                                        >
+                                            {generandoInforme ? (hayInforme ? 'Actualizando…' : 'Generando…') : (hayInforme ? 'Actualizar informe' : 'Generar informe')}
                                         </button>
                                     </div>
                                 )}
                             </div>
                             {mensajeAccion && (
                                 <div className="msg-ok">{mensajeAccion}</div>
-                            )}
-
-                            {seleccionada.cliente.estado !== 'detectado' && (
-                                <div className="contexto-extra">
-                                    <label>
-                                        <span className="lbl">Contexto adicional (opcional)</span>
-                                        <span className="sub">Info que el sistema no ve — llamadas, WhatsApp, mensajes verbales, notas propias. Se le pasa tanto al informe como al seguimiento cuando los pidas.</span>
-                                        <textarea
-                                            value={contextoExtra}
-                                            onChange={(e) => setContextoExtra(e.target.value)}
-                                            placeholder="ej: me llamó ayer y me pidió 10 notebooks para el 15 de octubre. También le interesa cotizar un switch de 24 puertos."
-                                            rows={3}
-                                        />
-                                    </label>
-                                </div>
                             )}
 
                             {seleccionada.cliente.metadata?.senial && (
@@ -264,14 +314,22 @@ export function Seguimientos() {
                                 <div className="stat"><span className="k">Propuestas</span><span className="v">{seleccionada.acciones.length}</span></div>
                             </div>
 
-                            {informe && (
-                                <div className="det-informe">
-                                    <div className="informe-head">
-                                        <h4>Informe generado por IA</h4>
-                                        <span className="mono">USD {informe.costo_usd.toFixed(4)} · {Math.round(informe.duracion_ms / 1000)}s</span>
-                                    </div>
-                                    <div className="markdown-simple">{formatearMarkdown(informe.resumen_md)}</div>
-                                </div>
+                            {seleccionada.cliente.estado !== 'detectado' && seleccionadaId && (
+                                <MemoriaCliente
+                                    key={seleccionadaId}
+                                    clienteId={seleccionadaId}
+                                    memoria={memoria}
+                                    error={errorMemoria}
+                                    setMemoria={setMemoria}
+                                    pestana={pestana}
+                                    setPestana={setPestana}
+                                    notaBorrador={notaBorrador}
+                                    setNotaBorrador={setNotaBorrador}
+                                    aviso={avisoInforme}
+                                    informeSuelto={informe}
+                                    generando={generandoInforme}
+                                    onRehacer={() => pedirInforme(true)}
+                                />
                             )}
 
                             <h4 className="section-h">Timeline de conversaciones</h4>
@@ -329,24 +387,4 @@ function haceCuanto(iso: string): string {
 
 function formatearFecha(iso: string): string {
     return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-function formatearMarkdown(md: string): React.ReactNode {
-    const lineas = md.split('\n');
-    const out: React.ReactNode[] = [];
-    let bullets: string[] = [];
-    const flush = (k: string) => {
-        if (bullets.length > 0) { out.push(<ul key={k}>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>); bullets = []; }
-    };
-    lineas.forEach((raw, i) => {
-        const l = raw.trim();
-        if (!l) { flush(`u${i}`); return; }
-        if (l.startsWith('## ')) { flush(`u${i}`); out.push(<h3 key={i}>{l.slice(3)}</h3>); return; }
-        if (l.startsWith('# ')) { flush(`u${i}`); out.push(<h2 key={i}>{l.slice(2)}</h2>); return; }
-        if (l.startsWith('- ') || l.startsWith('* ')) { bullets.push(l.slice(2)); return; }
-        flush(`u${i}`);
-        out.push(<p key={i}>{l}</p>);
-    });
-    flush('final');
-    return <>{out}</>;
 }

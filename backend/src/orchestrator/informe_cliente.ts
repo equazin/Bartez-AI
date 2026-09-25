@@ -6,6 +6,7 @@ import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import { mensajesWhatsappDeCliente } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
+import { crearNota, documentosDeCliente, notasDeCliente, ultimoInforme } from './memoria.js';
 
 export interface InformeCliente {
     ok: boolean;
@@ -15,11 +16,19 @@ export interface InformeCliente {
     costo_usd: number;
     duracion_ms: number;
     detalle?: string;
+    // Informe guardado (memoria del cliente)
+    id?: string;
+    creado_en?: string;
+    origen?: 'manual' | 'automatico';
+    // Partió del informe anterior y sumó solo lo nuevo
+    incremental?: boolean;
+    // No había nada nuevo desde el último: se devuelve ese, sin gastar IA
+    sin_novedades?: boolean;
 }
 
 const PROMPT_SYSTEM = `Sos el asistente de Seguimientos de Bartez Tecnología. Recibís un
-snapshot completo de un cliente/prospecto y devolvés un informe corto y accionable
-para el operador.
+snapshot de un cliente/prospecto (correos, WhatsApp, presupuestos, notas del operador
+y resúmenes de documentos que subió) y devolvés un informe corto y accionable.
 
 Estilo: seco, directo, voseo, sin adulación.
 
@@ -30,112 +39,153 @@ Una línea: qué es este cliente hoy (lead frío, lead con conversación,
 cliente activo, cliente inactivo, etc). Basado en datos reales del snapshot.
 
 ## Historia relevante
-2-4 puntos con lo que pasó (cotizaciones, pedidos, quejas). No listar
-todos los correos — solo los eventos que importan. Fechas concretas.
+2-5 puntos con lo que pasó (cotizaciones, pedidos, quejas, documentos importantes
+como órdenes de compra o presupuestos de la competencia). Fechas concretas.
 
 ## Estado actual
 - Días desde el último contacto de cualquiera de los dos lados
-- Compromisos pendientes de Bartez (si alguno del historial dijo
-  "te envío X" y no aparece en correos posteriores)
-- Silencios del cliente (si están sin responder desde hace más de X días)
+- Compromisos pendientes de Bartez (si alguien dijo "te envío X" y no aparece después)
+- Silencios del cliente (sin responder desde hace más de X días)
+- Presupuestos abiertos o enviados sin respuesta, con monto
 
 ## Próximo paso sugerido
 Una acción concreta (no más de 2 opciones). Ejemplos:
 - "Reenviar la cotización del 12/8 que quedó sin respuesta"
+- "Igualar o mejorar el presupuesto de la competencia que subiste el 3/9"
 - "Descartar como lead inactivo — 45 días de silencio, no hubo interés"
-- "Escribir para retomar el proyecto de red que se conversó en marzo"
 - "Mover a cliente activo — cerró la última cotización"
 
 Reglas:
 - No inventes datos que no están en el snapshot.
-- Si el snapshot está vacío (nunca hubo contacto), decilo y proponé
-  primer contacto.
+- Las notas del operador son verdad (vienen de llamadas o charlas que el sistema no ve).
+- Si el snapshot está vacío (nunca hubo contacto), decilo y proponé primer contacto.
 - Sin frases relleno.`;
+
+const PROMPT_ACTUALIZAR = `
+
+MODO ACTUALIZACIÓN: te paso el informe anterior y SOLO las novedades desde esa fecha.
+Reescribí el informe completo con la misma estructura, integrando lo nuevo:
+conservá la historia que sigue valiendo, corregí lo que las novedades cambian y
+dejá claro en "Estado actual" qué cambió desde el informe anterior.`;
+
+const despues = (fecha: string | Date, desde: string | null) => !desde || new Date(fecha).getTime() > new Date(desde).getTime();
 
 export async function generarInformeCliente(
     clienteId: string,
-    opts: { contexto_extra?: string } = {},
+    opts: { contexto_extra?: string; origen?: 'manual' | 'automatico'; desdeCero?: boolean } = {},
 ): Promise<InformeCliente> {
     const inicio = Date.now();
+    const vacio = (detalle: string): InformeCliente => ({ ok: false, resumen_md: '', tokens_in: 0, tokens_out: 0, costo_usd: 0, duracion_ms: Date.now() - inicio, detalle });
 
     const { data: cliente } = await supabase.from('clientes').select('*').eq('id', clienteId).maybeSingle();
-    if (!cliente) {
-        return { ok: false, resumen_md: '', tokens_in: 0, tokens_out: 0, costo_usd: 0, duracion_ms: 0, detalle: 'Cliente no encontrado' };
+    if (!cliente) return vacio('Cliente no encontrado');
+
+    // Lo que escribió el operador queda guardado como nota: es memoria, no se pierde.
+    if (opts.contexto_extra?.trim()) await crearNota(clienteId, opts.contexto_extra);
+
+    const previo = opts.desdeCero ? null : await ultimoInforme(clienteId);
+    const desde = previo?.creado_en ?? null;
+
+    const [historia, wa, accionesRes, cotsRes, notas, docs] = await Promise.all([
+        historicoConCliente(clienteId, 20),
+        mensajesWhatsappDeCliente(clienteId, 30),
+        supabase.from('acciones_pendientes').select('accion, payload, estado, respuesta, creado_en')
+            .contains('respuesta', { cliente_id: clienteId }).order('creado_en', { ascending: false }).limit(20),
+        supabase.from('cotizaciones').select('numero, titulo, total_usd, estado, creado_en, enviada_en, cerrada_en, motivo_cierre')
+            .eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(15),
+        notasDeCliente(clienteId, 20),
+        documentosDeCliente(clienteId),
+    ]);
+
+    const correos = historia.filter((h) => despues(h.fecha, desde)).map((h) => ({
+        direccion: h.direccion,
+        fecha: new Date(h.fecha).toISOString().slice(0, 10),
+        de: h.de_email,
+        para: h.para_email,
+        asunto: h.asunto,
+        categoria: h.categoria,
+        cuerpo_recorte: (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 400),
+    }));
+    const whatsapp = wa.filter((m) => despues(m.creado_en, desde)).reverse().map((m) => ({
+        fecha: new Date(m.creado_en).toISOString().slice(0, 16).replace('T', ' '),
+        de: m.origen === 'cliente' ? 'cliente' : m.origen === 'bot' ? 'bot web' : 'bartez',
+        texto: (m.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 300),
+    }));
+    const acciones = (accionesRes.data ?? []).filter((a) => despues(a.creado_en, desde)).map((a) => ({
+        fecha: new Date(a.creado_en).toISOString().slice(0, 10),
+        accion: a.accion,
+        estado: a.estado,
+        resumen: typeof (a.payload as { asunto?: string })?.asunto === 'string' ? (a.payload as { asunto: string }).asunto : a.accion,
+    }));
+    const presupuestos = (cotsRes.data ?? [])
+        .filter((q) => [q.creado_en, q.enviada_en, q.cerrada_en].some((f) => f && despues(f as string, desde)))
+        .map((q) => ({
+            numero: q.numero, titulo: q.titulo, total_usd: Number(q.total_usd ?? 0), estado: q.estado,
+            armado: String(q.creado_en).slice(0, 10), enviado: q.enviada_en ? String(q.enviada_en).slice(0, 10) : null,
+            cerrado: q.cerrada_en ? String(q.cerrada_en).slice(0, 10) : null, motivo_cierre: q.motivo_cierre,
+        }));
+    const notasNuevas = notas.filter((n) => despues(n.creado_en, desde)).map((n) => ({ fecha: n.creado_en.slice(0, 10), texto: n.texto.slice(0, 800) }));
+    const documentos = docs.filter((d) => d.estado === 'listo' && despues(d.creado_en, desde)).map((d) => ({
+        fecha: d.creado_en.slice(0, 10), archivo: d.nombre, tipo: d.tipo_documento, resumen: (d.resumen ?? '').slice(0, 1500),
+    }));
+
+    const hayNovedades = correos.length + whatsapp.length + acciones.length + presupuestos.length + notasNuevas.length + documentos.length > 0;
+    if (previo && !hayNovedades) {
+        return {
+            ok: true, resumen_md: previo.resumen_md, tokens_in: 0, tokens_out: 0, costo_usd: 0, duracion_ms: Date.now() - inicio,
+            id: previo.id, creado_en: previo.creado_en, origen: previo.origen, sin_novedades: true,
+        };
     }
 
-    // Traer hasta 20 correos, sin filtro de ignorables (queremos todo el contexto real)
-    const historia = await historicoConCliente(clienteId, 20);
-
-    // Traer acciones asociadas (aprobadas + pendientes + rechazadas de este cliente)
-    const { data: acciones } = await supabase
-        .from('acciones_pendientes')
-        .select('accion, payload, estado, respuesta, creado_en')
-        .contains('respuesta', { cliente_id: clienteId })
-        .order('creado_en', { ascending: false })
-        .limit(20);
-
-    const snapshot = {
-        cliente: {
-            nombre: cliente.nombre,
-            email: cliente.email,
-            estado: cliente.estado,
-            origen: cliente.origen,
-            creado_en: cliente.creado_en,
-            actualizado_en: cliente.actualizado_en,
-            intentos_contacto: cliente.intentos_contacto ?? 0,
-            ultimo_contacto_en: cliente.ultimo_contacto_en,
-            metadata: cliente.metadata,
-        },
-        correos: historia.map((h) => ({
-            direccion: h.direccion,
-            fecha: new Date(h.fecha).toISOString().slice(0, 10),
-            de: h.de_email,
-            para: h.para_email,
-            asunto: h.asunto,
-            categoria: h.categoria,
-            cuerpo_recorte: (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 400),
-        })),
-        whatsapp: (await mensajesWhatsappDeCliente(clienteId, 30)).reverse().map((m) => ({
-            fecha: new Date(m.creado_en).toISOString().slice(0, 16).replace('T', ' '),
-            de: m.origen === 'cliente' ? 'cliente' : m.origen === 'bot' ? 'bot web' : 'bartez',
-            texto: (m.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 300),
-        })),
-        acciones: (acciones ?? []).map((a) => ({
-            fecha: new Date(a.creado_en).toISOString().slice(0, 10),
-            accion: a.accion,
-            estado: a.estado,
-            resumen: typeof (a.payload as { asunto?: string })?.asunto === 'string' ? (a.payload as { asunto: string }).asunto : a.accion,
-        })),
+    const ficha = {
+        nombre: cliente.nombre,
+        email: cliente.email,
+        estado: cliente.estado,
+        origen: cliente.origen,
+        creado_en: cliente.creado_en,
+        intentos_contacto: cliente.intentos_contacto ?? 0,
+        ultimo_contacto_en: cliente.ultimo_contacto_en,
+        metadata: cliente.metadata,
     };
+    const snapshot = { cliente: ficha, correos, whatsapp, acciones, presupuestos, notas_del_operador: notasNuevas, documentos };
 
-    const bloqueExtra = opts.contexto_extra?.trim()
-        ? `\n\nCONTEXTO ADICIONAL DEL OPERADOR (info que NO está en los correos — llamadas, WhatsApp, mensajes verbales, notas propias, verificados por el operador):\n${opts.contexto_extra.trim().slice(0, 1500)}\n\nTratalo como fuente de verdad. Si contradice o completa algo del snapshot de correos, priorizá el contexto del operador. Referí a esta info en el informe si corresponde.`
-        : '';
-
-    const consigna =
-        `Snapshot completo del cliente:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\`${bloqueExtra}\n\n` +
-        `Redactá el informe siguiendo la estructura del prompt.`;
+    const consigna = previo
+        ? `INFORME ANTERIOR (${previo.creado_en.slice(0, 10)}):\n\n${previo.resumen_md}\n\n` +
+          `NOVEDADES DESDE ESA FECHA:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\`\n\nReescribí el informe completo actualizado.`
+        : `Snapshot completo del cliente:\n\n\`\`\`json\n${JSON.stringify(snapshot, null, 2)}\n\`\`\`\n\nRedactá el informe siguiendo la estructura del prompt.`;
 
     try {
         const resp = await anthropic.messages.create({
             model: idModelo('sonnet'),
-            max_tokens: 1500,
-            system: PROMPT_SYSTEM,
+            max_tokens: 1800,
+            system: previo ? PROMPT_SYSTEM + PROMPT_ACTUALIZAR : PROMPT_SYSTEM,
             messages: [{ role: 'user', content: consigna }],
         });
         const texto = resp.content.filter((c): c is { type: 'text'; text: string } => c.type === 'text').map((t) => t.text).join('\n').trim();
+        if (!texto) return vacio('La IA no devolvió el informe');
         const tokensIn = resp.usage.input_tokens;
         const tokensOut = resp.usage.output_tokens;
+        const costo = calcularCosto('sonnet', tokensIn, tokensOut);
+        const origen = opts.origen ?? 'manual';
+        const { data: guardado, error } = await supabase.from('cliente_informes').insert({
+            cliente_id: clienteId, resumen_md: texto, origen, base_id: previo?.id ?? null,
+            tokens_in: tokensIn, tokens_out: tokensOut, costo_usd: costo,
+        }).select('id, creado_en').single();
+        if (error) console.warn('[informe] no se pudo guardar:', error.message);
         return {
             ok: true,
             resumen_md: texto,
             tokens_in: tokensIn,
             tokens_out: tokensOut,
-            costo_usd: calcularCosto('sonnet', tokensIn, tokensOut),
+            costo_usd: costo,
             duracion_ms: Date.now() - inicio,
+            id: guardado?.id as string | undefined,
+            creado_en: (guardado?.creado_en as string | undefined) ?? new Date().toISOString(),
+            origen,
+            incremental: !!previo,
         };
     } catch (err) {
-        return { ok: false, resumen_md: '', tokens_in: 0, tokens_out: 0, costo_usd: 0, duracion_ms: Date.now() - inicio, detalle: (err as Error).message };
+        return vacio((err as Error).message);
     }
 }
 
@@ -347,4 +397,55 @@ export async function detalleEmpresa(clienteId: string) {
         whatsapp,
         acciones: acciones ?? [],
     };
+}
+
+// Actualización nocturna de la memoria: rehace el informe de los clientes que
+// tuvieron movimiento (correo, WhatsApp, presupuesto, nota o documento) desde
+// su último informe. Solo mira la última semana y tiene un tope por noche para
+// que el costo quede acotado; los clientes quietos no gastan nada.
+export async function actualizarMemoriasPendientes(limite = 25): Promise<{ candidatos: number; actualizados: number; costo_usd: number }> {
+    const hace8 = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    const [correos, convs, cots, notas, docs] = await Promise.all([
+        supabase.from('correos_historicos').select('cliente_id, fecha').not('cliente_id', 'is', null).eq('ignorable', false).gte('fecha', hace8).limit(3000),
+        supabase.from('wa_conversaciones').select('cliente_id, actualizado_en').not('cliente_id', 'is', null).gte('actualizado_en', hace8),
+        supabase.from('cotizaciones').select('cliente_id, creado_en, enviada_en, cerrada_en').not('cliente_id', 'is', null)
+            .or(`creado_en.gte.${hace8},enviada_en.gte.${hace8},cerrada_en.gte.${hace8}`),
+        supabase.from('cliente_notas').select('cliente_id, creado_en').gte('creado_en', hace8),
+        supabase.from('cliente_documentos').select('cliente_id, creado_en').eq('estado', 'listo').gte('creado_en', hace8),
+    ]);
+
+    const ultimo = new Map<string, number>();
+    const marcar = (id: unknown, ...fechas: unknown[]) => {
+        if (typeof id !== 'string') return;
+        for (const f of fechas) {
+            if (!f) continue;
+            const t = new Date(f as string).getTime();
+            if (t > (ultimo.get(id) ?? 0)) ultimo.set(id, t);
+        }
+    };
+    for (const c of correos.data ?? []) marcar(c.cliente_id, c.fecha);
+    for (const c of convs.data ?? []) marcar(c.cliente_id, c.actualizado_en);
+    for (const q of cots.data ?? []) marcar(q.cliente_id, q.creado_en, q.enviada_en, q.cerrada_en);
+    for (const n of notas.data ?? []) marcar(n.cliente_id, n.creado_en);
+    for (const d of docs.data ?? []) marcar(d.cliente_id, d.creado_en);
+    if (!ultimo.size) return { candidatos: 0, actualizados: 0, costo_usd: 0 };
+
+    const ids = [...ultimo.keys()];
+    const { data: informes } = await supabase.from('cliente_informes').select('cliente_id, creado_en')
+        .in('cliente_id', ids).order('creado_en', { ascending: false });
+    const ultimoInformeDe = new Map<string, number>();
+    for (const i of informes ?? []) if (!ultimoInformeDe.has(i.cliente_id as string)) ultimoInformeDe.set(i.cliente_id as string, new Date(i.creado_en as string).getTime());
+
+    const candidatos = ids
+        .filter((id) => !ultimoInformeDe.has(id) || ultimo.get(id)! > ultimoInformeDe.get(id)!)
+        .sort((a, b) => ultimo.get(b)! - ultimo.get(a)!)
+        .slice(0, limite);
+
+    let actualizados = 0, costo = 0;
+    for (const id of candidatos) {
+        const r = await generarInformeCliente(id, { origen: 'automatico' });
+        if (r.ok && !r.sin_novedades) { actualizados++; costo += r.costo_usd; }
+        else if (!r.ok) console.warn('[memoria] informe nocturno', id, r.detalle);
+    }
+    return { candidatos: candidatos.length, actualizados, costo_usd: Math.round(costo * 1000) / 1000 };
 }

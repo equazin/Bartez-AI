@@ -26,6 +26,7 @@ import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import { conLecciones } from './aprendizaje.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
+import { bloqueMemoria } from './memoria.js';
 
 const VENTANA_MS = 24 * 3600_000;
 
@@ -271,6 +272,7 @@ export async function proponerRespuestaWhatsapp(
         cliente ? `Cliente registrado: ${cliente.nombre}${cliente.estado ? ` (estado: ${cliente.estado})` : ''}` : 'No está registrado como cliente todavía.',
         cliente?.metadata?.senial ? `Señal comercial: ${String(cliente.metadata.senial)}` : null,
         bloqueCorreos,
+        conv.cliente_id ? await bloqueMemoria(conv.cliente_id) : null,
         `\nCONVERSACIÓN DE WHATSAPP (cronológica):\n${hilo}`,
         opts.contexto_extra?.trim()
             ? `\nCONTEXTO DEL OPERADOR (tratalo como verdad, puede venir de llamadas u otros canales):\n${opts.contexto_extra.trim().slice(0, 1500)}`

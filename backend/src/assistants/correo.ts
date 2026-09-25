@@ -6,6 +6,7 @@ import { AsistenteBase, contextoFecha } from './base.js';
 import type { ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 import { buscarEnCatalogo } from '../orchestrator/notion_sync.js';
 import { textoWebBartez } from '../connectors/bartez_web.js';
+import { conMemoria } from '../orchestrator/memoria.js';
 import { conLecciones } from '../orchestrator/aprendizaje.js';
 import { historicoConCliente, historicoConEmail } from '../inbound/importar_historico.js';
 
@@ -153,7 +154,7 @@ export class AsistenteCorreo extends AsistenteBase {
             );
         }
 
-        return conLecciones(`${fecha}\n\n${base}${extra.length > 0 ? '\n\n' + extra.join('\n\n') : ''}`, this.config.id);
+        return conMemoria(await conLecciones(`${fecha}\n\n${base}${extra.length > 0 ? '\n\n' + extra.join('\n\n') : ''}`, this.config.id), tarea.clienteId);
     }
 
     protected override extraerAccion(texto: string, tarea: TareaEntrante): ResultadoAsistente['accionPropuesta'] {

@@ -10,6 +10,7 @@ import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { cotizar } from './cotizador.js';
+import { documentosDeCliente, notasDeCliente, ultimoInforme } from './memoria.js';
 import { resumenHoy } from './hoy.js';
 import { mensajesWhatsappDeCliente } from './whatsapp.js';
 import type { ModeloClaude } from './types.js';
@@ -58,7 +59,7 @@ const TOOLS: Anthropic.Tool[] = [
     },
     {
         name: 'buscar_cliente',
-        description: 'Busca un cliente o lead por nombre, empresa o email y devuelve su ficha: estado, último contacto, correos y WhatsApp recientes, y cotizaciones a su nombre.',
+        description: 'Busca un cliente o lead por nombre, empresa o email y devuelve su ficha: estado, último contacto, correos y WhatsApp recientes, cotizaciones a su nombre y su memoria (último informe, notas de Andrés y resúmenes de los documentos que subió, como órdenes de compra o presupuestos de la competencia).',
         input_schema: { type: 'object', properties: { nombre: { type: 'string' } }, required: ['nombre'] },
     },
 ];
@@ -140,10 +141,14 @@ async function ejecutarTool(nombre: string, e: any): Promise<string> {
             .limit(5);
         if (!cls || cls.length === 0) return JSON.stringify({ encontrados: 0 });
         const c = cls[0]!;
-        const [correos, wa, cots] = await Promise.all([
+        const [correos, wa, cots, informe, notas, docs] = await Promise.all([
             historicoConCliente(c.id as string, 6),
             mensajesWhatsappDeCliente(c.id as string, 10),
-            supabase.from('cotizaciones').select('numero, titulo, total_usd, creado_en').ilike('titulo', `%${q}%`).order('creado_en', { ascending: false }).limit(5),
+            supabase.from('cotizaciones').select('numero, titulo, total_usd, estado, creado_en')
+                .or(`cliente_id.eq.${c.id},titulo.ilike.%${q}%`).order('creado_en', { ascending: false }).limit(8),
+            ultimoInforme(c.id as string),
+            notasDeCliente(c.id as string, 15),
+            documentosDeCliente(c.id as string),
         ]);
         return JSON.stringify({
             encontrados: cls.length,
@@ -155,6 +160,10 @@ async function ejecutarTool(nombre: string, e: any): Promise<string> {
                 correos: correos.map((h) => ({ fecha: String(h.fecha).slice(0, 10), direccion: h.direccion, asunto: h.asunto, resumen: (h.cuerpo ?? '').replace(/\s+/g, ' ').slice(0, 250) })),
                 mensajes_whatsapp: wa.slice().reverse().map((m) => ({ fecha: m.creado_en.slice(0, 16), de: m.origen, texto: (m.cuerpo ?? '').slice(0, 200) })),
                 cotizaciones: cots.data ?? [],
+                // Memoria del cliente: lo que Andrés anotó, los documentos que subió y el último informe.
+                ultimo_informe: informe ? { fecha: informe.creado_en.slice(0, 10), texto: informe.resumen_md.slice(0, 2500) } : null,
+                notas_de_andres: notas.map((n) => ({ fecha: n.creado_en.slice(0, 10), texto: n.texto.slice(0, 600) })),
+                documentos: docs.filter((d) => d.estado === 'listo').map((d) => ({ fecha: d.creado_en.slice(0, 10), archivo: d.nombre, tipo: d.tipo_documento, resumen: (d.resumen ?? '').slice(0, 1200) })),
             },
         });
     }

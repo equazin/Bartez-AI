@@ -4,6 +4,7 @@
 
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import { conLecciones } from '../orchestrator/aprendizaje.js';
+import { conMemoria } from '../orchestrator/memoria.js';
 import type { Asistente, AsistenteConfig, ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 
 // Bloque de fecha que se inyecta al inicio del system prompt de todos los
@@ -60,9 +61,10 @@ export abstract class AsistenteBase implements Asistente {
         };
     }
 
-    protected async construirSystem(_tarea: TareaEntrante): Promise<string> {
+    protected async construirSystem(tarea: TareaEntrante): Promise<string> {
         const promptBase = this.config.prompt || `Sos el asistente de ${this.config.area} de Bartez AI.`;
-        return conLecciones(`${contextoFecha()}\n\n${promptBase}`, this.config.id);
+        // Si atiende a un cliente, se suma lo que Bartez ya sabe de él (notas, documentos, último informe).
+        return conMemoria(await conLecciones(`${contextoFecha()}\n\n${promptBase}`, this.config.id), tarea.clienteId);
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
