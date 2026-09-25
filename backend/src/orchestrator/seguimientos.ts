@@ -290,14 +290,15 @@ export async function correrBarridoSeguimientos(): Promise<ResultadoBarrido> {
 // Presupuestos enviados sin respuesta: a los 5 días se propone un seguimiento
 // (uno solo por presupuesto, y solo si está vinculado a un cliente con email).
 export async function seguirPresupuestosEnviados(): Promise<{ revisados: number; generados: number }> {
-    const lista = await presupuestosSinRespuesta(5, 30);
+    // Solo los enviados en el último mes: los más viejos no se reviven.
+    const lista = await presupuestosSinRespuesta(5, 30, 30);
     let generados = 0;
     for (const q of lista) {
         if (!q.cliente_id || q.seguimiento_en) continue;
         const dias = Math.floor((Date.now() - new Date(q.enviada_en).getTime()) / 86_400_000);
         if (dias > 30) continue;
         const r = await generarSeguimientoIndividual(q.cliente_id, {
-            contexto_extra: `Seguimiento del presupuesto${q.numero ? ` N° ${q.numero}` : ''} por USD ${q.total_usd.toLocaleString('es-AR')} (IVA incluido), enviado hace ${dias} días y todavía sin respuesta. Pedido original: "${q.pedido.slice(0, 300)}". Preguntá con buena onda si pudieron verlo, si tienen dudas o si quieren que ajustemos algo (cantidades, modelos, plazos de entrega). Nada de presión ni de descuentos que Andrés no autorizó.`,
+            contexto_extra: `Seguimiento del presupuesto${q.numero_externo ? ` N° ${q.numero_externo}` : q.numero ? ` N° ${q.numero}` : ''} por USD ${q.total_usd.toLocaleString('es-AR')} (IVA incluido), enviado hace ${dias} días y todavía sin respuesta. Pedido original: "${q.pedido.slice(0, 300)}". Preguntá con buena onda si pudieron verlo, si tienen dudas o si quieren que ajustemos algo (cantidades, modelos, plazos de entrega). Nada de presión ni de descuentos que Andrés no autorizó.`,
         });
         if (r.ok) {
             generados++;

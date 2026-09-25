@@ -7,6 +7,9 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
 import { supabase } from '../connectors/supabase.js';
+import {
+    DatosDocumento, VERSION_DATOS, normalizarPresupuesto, soltarCotizacion, sincronizarPresupuestoDeDocumento,
+} from './presupuestos_documentos.js';
 
 export const BUCKET_DOCUMENTOS = 'documentos-clientes';
 export const MAX_BYTES_DOCUMENTO = 12 * 1024 * 1024;
@@ -23,7 +26,17 @@ export interface Documento {
     id: string; nombre: string; tipo_mime: string | null; tamano_bytes: number | null;
     estado: 'procesando' | 'listo' | 'error'; tipo_documento: string | null; resumen: string | null;
     error: string | null; creado_en: string; procesado_en: string | null;
+    // Si es un presupuesto: lo que se leyó, si cuenta en Cotizado y su cotización.
+    datos: DatosDocumento | null; sin_cotizado: boolean; cotizacion_id: string | null;
+    cotizacion: { id: string; total_usd: number | null; estado: string; origen: string; numero: number | null; numero_externo: string | null } | null;
 }
+const CAMPOS_DOC = 'id, nombre, tipo_mime, tamano_bytes, estado, tipo_documento, resumen, error, creado_en, procesado_en, datos, sin_cotizado, cotizacion_id, '
+    + 'cotizacion:cotizaciones(id, total_usd, estado, origen, numero, numero_externo)';
+const aDocumento = (f: Record<string, unknown>): Documento => {
+    const q = f.cotizacion as Documento['cotizacion'] | Documento['cotizacion'][] | null;
+    const cot = Array.isArray(q) ? q[0] ?? null : q;
+    return { ...(f as unknown as Documento), cotizacion: cot ? { ...cot, total_usd: cot.total_usd == null ? null : Number(cot.total_usd) } : null };
+};
 export interface InformeGuardado {
     id: string; resumen_md: string; origen: 'manual' | 'automatico'; base_id: string | null;
     costo_usd: number | null; creado_en: string;
@@ -39,11 +52,16 @@ export async function notasDeCliente(clienteId: string, limite = 30): Promise<No
 }
 
 export async function documentosDeCliente(clienteId: string): Promise<Documento[]> {
-    const { data, error } = await supabase.from('cliente_documentos')
-        .select('id, nombre, tipo_mime, tamano_bytes, estado, tipo_documento, resumen, error, creado_en, procesado_en')
+    const { data, error } = await supabase.from('cliente_documentos').select(CAMPOS_DOC)
         .eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(60);
     if (error) throw new Error(error.message);
-    return (data ?? []) as Documento[];
+    return ((data ?? []) as unknown as Record<string, unknown>[]).map(aDocumento);
+}
+
+export async function documento(id: string): Promise<Documento | null> {
+    const { data, error } = await supabase.from('cliente_documentos').select(CAMPOS_DOC).eq('id', id).maybeSingle();
+    if (error) throw new Error(error.message);
+    return data ? aDocumento(data as unknown as Record<string, unknown>) : null;
 }
 
 export async function informesDeCliente(clienteId: string, limite = 12): Promise<InformeGuardado[]> {
@@ -199,13 +217,14 @@ export async function subirDocumento(clienteId: string, nombre: string, mime: st
 
     const { data, error } = await supabase.from('cliente_documentos').insert({
         cliente_id: clienteId, nombre: nombre.slice(0, 200), tipo_mime: tipo, tamano_bytes: buffer.length, ruta, estado: 'procesando',
-    }).select('id, nombre, tipo_mime, tamano_bytes, estado, tipo_documento, resumen, error, creado_en, procesado_en').single();
+    }).select(CAMPOS_DOC).single();
     if (error) throw new Error(error.message);
 
     // La lectura con IA tarda unos segundos: se hace en segundo plano y el
     // panel consulta el estado.
-    void procesarDocumento(data.id as string, buffer).catch((err) => console.warn('[memoria] documento', data.id, (err as Error).message));
-    return data as Documento;
+    const doc = aDocumento(data as unknown as Record<string, unknown>);
+    void procesarDocumento(doc.id, buffer).catch((err) => console.warn('[memoria] documento', doc.id, (err as Error).message));
+    return doc;
 }
 
 // Pasa el archivo a algo que Claude pueda leer: PDF e imágenes van tal cual;
@@ -263,7 +282,7 @@ Te pasan un documento que Andrés subió a la ficha de un cliente. Tu trabajo es
 un resumen que después usan los asistentes (correo, WhatsApp, seguimientos, informes).
 
 Respondé SOLO con un JSON válido, sin texto antes ni después:
-{"tipo_documento": "...", "resumen": "..."}
+{"tipo_documento": "...", "resumen": "...", "presupuesto": null}
 
 - tipo_documento: 2 a 4 palabras (ej. "Presupuesto de competencia", "Orden de compra",
   "Pliego de licitación", "Lista de precios", "Factura", "Nota de pedido", "Foto de equipo").
@@ -271,7 +290,27 @@ Respondé SOLO con un JSON válido, sin texto antes ni después:
   seguimiento: quién lo emite y para quién, fecha, número si tiene, productos con
   cantidades y precios, total y moneda, condiciones (pago, entrega, validez),
   plazos y cualquier compromiso o pedido concreto. Solo datos que estén en el
-  documento; si algo no está, no lo inventes.`;
+  documento; si algo no está, no lo inventes.
+- presupuesto: solo si el documento es un presupuesto o una cotización con precios
+  (de Bartez o de otra empresa). Para cualquier otra cosa (orden de compra, factura,
+  lista de precios, pliego, foto) va null. Si es un presupuesto:
+  {
+    "emisor": "bartez" si lo emite Bartez Tecnología (o Andrés Benítez en su nombre); "otro" si lo emite otra empresa,
+    "emisor_nombre": "nombre de quien lo emite",
+    "para": "empresa o persona a la que va dirigido",
+    "numero": "número tal como figura (ej. \"2026-0215\")" o null,
+    "fecha": "AAAA-MM-DD" o null,
+    "objeto": "qué se cotiza, en una línea (ej. \"Servidor Dell R7715 para IA\")",
+    "moneda": "USD" o "ARS",
+    "iva_incluido": true si los totales incluyen IVA,
+    "tipo_cambio": número si el documento fija un tipo de cambio, si no null,
+    "opciones": [{"nombre": "Opción A (uplink simple)", "total": 74851.90}]
+  }
+  En "opciones" va el TOTAL FINAL de cada alternativa que se ofrece (lo que pagaría el
+  cliente, con IVA si el documento lo da), como número con punto decimal y sin
+  separadores de miles. Si hay un solo total, una sola opción llamada "Total". No
+  sumes los ítems opcionales que no forman parte del total, no uses anticipos ni
+  subtotales, y no inventes montos: si no hay un total claro, "opciones" va vacío.`;
 
 export async function procesarDocumento(id: string, bufferDado?: Buffer): Promise<void> {
     const { data: doc } = await supabase.from('cliente_documentos').select('id, nombre, tipo_mime, ruta, cliente_id').eq('id', id).maybeSingle();
@@ -287,33 +326,71 @@ export async function procesarDocumento(id: string, bufferDado?: Buffer): Promis
             buffer = Buffer.from(await bajada.data.arrayBuffer());
         }
         await supabase.from('cliente_documentos').update({ estado: 'procesando', error: null }).eq('id', id);
+        const { data: previo } = await supabase.from('cliente_documentos').select('datos').eq('id', id).maybeSingle();
         const { data: cliente } = await supabase.from('clientes').select('nombre').eq('id', doc.cliente_id).maybeSingle();
         const contenido = await contenidoParaClaude(buffer, doc.tipo_mime as string);
         const modelo = 'sonnet' as const;
         const r = await anthropic.messages.create({
             model: idModelo(modelo),
-            max_tokens: 1500,
+            max_tokens: 2000,
             system: PROMPT_DOCUMENTO,
             messages: [{ role: 'user', content: [...contenido, { type: 'text', text: `Cliente: ${cliente?.nombre ?? 'sin nombre'}\nArchivo: ${doc.nombre}\n\nDevolvé el JSON.` }] }],
         });
         const salida = r.content.map((c) => (c.type === 'text' ? c.text : '')).join('').trim();
         const json = salida.match(/\{[\s\S]*\}/)?.[0];
-        let tipoDoc: string | null = null, resumen = '';
+        let tipoDoc: string | null = null, resumen = '', presupuesto: unknown = null;
         try {
-            const p = JSON.parse(json ?? '') as { tipo_documento?: string; resumen?: string };
+            const p = JSON.parse(json ?? '') as { tipo_documento?: string; resumen?: string; presupuesto?: unknown };
             tipoDoc = p.tipo_documento?.trim().slice(0, 60) || null;
             resumen = p.resumen?.trim() ?? '';
+            presupuesto = p.presupuesto ?? null;
         } catch {
             resumen = salida; // si no vino JSON, el texto igual sirve como resumen
         }
         if (!resumen) throw new Error('La IA no devolvió un resumen');
+        // La opción que eligió Andrés se respeta si se vuelve a leer el documento.
+        const opcionPrevia = (previo?.datos as DatosDocumento | null)?.opcion;
+        const datos: DatosDocumento = { version: VERSION_DATOS, presupuesto: normalizarPresupuesto(presupuesto), ...(typeof opcionPrevia === 'number' ? { opcion: opcionPrevia } : {}) };
         await supabase.from('cliente_documentos').update({
-            estado: 'listo', tipo_documento: tipoDoc, resumen: resumen.slice(0, 4000), error: null,
+            estado: 'listo', tipo_documento: tipoDoc, resumen: resumen.slice(0, 4000), error: null, datos,
             costo_usd: calcularCosto(modelo, r.usage.input_tokens, r.usage.output_tokens), procesado_en: new Date().toISOString(),
         }).eq('id', id);
     } catch (err) {
         await falla((err as Error).message);
+        return;
     }
+    // Si es un presupuesto de Bartez, suma a Cotizado. Un problema acá no invalida la lectura.
+    try { await sincronizarPresupuestoDeDocumento(id); } catch (err) { console.warn('[memoria] presupuesto del documento', id, (err as Error).message); }
+}
+
+// Contar o no el documento en Cotizado, o elegir qué opción cuenta.
+export async function cambiarCotizadoDocumento(id: string, cambios: { contar?: boolean; opcion?: number }): Promise<Documento | null> {
+    const { data: doc } = await supabase.from('cliente_documentos').select('datos').eq('id', id).maybeSingle();
+    if (!doc) return null;
+    const upd: Record<string, unknown> = {};
+    if (typeof cambios.contar === 'boolean') upd.sin_cotizado = !cambios.contar;
+    const datos = doc.datos as DatosDocumento | null;
+    if (typeof cambios.opcion === 'number' && datos?.presupuesto) {
+        if (cambios.opcion < 0 || cambios.opcion >= datos.presupuesto.opciones.length) throw new Error('Esa opción no existe');
+        upd.datos = { ...datos, opcion: cambios.opcion };
+    }
+    if (Object.keys(upd).length) {
+        const { error } = await supabase.from('cliente_documentos').update(upd).eq('id', id);
+        if (error) throw new Error(error.message);
+    }
+    await sincronizarPresupuestoDeDocumento(id);
+    return documento(id);
+}
+
+// Documentos leídos antes de que se sacaran los datos de presupuesto (o con una
+// versión vieja): se vuelven a leer de a uno. Corre al arrancar el servidor.
+export async function completarDatosDocumentos(limite = 30): Promise<number> {
+    const { data, error } = await supabase.from('cliente_documentos').select('id, datos').eq('estado', 'listo')
+        .order('creado_en', { ascending: false }).limit(300);
+    if (error) throw new Error(error.message);
+    const pendientes = (data ?? []).filter((d) => ((d.datos as DatosDocumento | null)?.version ?? 0) < VERSION_DATOS).slice(0, limite);
+    for (const d of pendientes) await procesarDocumento(d.id as string);
+    return pendientes.length;
 }
 
 // Vuelve a leer un documento (p. ej. si falló). Queda en "procesando" ya, para
@@ -325,8 +402,10 @@ export async function reprocesarDocumento(id: string): Promise<void> {
 }
 
 export async function borrarDocumento(id: string): Promise<void> {
-    const { data: doc } = await supabase.from('cliente_documentos').select('ruta').eq('id', id).maybeSingle();
+    const { data: doc } = await supabase.from('cliente_documentos').select('ruta, cotizacion_id').eq('id', id).maybeSingle();
     if (!doc) return;
+    // Su presupuesto deja de contar en Cotizado (salvo que ya esté ganado o perdido).
+    if (doc.cotizacion_id) await soltarCotizacion(id, doc.cotizacion_id as string);
     await supabase.storage.from(BUCKET_DOCUMENTOS).remove([doc.ruta as string]);
     const { error } = await supabase.from('cliente_documentos').delete().eq('id', id);
     if (error) throw new Error(error.message);

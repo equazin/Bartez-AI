@@ -93,7 +93,7 @@ export async function generarInformeCliente(
         mensajesWhatsappDeCliente(clienteId, 30),
         supabase.from('acciones_pendientes').select('accion, payload, estado, respuesta, creado_en')
             .contains('respuesta', { cliente_id: clienteId }).order('creado_en', { ascending: false }).limit(20),
-        supabase.from('cotizaciones').select('numero, titulo, total_usd, estado, creado_en, enviada_en, cerrada_en, motivo_cierre')
+        supabase.from('cotizaciones').select('numero, numero_externo, titulo, total_usd, estado, creado_en, enviada_en, cerrada_en, motivo_cierre')
             .eq('cliente_id', clienteId).order('creado_en', { ascending: false }).limit(15),
         notasDeCliente(clienteId, 20),
         documentosDeCliente(clienteId),
@@ -122,7 +122,7 @@ export async function generarInformeCliente(
     const presupuestos = (cotsRes.data ?? [])
         .filter((q) => [q.creado_en, q.enviada_en, q.cerrada_en].some((f) => f && despues(f as string, desde)))
         .map((q) => ({
-            numero: q.numero, titulo: q.titulo, total_usd: Number(q.total_usd ?? 0), estado: q.estado,
+            numero: q.numero_externo ?? q.numero, titulo: q.titulo, total_usd: Number(q.total_usd ?? 0), estado: q.estado,
             armado: String(q.creado_en).slice(0, 10), enviado: q.enviada_en ? String(q.enviada_en).slice(0, 10) : null,
             cerrado: q.cerrada_en ? String(q.cerrada_en).slice(0, 10) : null, motivo_cierre: q.motivo_cierre,
         }));

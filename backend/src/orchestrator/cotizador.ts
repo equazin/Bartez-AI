@@ -311,6 +311,8 @@ interface FilaCotizacion {
     enviada_en: string | null;
     cerrada_en: string | null;
     motivo_cierre: string | null;
+    origen?: string | null;
+    numero_externo?: string | null;
 }
 
 export type EstadoVenta = 'abierta' | 'enviada' | 'ganada' | 'perdida';
@@ -334,6 +336,10 @@ export interface CotizacionGuardada extends ResultadoCotizacion {
     enviada_en: string | null;
     cerrada_en: string | null;
     motivo_cierre: string | null;
+    // 'documento': presupuesto hecho fuera del Cotizador y subido a la ficha del cliente.
+    origen: 'cotizador' | 'documento';
+    numero_externo: string | null;
+    documento?: { id: string; nombre: string } | null;
 }
 
 // Las cotizaciones anteriores a la columna `resultado` se rearman desde items + totales.
@@ -365,13 +371,14 @@ function rearmar(f: FilaCotizacion): CotizacionGuardada {
     return {
         ...base, id: f.id, titulo: f.titulo, numero: f.numero, datos_cliente: f.datos_cliente ?? {}, creado_en: f.creado_en,
         cliente_id: f.cliente_id, estado: f.estado ?? 'abierta', enviada_en: f.enviada_en, cerrada_en: f.cerrada_en, motivo_cierre: f.motivo_cierre,
+        origen: f.origen === 'documento' ? 'documento' : 'cotizador', numero_externo: f.numero_externo ?? null,
     };
 }
 
 export async function listarCotizaciones(limite = 50) {
     const { data, error } = await supabase
         .from('cotizaciones')
-        .select('id, titulo, pedido, total_usd, total_ars, creado_en, items, numero, estado, enviada_en, cerrada_en, motivo_cierre, cliente_id')
+        .select('id, titulo, pedido, total_usd, total_ars, creado_en, items, numero, estado, enviada_en, cerrada_en, motivo_cierre, cliente_id, origen, numero_externo')
         .order('creado_en', { ascending: false })
         .limit(limite);
     if (error) throw new Error(error.message);
@@ -389,13 +396,21 @@ export async function listarCotizaciones(limite = 50) {
         cerrada_en: (f.cerrada_en as string | null) ?? null,
         motivo_cierre: (f.motivo_cierre as string | null) ?? null,
         cliente_id: (f.cliente_id as string | null) ?? null,
+        origen: (f.origen as string | null) === 'documento' ? 'documento' as const : 'cotizador' as const,
+        numero_externo: (f.numero_externo as string | null) ?? null,
     }));
 }
 
 export async function obtenerCotizacion(id: string): Promise<CotizacionGuardada | null> {
     const { data, error } = await supabase.from('cotizaciones').select('*').eq('id', id).maybeSingle();
     if (error) throw new Error(error.message);
-    return data ? rearmar(data as FilaCotizacion) : null;
+    if (!data) return null;
+    const cot = rearmar(data as FilaCotizacion);
+    // El PDF original, si el presupuesto vino de un documento de la ficha.
+    const { data: docs } = await supabase.from('cliente_documentos').select('id, nombre').eq('cotizacion_id', id)
+        .order('creado_en', { ascending: false }).limit(1);
+    cot.documento = docs?.[0] ? { id: docs[0].id as string, nombre: docs[0].nombre as string } : null;
+    return cot;
 }
 
 export async function actualizarCotizacion(
@@ -408,13 +423,21 @@ export async function actualizarCotizacion(
 }
 
 export async function borrarCotizacion(id: string): Promise<boolean> {
+    // Si salió de un documento de la ficha, ese documento deja de contar en
+    // Cotizado (así no vuelve a aparecer si se relee).
+    await supabase.from('cliente_documentos').update({ sin_cotizado: true }).eq('cotizacion_id', id);
     const { data, error } = await supabase.from('cotizaciones').delete().eq('id', id).select('id');
     if (error) throw new Error(error.message);
     return (data ?? []).length > 0;
 }
 
+export const DE_DOCUMENTO = 'Este presupuesto se cargó desde un documento de la ficha del cliente: tiene su propio PDF y su número. Abrilo desde acá o desde la ficha.';
+
 // Número de presupuesto: se asigna la primera vez que se genera el PDF.
+// Los que vienen de un documento conservan su número y no usan la numeración.
 export async function numeroPresupuesto(id: string): Promise<number | null> {
+    const { data: q } = await supabase.from('cotizaciones').select('origen').eq('id', id).maybeSingle();
+    if (q?.origen === 'documento') throw new Error(DE_DOCUMENTO);
     const { data, error } = await supabase.rpc('asignar_numero_presupuesto', { p_id: id });
     if (error) throw new Error(error.message);
     // Con número (PDF generado) el presupuesto pasa a "enviada".
@@ -451,18 +474,21 @@ export async function cerrarCotizacion(
     return { ok: true, cliente_actualizado: clienteActualizado };
 }
 
-// Presupuestos enviados que siguen sin respuesta después de `dias`.
-export async function presupuestosSinRespuesta(dias = 5, limite = 20) {
+// Presupuestos enviados que siguen sin respuesta después de `dias` (y, si se
+// pide, enviados hace menos de `maxDias`).
+export async function presupuestosSinRespuesta(dias = 5, limite = 20, maxDias?: number) {
     const hasta = new Date(Date.now() - dias * 86_400_000).toISOString();
-    const { data, error } = await supabase.from('cotizaciones')
-        .select('id, titulo, numero, total_usd, enviada_en, cliente_id, seguimiento_en, pedido')
-        .eq('estado', 'enviada').lte('enviada_en', hasta)
-        .order('enviada_en', { ascending: true }).limit(limite);
+    let consulta = supabase.from('cotizaciones')
+        .select('id, titulo, numero, numero_externo, total_usd, enviada_en, cliente_id, seguimiento_en, pedido')
+        .eq('estado', 'enviada').lte('enviada_en', hasta);
+    if (maxDias) consulta = consulta.gte('enviada_en', new Date(Date.now() - maxDias * 86_400_000).toISOString());
+    const { data, error } = await consulta.order('enviada_en', { ascending: true }).limit(limite);
     if (error) throw new Error(error.message);
     return (data ?? []).map((f) => ({
         id: f.id as string,
         titulo: (f.titulo as string | null) ?? null,
         numero: (f.numero as number | null) ?? null,
+        numero_externo: (f.numero_externo as string | null) ?? null,
         total_usd: Number(f.total_usd ?? 0),
         enviada_en: f.enviada_en as string,
         cliente_id: (f.cliente_id as string | null) ?? null,
@@ -480,6 +506,7 @@ export async function proponerEnvioCotizacion(
 ): Promise<{ ok: boolean; accion_id?: string; detalle?: string }> {
     const q = await obtenerCotizacion(id);
     if (!q) return { ok: false, detalle: 'Cotización no encontrada' };
+    if (q.origen === 'documento') return { ok: false, detalle: DE_DOCUMENTO };
     const elegidas = q.lineas.filter((l) => l.elegido);
     if (elegidas.length === 0) return { ok: false, detalle: 'La cotización no tiene artículos para presupuestar' };
 

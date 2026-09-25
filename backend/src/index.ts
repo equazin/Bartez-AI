@@ -19,7 +19,7 @@ import { correrNotionAgent } from './orchestrator/notion_agent.js';
 import { actualizarTablero, correrCurador, estadoNotionAutonomo } from './orchestrator/notion_autonomo.js';
 import { invalidarResumenHoy, resumenHoy } from './orchestrator/hoy.js';
 import { calcularMapa } from './orchestrator/mapa.js';
-import { NOTA_LARGA, borrarDocumento, borrarNota, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
+import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -28,7 +28,7 @@ import { guardarPlantillasWa, listarPlantillasWa, proponerPlantillaWa,
     sincronizarWhatsapp, vincularClienteWa,
 } from './orchestrator/whatsapp.js';
 import { studioConfigurado } from './connectors/studio.js';
-import { actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion, proponerEnvioCotizacion } from './orchestrator/cotizador.js';
+import { DE_DOCUMENTO, actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion, proponerEnvioCotizacion } from './orchestrator/cotizador.js';
 import { generarPresupuestoPdf } from './pdf/presupuesto.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
 import { destilarLecciones, destilarPendientes, listarAprendizajes, olvidarCacheLecciones, registrarCorreccion } from './orchestrator/aprendizaje.js';
@@ -315,6 +315,20 @@ app.post('/seguimientos/documentos/:id/reprocesar', async (req) => {
     return { ok: true };
 });
 
+// Presupuesto del documento: contarlo o no en Cotizado, o elegir qué opción cuenta.
+const CotizadoDocSchema = z.object({ contar: z.boolean().optional(), opcion: z.number().int().min(0).optional() });
+app.post('/seguimientos/documentos/:id/cotizado', async (req, res) => {
+    const parseo = CotizadoDocSchema.safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'Pedido inválido' });
+    try {
+        const documento = await cambiarCotizadoDocumento((req.params as { id: string }).id, parseo.data);
+        if (!documento) return res.status(404).send({ error: 'Documento no encontrado' });
+        return { documento };
+    } catch (err) {
+        return res.status(400).send({ error: (err as Error).message });
+    }
+});
+
 app.delete('/seguimientos/documentos/:id', async (req) => {
     await borrarDocumento((req.params as { id: string }).id);
     return { ok: true };
@@ -416,6 +430,7 @@ app.get('/cotizaciones/:id/pdf', async (req, res) => {
     if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
     const q = await obtenerCotizacion(id);
     if (!q) return res.status(404).send({ error: 'cotización no encontrada' });
+    if (q.origen === 'documento') return res.status(400).send({ error: DE_DOCUMENTO });
     if (!q.lineas.some((l) => l.elegido)) return res.status(400).send({ error: 'La cotización no tiene artículos para presupuestar' });
     const numero = borrador ? q.numero : await numeroPresupuesto(id);
     const { pdf, archivo } = generarPresupuestoPdf(q, numero);
@@ -463,7 +478,8 @@ app.post('/cotizaciones/:id/cierre', async (req, res) => {
 app.post('/cotizaciones/:id/numero', async (req, res) => {
     const { id } = req.params as { id: string };
     if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
-    const numero = await numeroPresupuesto(id);
+    let numero: number | null;
+    try { numero = await numeroPresupuesto(id); } catch (err) { return res.status(400).send({ error: (err as Error).message }); }
     if (numero == null) return res.status(404).send({ error: 'cotización no encontrada' });
     return { numero };
 });
@@ -1218,6 +1234,14 @@ async function main() {
 
     const port = Number(process.env.PORT ?? 3000);
     await app.listen({ port, host: '0.0.0.0' });
+
+    // Documentos que se leyeron antes de sacar los datos de presupuesto: se leen
+    // de nuevo (de a uno, en segundo plano) para que sumen a Cotizado.
+    setTimeout(() => {
+        completarDatosDocumentos()
+            .then((n) => { if (n) app.log.info({ documentos: n }, 'documentos releídos para Cotizado'); })
+            .catch((err) => app.log.warn({ err }, 'releer documentos falló'));
+    }, 15_000);
 
     // Listener IMAP en paralelo (no bloquea el arranque del HTTP server).
     // Si Ferozo no está configurado, imprime un warning y no hace nada.

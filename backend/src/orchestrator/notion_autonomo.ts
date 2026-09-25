@@ -65,7 +65,7 @@ export interface FotoNegocio {
         por_categoria: Record<string, number>;
         relevantes: Array<{ de: string; asunto: string; categoria: string | null; fecha: string; respondido: boolean }>;
     };
-    cotizaciones_14_dias: Array<{ numero: string | null; cliente: string; total_usd: number; fecha: string; renglones: number }>;
+    cotizaciones_14_dias: Array<{ numero: string | null; cliente: string; total_usd: number; fecha: string; renglones: number; estado: string; desde_documento: boolean }>;
     pipeline: {
         por_estado: Record<string, number>;
         leads_calientes: Array<{ nombre: string; icp: number | null; ultimo_contacto: string | null; intentos: number }>;
@@ -133,7 +133,7 @@ export async function fotoNegocio(): Promise<FotoNegocio> {
         supabase.from('acciones_pendientes').select('accion, payload, creado_en, asistentes(nombre)').eq('estado', 'pendiente').order('creado_en', { ascending: true }).limit(50),
         supabase.from('wa_conversaciones').select('nombre, wa_id, estado, ultimo_direccion, ultimo_entrante_en, ultimo_mensaje, clientes(nombre)').eq('estado', 'escalated'),
         supabase.from('correos_historicos').select('de_email, de_nombre, asunto, categoria, fecha, cliente_id').eq('direccion', 'entrante').eq('ignorable', false).gte('fecha', hace(3 * DIA_MS)).order('fecha', { ascending: false }).limit(200),
-        supabase.from('cotizaciones').select('numero, titulo, total_usd, creado_en, items').gte('creado_en', hace(14 * DIA_MS)).order('creado_en', { ascending: false }).limit(30),
+        supabase.from('cotizaciones').select('numero, numero_externo, titulo, total_usd, creado_en, items, estado, origen').gte('creado_en', hace(14 * DIA_MS)).order('creado_en', { ascending: false }).limit(30),
         supabase.from('clientes').select('nombre, estado, metadata, ultimo_contacto_en, intentos_contacto').limit(2000),
         supabase.from('proveedores').select('nombre, ultimo_estado, items_sincronizados, ultima_sync, activo').eq('activo', true),
         supabase.from('reportes_analitica').select('creado_en, periodo_desde, periodo_hasta, resumen_md, propuestas').order('creado_en', { ascending: false }).limit(1).maybeSingle(),
@@ -200,11 +200,14 @@ export async function fotoNegocio(): Promise<FotoNegocio> {
             })),
         },
         cotizaciones_14_dias: (cots.data ?? []).map((c) => ({
-            numero: c.numero ? `${new Date(c.creado_en as string).getFullYear()}-${String(c.numero).padStart(4, '0')}` : null,
+            numero: (c.numero_externo as string | null) ?? (c.numero ? `${new Date(c.creado_en as string).getFullYear()}-${String(c.numero).padStart(4, '0')}` : null),
             cliente: String(c.titulo ?? 'sin nombre'),
             total_usd: Number(c.total_usd ?? 0),
             fecha: c.creado_en as string,
             renglones: Array.isArray(c.items) ? c.items.length : 0,
+            // 'abierta' = borrador del Cotizador: no cuenta como cotizado.
+            estado: String(c.estado ?? 'abierta'),
+            desde_documento: c.origen === 'documento',
         })),
         pipeline: {
             por_estado: porEstado,
@@ -417,7 +420,7 @@ export function armarTablero(f: FotoNegocio, prioridades: { fecha: string; items
     b.push(h2('💰 Cotizaciones de las últimas 2 semanas'));
     if (f.cotizaciones_14_dias.length === 0) b.push(p(gris('Sin cotizaciones.')));
     for (const c of f.cotizaciones_14_dias.slice(0, 12)) {
-        b.push(li({ t: c.cliente, b: true }, ` · ${usd(c.total_usd)}`, gris(` · ${c.renglones} renglones · ${fechaCorta(c.fecha)}${c.numero ? ` · N ${c.numero}` : ' · sin PDF'}`)));
+        b.push(li({ t: c.cliente, b: true }, ` · ${usd(c.total_usd)}`, gris(` · ${c.desde_documento ? 'PDF subido a la ficha' : `${c.renglones} renglones`} · ${fechaCorta(c.fecha)}${c.numero ? ` · N ${c.numero}` : ' · sin PDF'}`)));
     }
 
     // Tareas

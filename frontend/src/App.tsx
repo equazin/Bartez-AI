@@ -206,7 +206,7 @@ export function App() {
                 {tab === 'prospeccion' && <Prospeccion />}
                 {tab === 'asistentes' && <Asistentes />}
                 {tab === 'rendimiento' && <Rendimiento key={secRend} inicial={secRend} />}
-                {tab === 'seguimientos' && <Seguimientos />}
+                {tab === 'seguimientos' && <Seguimientos irA={(t) => setTab(t)} />}
                 {tab === 'cotizador' && <Cotizador />}
                 {tab === 'whatsapp' && <WhatsApp />}
                 {tab === 'notion' && <NotionPanel />}

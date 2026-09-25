@@ -2967,6 +2967,28 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .mem-estado.falla { display: inline-block; padding: 5px 10px; border-radius: 8px; background: var(--peligro-soft); color: var(--peligro); }
 .mem-estado.falla .enlace { font-size: var(--t-xs); }
 .mem-resumen p { margin: 4px 0 2px; padding: 8px 12px; border-radius: 8px; background: var(--panel); font-size: var(--t-sm); line-height: 1.5; white-space: pre-wrap; }
+/* Presupuesto del documento: si suma a Cotizado */
+.mem-cot { margin: 6px 0 2px; padding: 8px 12px; border-radius: 8px; background: var(--panel); border-left: 3px solid var(--marca); font-size: var(--t-xs); }
+.mem-cot.ev-ganada { border-left-color: var(--ok); }
+.mem-cot.ev-perdida { border-left-color: var(--borde); }
+.mem-cot.aparte { border-left-color: var(--borde); color: var(--sutil); }
+.mem-cot-fila { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; }
+.mem-cot-marca { font-weight: 700; color: var(--marca-texto); }
+.mem-cot.ev-ganada .mem-cot-marca { color: var(--ok); }
+.mem-cot.ev-perdida .mem-cot-marca { color: var(--sutil); }
+.mem-cot-monto { font-size: var(--t-sm); font-variant-numeric: tabular-nums; color: var(--texto); }
+.mem-cot-dato { color: var(--sutil); font-variant-numeric: tabular-nums; }
+.mem-cot-opcion { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 6px; color: var(--sutil); }
+.mem-cot-opcion select {
+    font: inherit; font-size: var(--t-xs); color: var(--texto); background: var(--hundido); max-width: 100%;
+    border: 1px solid var(--borde); border-radius: 6px; padding: 4px 8px; cursor: pointer;
+}
+.mem-cot-opcion select:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
+.mem-cot-acc { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; }
+.mem-cot .enlace { font-size: var(--t-xs); }
+.contenido .mem-cot .enlace.mem-cot-quitar { color: var(--sutil); font-weight: 500; }
+.mem-resumen .markdown-simple { margin: 4px 0 2px; padding: 8px 12px; border-radius: 8px; background: var(--panel); font-size: var(--t-sm); }
+.mem-resumen .markdown-simple p { margin: 2px 0; padding: 0; background: none; border-radius: 0; max-height: none; white-space: normal; }
 @keyframes mem-gira { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .mem-estado.leyendo::before { animation: none; border-right-color: currentColor; opacity: 0.6; } }
 @media (max-width: 560px) {
@@ -2981,4 +3003,16 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
     .mem-fila .btn-primario { align-self: flex-end; }
     .mem-doc { grid-template-columns: auto minmax(0, 1fr); }
     .mem-doc-acc { grid-column: 2; }
+    .mem-cot-opcion select { width: 100%; }
 }
+
+/* Cotizador: presupuestos que vinieron de un PDF de la ficha */
+.cot-item-pie .hora { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cot-item-pie .estado-venta { flex: none; }
+.cot-de-pdf { margin-right: 6px; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.03em; background: var(--marca-soft); color: var(--marca-texto); }
+.cot-doc { margin-top: 12px; padding: 14px 16px; border-radius: 12px; background: var(--hundido); }
+.cot-doc-cab { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.cot-doc-etq { font-size: var(--t-xs); font-weight: 700; color: var(--marca-texto); }
+.cot-doc .markdown-simple { font-size: var(--t-sm); }
+.cot-doc .markdown-simple p { margin: 3px 0; }
+.cot-doc .cot-totales { margin-top: 10px; }

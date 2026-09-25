@@ -22,6 +22,8 @@ export interface AccionNodo {
     tipo: 'chat' | 'ir';
     texto?: string;
     destino?: 'acciones' | 'cotizador' | 'seguimientos' | 'whatsapp' | 'prospeccion';
+    // Con destino 'cotizador': abre esa cotización.
+    cotizacion_id?: string;
 }
 
 export interface NodoMapa {
@@ -66,10 +68,12 @@ const NOMBRES: Record<AreaMapa, string> = {
 
 const dias = (iso: string | null | undefined) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DIA_MS) : null);
 const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`;
-const presupuestoN = (numero: number | null) => (numero ? `presupuesto ${numero}` : 'el presupuesto');
+const presupuestoN = (numero: number | string | null) => (numero ? `presupuesto ${numero}` : 'el presupuesto');
+// Número para mostrar: el del documento si vino de uno, si no el del Cotizador.
+const nro = (q: { numero: number | null; numero_externo?: string | null }) => q.numero_externo ?? q.numero;
 
 interface FilaCot {
-    id: string; titulo: string | null; numero: number | null; total_usd: number | string | null; estado: string | null;
+    id: string; titulo: string | null; numero: number | null; numero_externo?: string | null; total_usd: number | string | null; estado: string | null;
     creado_en: string; enviada_en: string | null; cerrada_en: string | null; cliente_id: string | null;
     datos_cliente: { atencion?: string; email?: string } | null; pedido: string | null;
 }
@@ -78,7 +82,7 @@ interface FilaCot {
 // dirigido o, si no hay nada, el título.
 function nombreCot(c: FilaCot, clientes: Map<string, { nombre: string }>): string {
     const cl = c.cliente_id ? clientes.get(c.cliente_id) : undefined;
-    return cl?.nombre || c.datos_cliente?.atencion?.trim() || c.titulo?.trim() || (c.numero ? `Presupuesto ${c.numero}` : 'Presupuesto sin nombre');
+    return cl?.nombre || c.datos_cliente?.atencion?.trim() || c.titulo?.trim() || (nro(c) ? `Presupuesto ${nro(c)}` : 'Presupuesto sin nombre');
 }
 
 let cache: { en: number; datos: Mapa } | null = null;
@@ -95,7 +99,7 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
         supabase.from('asistentes').select('id, area').in('area', Object.keys(NOMBRES)),
         supabase.from('acciones_pendientes').select('asistente_id, estado, resuelto_en, creado_en').or(`estado.eq.pendiente,resuelto_en.gte.${hace30}`),
         supabase.from('cotizaciones')
-            .select('id, titulo, numero, total_usd, estado, creado_en, enviada_en, cerrada_en, cliente_id, datos_cliente, pedido')
+            .select('id, titulo, numero, numero_externo, total_usd, estado, creado_en, enviada_en, cerrada_en, cliente_id, datos_cliente, pedido')
             .or(`creado_en.gte.${new Date(ahora - 60 * DIA_MS).toISOString()},cerrada_en.gte.${anio}-01-01`)
             .order('creado_en', { ascending: false }).limit(400),
         supabase.from('clientes').select('id, nombre, email, estado, metadata, creado_en, ultimo_contacto_en, intentos_contacto'),
@@ -122,7 +126,7 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
         for (const c of (correosDe.get(id) ?? []).slice(0, 3)) ev.push({ fecha: c.fecha, texto: c.asunto?.trim() || 'Consulta por correo', tipo: 'consulta' });
         for (const q of (cotsDe.get(id) ?? []).slice(0, 3)) {
             if (q.estado === 'ganada') ev.push({ fecha: q.cerrada_en ?? q.creado_en, texto: `Compra ganada · ${usd(Number(q.total_usd ?? 0))}`, tipo: 'venta' });
-            else ev.push({ fecha: q.enviada_en ?? q.creado_en, texto: `${q.numero ? `Presupuesto ${q.numero}` : 'Presupuesto'} ${q.estado === 'enviada' ? 'enviado' : 'armado'} · ${usd(Number(q.total_usd ?? 0))}`, tipo: 'presupuesto' });
+            else ev.push({ fecha: q.enviada_en ?? q.creado_en, texto: `${nro(q) ? `Presupuesto ${nro(q)}` : 'Presupuesto'} ${q.estado === 'enviada' ? 'enviado' : 'armado'} · ${usd(Number(q.total_usd ?? 0))}`, tipo: 'presupuesto' });
         }
         return ev.sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 4);
     };
@@ -148,13 +152,13 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
         const d = dias(q.enviada_en) ?? 0;
         const nombre = nombreCot(q, clientes);
         nodosSeg.push({
-            id: `cot:${q.id}`, tipo: 'presupuesto', nombre, subtitulo: `${q.numero ? `Presupuesto ${q.numero}` : 'Presupuesto'} · ${d} días sin respuesta`,
+            id: `cot:${q.id}`, tipo: 'presupuesto', nombre, subtitulo: `${nro(q) ? `Presupuesto ${nro(q)}` : 'Presupuesto'} · ${d} días sin respuesta`,
             urgente: d >= 5, consultas: q.cliente_id ? (correosDe.get(q.cliente_id)?.length ?? 0) : 0, presupuestos: 1,
             en_juego_usd: Number(q.total_usd ?? 0), dias_sin_respuesta: d, compras: comprasDe(q.cliente_id), historia: historiaCot(q),
             sugerencia: `Un seguimiento hoy. Los presupuestos que se siguen antes del día 7 tienen más chance de cerrarse.`,
             acciones: [
-                { etiqueta: 'Preparar seguimiento', tipo: 'chat', texto: `Hacé un seguimiento a ${nombre} por el ${presupuestoN(q.numero)} de ${usd(Number(q.total_usd ?? 0))}, enviado hace ${d} días.` },
-                { etiqueta: 'Ver presupuesto', tipo: 'ir', destino: 'cotizador' },
+                { etiqueta: 'Preparar seguimiento', tipo: 'chat', texto: `Hacé un seguimiento a ${nombre} por el ${presupuestoN(nro(q))} de ${usd(Number(q.total_usd ?? 0))}, enviado hace ${d} días.` },
+                { etiqueta: 'Ver presupuesto', tipo: 'ir', destino: 'cotizador', cotizacion_id: q.id },
             ],
         });
     }
@@ -169,14 +173,14 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
         const enviada = q.estado === 'enviada';
         nodosCot.push({
             id: `cot:${q.id}`, tipo: 'presupuesto', nombre,
-            subtitulo: enviada ? `${q.numero ? `Presupuesto ${q.numero}` : 'Presupuesto'} enviado hace ${dias(q.enviada_en) ?? 0} días` : 'Armado, falta enviarlo',
+            subtitulo: enviada ? `${nro(q) ? `Presupuesto ${nro(q)}` : 'Presupuesto'} enviado hace ${dias(q.enviada_en) ?? 0} días` : 'Armado, falta enviarlo',
             urgente: false, consultas: q.cliente_id ? (correosDe.get(q.cliente_id)?.length ?? 0) : 0, presupuestos: 1,
             en_juego_usd: Number(q.total_usd ?? 0), dias_sin_respuesta: enviada ? dias(q.enviada_en) : null, compras: comprasDe(q.cliente_id),
             historia: historiaCot(q),
             sugerencia: enviada ? 'Todavía está en plazo. Si no responde en unos días, Seguimientos te propone escribirle.' : 'Revisalo y mandalo por correo con el PDF desde el Cotizador.',
             acciones: enviada
-                ? [{ etiqueta: 'Ver presupuesto', tipo: 'ir', destino: 'cotizador' }]
-                : [{ etiqueta: 'Revisar y enviar', tipo: 'ir', destino: 'cotizador' }, { etiqueta: 'Preguntar', tipo: 'chat', texto: `¿Qué le falta al presupuesto de ${nombre} para enviarlo?` }],
+                ? [{ etiqueta: 'Ver presupuesto', tipo: 'ir', destino: 'cotizador', cotizacion_id: q.id }]
+                : [{ etiqueta: 'Revisar y enviar', tipo: 'ir', destino: 'cotizador', cotizacion_id: q.id }, { etiqueta: 'Preguntar', tipo: 'chat', texto: `¿Qué le falta al presupuesto de ${nombre} para enviarlo?` }],
         });
     }
 

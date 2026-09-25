@@ -93,6 +93,10 @@ async function ejecutarTool(nombre: string, e: any): Promise<string> {
             whatsapp_vencidos: f.whatsapp.sin_responder_vencidas,
             correos_sin_respuesta: f.correos_3_dias.relevantes.filter((c) => !c.respondido),
             cotizaciones_14_dias: f.cotizaciones_14_dias,
+            // Los mismos números que la tarjeta del mes en Inicio. Cotizado = presupuestos
+            // emitidos (enviados, ganados o perdidos, también los cargados como documento);
+            // los borradores no cuentan.
+            mes: r.pulso?.kpis ?? null,
             pipeline: f.pipeline,
             tareas_pendientes: f.tareas_notion.filter((t) => t.estado === 'pendiente').slice(0, 20),
             proveedores: f.proveedores,
@@ -144,7 +148,7 @@ async function ejecutarTool(nombre: string, e: any): Promise<string> {
         const [correos, wa, cots, informe, notas, docs] = await Promise.all([
             historicoConCliente(c.id as string, 6),
             mensajesWhatsappDeCliente(c.id as string, 10),
-            supabase.from('cotizaciones').select('numero, titulo, total_usd, estado, creado_en')
+            supabase.from('cotizaciones').select('numero, numero_externo, titulo, total_usd, estado, creado_en')
                 .or(`cliente_id.eq.${c.id},titulo.ilike.%${q}%`).order('creado_en', { ascending: false }).limit(8),
             ultimoInforme(c.id as string),
             notasDeCliente(c.id as string, 15),

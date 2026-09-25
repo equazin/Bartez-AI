@@ -60,7 +60,9 @@ export async function calcularPulso(): Promise<Pulso> {
     const [correos, wa, cots, clientes, acciones, conCorreo, conWa, cerradas, esperando] = await Promise.all([
         todas<{ fecha: string }>((a, b) => supabase.from('correos_historicos').select('fecha').eq('direccion', 'entrante').eq('ignorable', false).gte('fecha', hace60).range(a, b)),
         todas<{ creado_en: string }>((a, b) => supabase.from('wa_mensajes').select('creado_en').eq('origen', 'cliente').gte('creado_en', hace60).range(a, b)),
-        todas<{ creado_en: string; total_usd: number | string | null; numero: number | null }>((a, b) => supabase.from('cotizaciones').select('creado_en, total_usd, numero').gte('creado_en', new Date(ahora - 70 * DIA_MS).toISOString()).range(a, b)),
+        // Cotizado = presupuestos emitidos (enviados, ganados o perdidos, incluidos los
+        // que llegaron como documento). Los borradores del Cotizador no cuentan.
+        todas<{ creado_en: string; total_usd: number | string | null }>((a, b) => supabase.from('cotizaciones').select('creado_en, total_usd').neq('estado', 'abierta').gte('creado_en', new Date(ahora - 70 * DIA_MS).toISOString()).range(a, b)),
         todas<{ creado_en: string; estado: string | null; intentos_contacto: number | null; ultimo_contacto_en: string | null; id: string }>((a, b) => supabase.from('clientes').select('id, creado_en, estado, intentos_contacto, ultimo_contacto_en').range(a, b)),
         todas<{ estado: string; resuelto_en: string }>((a, b) => supabase.from('acciones_pendientes').select('estado, resuelto_en').gte('resuelto_en', new Date(ahora - 30 * DIA_MS).toISOString()).range(a, b)),
         todas<{ cliente_id: string }>((a, b) => supabase.from('correos_historicos').select('cliente_id').eq('direccion', 'entrante').not('cliente_id', 'is', null).range(a, b)),
@@ -102,8 +104,8 @@ export async function calcularPulso(): Promise<Pulso> {
     let cotMes = 0, cotMesAnt = 0, presMes = 0, presMesAnt = 0;
     for (const c of cots) {
         const d = dia(c.creado_en);
-        if (d >= inicioMes && d <= hoyStr) { cotMes += Number(c.total_usd ?? 0); if (c.numero) presMes++; }
-        else if (d >= inicioMesAnt && d <= finTramoAnt) { cotMesAnt += Number(c.total_usd ?? 0); if (c.numero) presMesAnt++; }
+        if (d >= inicioMes && d <= hoyStr) { cotMes += Number(c.total_usd ?? 0); presMes++; }
+        else if (d >= inicioMesAnt && d <= finTramoAnt) { cotMesAnt += Number(c.total_usd ?? 0); presMesAnt++; }
     }
 
     const hace30 = dia(new Date(ahora - 29 * DIA_MS).toISOString());

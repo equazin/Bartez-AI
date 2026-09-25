@@ -17,14 +17,20 @@ import {
     importarCsvProveedor,
     listarProveedores,
     sincronizarProveedor,
+    urlDocumentoCliente,
 } from '../api/client.ts';
+import { CLAVE_COTIZACION_ABIERTA } from '../lib/cotizador.ts';
+import { formatearMarkdown } from './seguimientos/MemoriaCliente.tsx';
 
 const usd = (n: number) => `USD ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const ars = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+// Los presupuestos que vinieron de un PDF solo tienen fecha (la hora no dice nada).
+const fechaDe = (c: { creado_en: string; origen?: string }) =>
+    c.origen === 'documento' ? new Date(c.creado_en).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : fecha(c.creado_en);
 
 // La cotización abierta se recuerda en este navegador para reabrirla al volver a la pestaña.
-const CLAVE_ABIERTA = 'bartez_cotizacion_abierta';
+const CLAVE_ABIERTA = CLAVE_COTIZACION_ABIERTA;
 const recordarAbierta = (id: string | null) => {
     try { if (id) localStorage.setItem(CLAVE_ABIERTA, id); else localStorage.removeItem(CLAVE_ABIERTA); } catch { /* sin storage */ }
 };
@@ -58,7 +64,8 @@ function CierreVenta({ cot, alCambiar }: { cot: Cotizacion; alCambiar: (estado: 
                 <span className="tenue">
                     {cot.cerrada_en ? new Date(cot.cerrada_en).toLocaleDateString('es-AR') : ''}{cot.motivo_cierre ? ` · ${cot.motivo_cierre}` : ''}
                 </span>
-                <button className="enlace" onClick={() => marcar(cot.numero ? 'enviada' : 'abierta')} disabled={ocupado}>Reabrir</button>
+                {/* Si ya se había mandado (con PDF, por correo, copiado o desde un documento) vuelve a enviada. */}
+                <button className="enlace" onClick={() => marcar(cot.numero || cot.enviada_en || cot.origen === 'documento' ? 'enviada' : 'abierta')} disabled={ocupado}>Reabrir</button>
             </div>
         );
     }
@@ -67,7 +74,7 @@ function CierreVenta({ cot, alCambiar }: { cot: Cotizacion; alCambiar: (estado: 
             <span className="cierre-pregunta">
                 {estado === 'enviada'
                     ? <>¿Cómo terminó? <span className="tenue">Enviada {cot.enviada_en ? `hace ${diasDesde(cot.enviada_en)} días` : ''}</span></>
-                    : <>¿Cómo terminó? <span className="tenue">Todavía es un borrador: pasa a enviada al descargar el PDF.</span></>}
+                    : <>¿Cómo terminó? <span className="tenue">Todavía es un borrador (no suma a Cotizado): pasa a enviada al descargar el PDF, mandarlo por correo o copiarlo como texto.</span></>}
             </span>
             {!perdiendo ? (
                 <span className="cierre-botones">
@@ -161,7 +168,11 @@ export function Cotizador() {
     });
 
     async function borrar(id: string) {
-        if (!window.confirm('¿Borrar esta cotización? No se puede deshacer.')) return;
+        const deDocumento = cot?.id === id ? cot.origen === 'documento' : historial.find((h) => h.id === id)?.origen === 'documento';
+        const aviso = deDocumento
+            ? '¿Borrar este presupuesto? Deja de sumar a Cotizado. El PDF sigue en la ficha del cliente, marcado para no sumar.'
+            : '¿Borrar esta cotización? No se puede deshacer.';
+        if (!window.confirm(aviso)) return;
         try {
             await borrarCotizacion(id);
             if (cot?.id === id) mostrar(null);
@@ -296,8 +307,30 @@ export function Cotizador() {
             '',
             'Precios sujetos a disponibilidad de stock y variación del tipo de cambio.',
         ].join('\n');
-        navigator.clipboard.writeText(txt).then(() => setMsgProv('✓ Cotización copiada al portapapeles'));
+        navigator.clipboard.writeText(txt).then(async () => {
+            setAvisoCierre('✓ Cotización copiada al portapapeles.');
+            // Copiarla es mandarla (por WhatsApp, por ejemplo): pasa a enviada y suma a Cotizado.
+            if (cot.id && (cot.estado ?? 'abierta') === 'abierta') {
+                try {
+                    await cerrarCotizacion(cot.id, 'enviada');
+                    setCot({ ...cot, estado: 'enviada', enviada_en: new Date().toISOString() });
+                    setAvisoCierre('✓ Cotización copiada. Quedó como enviada y suma a Cotizado.');
+                    cargarHistorial();
+                } catch { /* la copia igual salió */ }
+            }
+        });
     }
+
+    async function abrirPdfOriginal() {
+        if (!cot?.documento) return;
+        const w = window.open('', '_blank');
+        try {
+            const { url } = await urlDocumentoCliente(cot.documento.id);
+            if (w) { w.opener = null; w.location.href = url; } else window.location.assign(url);
+        } catch (e) { w?.close(); setError((e as Error).message); }
+    }
+
+    const deDocumento = cot?.origen === 'documento';
 
     return (
         <section className="cotizador">
@@ -345,7 +378,10 @@ export function Cotizador() {
                                     </span>
                                     <span className="cot-item-pedido">{h.pedido}</span>
                                     <span className="cot-item-pie">
-                                        <span className="hora">{fecha(h.creado_en)}{h.numero ? ` · N° ${h.numero}` : ''}</span>
+                                        <span className="hora">
+                                            {h.origen === 'documento' && <span className="cot-de-pdf" title="Presupuesto subido como PDF a la ficha del cliente">PDF</span>}
+                                            {fechaDe(h)}{h.numero ? ` · N° ${h.numero}` : h.numero_externo ? ` · N° ${h.numero_externo}` : ''}
+                                        </span>
                                         <span className={`estado-venta ev-${h.estado}`} title={h.motivo_cierre ?? undefined}>
                                             {ESTADO[h.estado]}{h.estado === 'enviada' && h.enviada_en && diasDesde(h.enviada_en) >= 5 ? ` · ${diasDesde(h.enviada_en)} d` : ''}
                                         </span>
@@ -393,7 +429,7 @@ export function Cotizador() {
                             placeholder="Nombre de la cotización (ej. cliente)"
                             disabled={!cot.id}
                         />
-                        {cot.creado_en && <span className="mono">{fecha(cot.creado_en)}</span>}
+                        {cot.creado_en && <span className="mono">{fechaDe({ creado_en: cot.creado_en, origen: cot.origen })}</span>}
                         <button className="secundario" onClick={nueva}>Nueva</button>
                         {cot.id && <button className="secundario peligro" onClick={() => borrar(cot.id!)}>Borrar</button>}
                     </div>
@@ -409,7 +445,7 @@ export function Cotizador() {
                         />
                     )}
                     {avisoCierre && <p className="msg-ok">{avisoCierre}</p>}
-                    {cot.id && (
+                    {cot.id && !deDocumento && (
                         <details className="cot-datos-cli">
                             <summary>
                                 Datos del cliente para el presupuesto
@@ -429,6 +465,24 @@ export function Cotizador() {
                             <p className="sub">El nombre del cliente es el título de arriba. Todo se guarda solo.</p>
                         </details>
                     )}
+                    {deDocumento && (
+                        <div className="cot-doc">
+                            <div className="cot-doc-cab">
+                                <span className="cot-doc-etq">Presupuesto cargado desde un PDF de la ficha del cliente</span>
+                                {cot.numero_externo && <span className="mono">N° {cot.numero_externo}</span>}
+                            </div>
+                            {cot.comentario && <div className="markdown-simple">{formatearMarkdown(cot.comentario)}</div>}
+                            <div className="cot-totales">
+                                <div className="total"><span>Suma a Cotizado</span><strong>{usd(cot.total_usd)}</strong></div>
+                                {cot.total_ars > 0 && <div className="ars"><span>En pesos (TC {cot.tipo_cambio})</span><strong>{ars(cot.total_ars)}</strong></div>}
+                            </div>
+                            <div className="cot-pie">
+                                <span className="tenue">Si tiene varias opciones, la que suma se elige en la ficha del cliente (Documentos).</span>
+                                {cot.documento && <button className="secundario" onClick={abrirPdfOriginal}>Abrir PDF</button>}
+                            </div>
+                        </div>
+                    )}
+                    {!deDocumento && <>
                     {cot.comentario && <div className="det-signal"><strong>Notas del asistente:</strong> {cot.comentario}</div>}
                     <table className="cot-tabla">
                         <thead>
@@ -505,6 +559,7 @@ export function Cotizador() {
                         </div>
                     )}
                     {envio.msg && <p className={envio.msg.startsWith('Listo') ? 'msg-ok' : 'error'}>{envio.msg}</p>}
+                    </>}
                 </div>
             )}
 

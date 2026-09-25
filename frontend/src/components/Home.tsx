@@ -3,6 +3,7 @@ import { AccionPendiente, SIN_MAPA, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pul
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 import { preguntarABartez } from '../lib/bartez.ts';
+import { abrirEnCotizador } from '../lib/cotizador.ts';
 import { useContar } from '../lib/animar.ts';
 import { ListaNegocio, MapaNegocio, Seleccion, metricaAsistente } from './inicio/MapaNegocio.tsx';
 
@@ -81,7 +82,11 @@ function Acciones({ acciones, irA }: { acciones: NodoMapa['acciones']; irA: (t: 
                 <button
                     key={a.etiqueta}
                     className={i === 0 ? 'g-btn' : 'g-btn-sec'}
-                    onClick={() => (a.tipo === 'chat' && a.texto ? preguntarABartez(a.texto) : a.destino && irA(a.destino))}
+                    onClick={() => {
+                        if (a.tipo === 'chat' && a.texto) { preguntarABartez(a.texto); return; }
+                        if (a.cotizacion_id) abrirEnCotizador(a.cotizacion_id);
+                        if (a.destino) irA(a.destino);
+                    }}
                 >
                     {a.etiqueta}{a.tipo === 'chat' && i === 0 ? ' ✦' : ''}
                 </button>

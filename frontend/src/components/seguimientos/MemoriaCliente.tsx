@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+    DatosDocumento,
     DocumentoCliente,
     InformeCliente,
     MAX_CHARS_NOTA,
@@ -13,11 +14,13 @@ import {
     NotaCliente,
     borrarDocumentoCliente,
     borrarNotaCliente,
+    cotizadoDocumento,
     crearNotaCliente,
     reprocesarDocumentoCliente,
     subirDocumentoCliente,
     urlDocumentoCliente,
 } from '../../api/client.ts';
+import { abrirEnCotizador } from '../../lib/cotizador.ts';
 
 export type PestanaMemoria = 'informe' | 'notas' | 'documentos';
 
@@ -43,6 +46,8 @@ interface Props {
     informeSuelto: InformeCliente | null;
     generando: boolean;
     onRehacer: () => void;
+    // Para ir al Cotizador desde un presupuesto de la ficha.
+    irA?: (tab: string) => void;
 }
 
 export function MemoriaCliente(p: Props) {
@@ -113,6 +118,7 @@ export function MemoriaCliente(p: Props) {
                         actualizar={actualizar}
                         onError={fallar}
                         limpiarError={() => setErrorLocal(null)}
+                        irA={p.irA}
                     />
                 )}
             </div>
@@ -285,6 +291,7 @@ function PestanaDocumentos(p: {
     actualizar: (f: (m: Memoria) => Memoria) => void;
     onError: (e: unknown) => void;
     limpiarError: () => void;
+    irA?: (tab: string) => void;
 }) {
     const [subiendo, setSubiendo] = useState<string[]>([]);
     const [arrastrando, setArrastrando] = useState(false);
@@ -331,7 +338,12 @@ function PestanaDocumentos(p: {
     }
 
     async function borrar(d: DocumentoCliente) {
-        if (!window.confirm(`¿Borrar "${d.nombre}"? Se borra el archivo y Bartez deja de tenerlo en cuenta.`)) return;
+        const q = d.cotizacion;
+        const cerrado = q?.estado === 'ganada' || q?.estado === 'perdida';
+        const extra = q?.origen === 'documento'
+            ? (cerrado ? ' Su presupuesto queda en el Cotizador porque ya está marcado como ' + (q.estado === 'ganada' ? 'ganado.' : 'perdido.') : ' Su presupuesto deja de sumar a Cotizado.')
+            : '';
+        if (!window.confirm(`¿Borrar "${d.nombre}"? Se borra el archivo y Bartez deja de tenerlo en cuenta.${extra}`)) return;
         p.limpiarError();
         try {
             await borrarDocumentoCliente(d.id);
@@ -390,10 +402,18 @@ function PestanaDocumentos(p: {
                                         <button type="button" className="enlace" onClick={() => reprocesar(d)}>Reintentar</button>
                                     </div>
                                 )}
+                                {d.estado === 'listo' && (
+                                    <BloquePresupuesto
+                                        d={d}
+                                        irA={p.irA}
+                                        onCambio={(nuevo) => p.actualizar((m) => ({ ...m, documentos: m.documentos.map((x) => (x.id === nuevo.id ? nuevo : x)) }))}
+                                        onError={p.onError}
+                                    />
+                                )}
                                 {d.estado === 'listo' && d.resumen && (
                                     <details className="mem-resumen">
                                         <summary>Lo que entendió Bartez</summary>
-                                        <p>{d.resumen}</p>
+                                        <div className="markdown-simple">{formatearMarkdown(d.resumen)}</div>
                                     </details>
                                 )}
                             </div>
@@ -406,6 +426,85 @@ function PestanaDocumentos(p: {
                 </ul>
             )}
         </>
+    );
+}
+
+// La opción que cuenta en Cotizado: la elegida o, si no, la más baja.
+function opcionQueCuenta(datos: DatosDocumento): number {
+    const ops = datos.presupuesto?.opciones ?? [];
+    if (typeof datos.opcion === 'number' && datos.opcion >= 0 && datos.opcion < ops.length) return datos.opcion;
+    let min = 0;
+    ops.forEach((o, i) => { if (o.total < ops[min]!.total) min = i; });
+    return min;
+}
+
+const plata = (n: number, moneda: 'USD' | 'ARS' = 'USD') =>
+    `${moneda === 'ARS' ? '$' : 'US$'} ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+// Si el documento es un presupuesto: si suma a Cotizado, cuánto, qué opción
+// cuenta y cómo va (enviado, ganado, perdido).
+function BloquePresupuesto({ d, irA, onCambio, onError }: {
+    d: DocumentoCliente;
+    irA?: (tab: string) => void;
+    onCambio: (d: DocumentoCliente) => void;
+    onError: (e: unknown) => void;
+}) {
+    const [ocupado, setOcupado] = useState(false);
+    const datos = d.datos;
+    const pres = datos?.presupuesto;
+    if (!datos || !pres) return null;
+
+    async function cambiar(c: { contar?: boolean; opcion?: number }) {
+        setOcupado(true);
+        try { onCambio((await cotizadoDocumento(d.id, c)).documento); } catch (e) { onError(e); } finally { setOcupado(false); }
+    }
+
+    if (pres.emisor !== 'bartez') {
+        return <div className="mem-cot aparte">Presupuesto de {pres.emisor_nombre ?? 'otra empresa'}: queda como referencia, no suma a Cotizado.</div>;
+    }
+    if (!pres.opciones.length) {
+        return <div className="mem-cot aparte">Presupuesto de Bartez sin un total claro: no suma a Cotizado.</div>;
+    }
+    if (d.sin_cotizado || !d.cotizacion) {
+        return (
+            <div className="mem-cot aparte">
+                {d.sin_cotizado ? 'No suma a Cotizado.' : 'Todavía no sumó a Cotizado.'}{' '}
+                <button type="button" className="enlace" onClick={() => cambiar({ contar: true })} disabled={ocupado}>
+                    {d.sin_cotizado ? 'Sumarlo' : 'Reintentar'}
+                </button>
+            </div>
+        );
+    }
+
+    const q = d.cotizacion;
+    const cerrado = q.estado === 'ganada' || q.estado === 'perdida';
+    const delCotizador = q.origen !== 'documento';
+    const numero = q.numero_externo ?? pres.numero;
+    const elegida = opcionQueCuenta(datos);
+    const fecha = pres.fecha ? new Date(`${pres.fecha}T12:00:00`).toLocaleDateString('es-AR') : null;
+    return (
+        <div className={`mem-cot ev-${q.estado}`}>
+            <div className="mem-cot-fila">
+                <span className="mem-cot-marca">{q.estado === 'ganada' ? '✓ Ganado' : q.estado === 'perdida' ? 'Perdido' : 'Suma a Cotizado'}</span>
+                {q.total_usd != null && <strong className="mem-cot-monto">{plata(q.total_usd)}</strong>}
+                <span className="mem-cot-dato">{[numero && `N° ${numero}`, fecha].filter(Boolean).join(' · ')}</span>
+            </div>
+            {delCotizador && <div className="mem-ayuda">Es el presupuesto N° {q.numero} que armaste en el Cotizador.</div>}
+            {!delCotizador && pres.opciones.length > 1 && (
+                <label className="mem-cot-opcion">
+                    <span>Opción que cuenta</span>
+                    <select value={elegida} disabled={ocupado || cerrado} onChange={(e) => cambiar({ opcion: Number(e.target.value) })}>
+                        {pres.opciones.map((o, i) => <option key={i} value={i}>{o.nombre} · {plata(o.total, pres.moneda)}</option>)}
+                    </select>
+                </label>
+            )}
+            <div className="mem-cot-acc">
+                {irA && <button type="button" className="enlace" onClick={() => { abrirEnCotizador(q.id); irA('cotizador'); }}>Ver en el Cotizador</button>}
+                {!delCotizador && !cerrado && (
+                    <button type="button" className="enlace mem-cot-quitar" onClick={() => cambiar({ contar: false })} disabled={ocupado}>No sumarlo</button>
+                )}
+            </div>
+        </div>
     );
 }
 
@@ -435,21 +534,29 @@ export function fechaHora(iso: string | undefined): string {
     return `${d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', ...(mismoAnio ? {} : { year: 'numeric' }) })} ${hora}`;
 }
 
+// **negrita** dentro de una línea.
+function enLinea(texto: string): React.ReactNode {
+    const partes = texto.split(/(\*\*[^*]+\*\*)/g);
+    if (partes.length === 1) return texto;
+    return partes.map((t, i) => (t.startsWith('**') && t.endsWith('**') && t.length > 4 ? <strong key={i}>{t.slice(2, -2)}</strong> : t));
+}
+
 export function formatearMarkdown(md: string): React.ReactNode {
     const lineas = md.split('\n');
     const out: React.ReactNode[] = [];
     let bullets: string[] = [];
     const flush = (k: string) => {
-        if (bullets.length > 0) { out.push(<ul key={k}>{bullets.map((b, i) => <li key={i}>{b}</li>)}</ul>); bullets = []; }
+        if (bullets.length > 0) { out.push(<ul key={k}>{bullets.map((b, i) => <li key={i}>{enLinea(b)}</li>)}</ul>); bullets = []; }
     };
     lineas.forEach((raw, i) => {
         const l = raw.trim();
         if (!l) { flush(`u${i}`); return; }
-        if (l.startsWith('## ')) { flush(`u${i}`); out.push(<h3 key={i}>{l.slice(3)}</h3>); return; }
-        if (l.startsWith('# ')) { flush(`u${i}`); out.push(<h2 key={i}>{l.slice(2)}</h2>); return; }
+        if (l.startsWith('### ')) { flush(`u${i}`); out.push(<h4 key={i}>{enLinea(l.slice(4))}</h4>); return; }
+        if (l.startsWith('## ')) { flush(`u${i}`); out.push(<h3 key={i}>{enLinea(l.slice(3))}</h3>); return; }
+        if (l.startsWith('# ')) { flush(`u${i}`); out.push(<h2 key={i}>{enLinea(l.slice(2))}</h2>); return; }
         if (l.startsWith('- ') || l.startsWith('* ')) { bullets.push(l.slice(2)); return; }
         flush(`u${i}`);
-        out.push(<p key={i}>{l}</p>);
+        out.push(<p key={i}>{enLinea(l)}</p>);
     });
     flush('final');
     return <>{out}</>;

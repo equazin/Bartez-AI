@@ -21,7 +21,7 @@ const ETIQUETA_FILTRO: Record<EstadoFiltro, string> = {
     detectado: 'Detectados', inactivo: 'Inactivos', descartado: 'Descartados',
 };
 
-export function Seguimientos() {
+export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
     const [empresas, setEmpresas] = useState<EmpresaSeguimiento[]>([]);
     const [seleccionada, setSeleccionada] = useState<DetalleEmpresa | null>(null);
     const [seleccionadaId, setSeleccionadaId] = useState<string | null>(null);
@@ -331,6 +331,7 @@ export function Seguimientos() {
                                     informeSuelto={informe}
                                     generando={generandoInforme}
                                     onRehacer={() => pedirInforme(true)}
+                                    irA={irA}
                                 />
                             )}
 

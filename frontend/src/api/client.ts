@@ -441,6 +441,10 @@ export interface Cotizacion {
     estado?: EstadoVenta;
     enviada_en?: string | null;
     cerrada_en?: string | null;
+    // 'documento': presupuesto hecho fuera del Cotizador, subido a la ficha del cliente
+    origen?: 'cotizador' | 'documento';
+    numero_externo?: string | null;
+    documento?: { id: string; nombre: string } | null;
     motivo_cierre?: string | null;
 }
 
@@ -497,6 +501,8 @@ export interface CotizacionResumen {
     cerrada_en: string | null;
     motivo_cierre: string | null;
     cliente_id: string | null;
+    origen?: 'cotizador' | 'documento';
+    numero_externo?: string | null;
 }
 
 export type EstadoVenta = 'abierta' | 'enviada' | 'ganada' | 'perdida';
@@ -730,6 +736,37 @@ export interface DocumentoCliente {
     error: string | null;
     creado_en: string;
     procesado_en: string | null;
+    // Si es un presupuesto: lo que leyó la IA, si cuenta en Cotizado y su cotización
+    datos?: DatosDocumento | null;
+    sin_cotizado?: boolean;
+    cotizacion_id?: string | null;
+    cotizacion?: { id: string; total_usd: number | null; estado: EstadoVenta; origen: string; numero: number | null; numero_externo: string | null } | null;
+}
+
+export interface OpcionPresupuesto { nombre: string; total: number }
+export interface DatosDocumento {
+    version: number;
+    presupuesto: {
+        emisor: 'bartez' | 'otro';
+        emisor_nombre: string | null;
+        para: string | null;
+        numero: string | null;
+        fecha: string | null;
+        objeto: string | null;
+        moneda: 'USD' | 'ARS';
+        iva_incluido: boolean;
+        tipo_cambio: number | null;
+        opciones: OpcionPresupuesto[];
+    } | null;
+    // Opción que cuenta en Cotizado; si no se eligió, la más baja
+    opcion?: number;
+}
+
+// Contar o no el presupuesto del documento en Cotizado, o elegir qué opción cuenta.
+export async function cotizadoDocumento(docId: string, cambios: { contar?: boolean; opcion?: number }): Promise<{ documento: DocumentoCliente }> {
+    return jsonOError(await apiFetch(`${BASE}/seguimientos/documentos/${docId}/cotizado`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cambios),
+    }));
 }
 
 export interface MemoriaCliente { informes: InformeGuardado[]; notas: NotaCliente[]; documentos: DocumentoCliente[] }
@@ -1146,7 +1183,7 @@ export interface NodoMapa {
     compras: number | null;
     historia: Array<{ fecha: string; texto: string; tipo: 'consulta' | 'presupuesto' | 'venta' | 'contacto' }>;
     sugerencia: string;
-    acciones: Array<{ etiqueta: string; tipo: 'chat' | 'ir'; texto?: string; destino?: DestinoMapa }>;
+    acciones: Array<{ etiqueta: string; tipo: 'chat' | 'ir'; texto?: string; destino?: DestinoMapa; cotizacion_id?: string }>;
 }
 
 export interface AsistenteMapa {
