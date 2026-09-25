@@ -13,6 +13,8 @@ export interface Pulso {
     dias: string[];
     consultas_correo: number[];
     consultas_whatsapp: number[];
+    // Consultas por semana (lunes a domingo), las últimas 8; la última es la actual.
+    semanas: { inicio: string[]; correo: number[]; whatsapp: number[] };
     cotizado_usd: number[];
     leads_nuevos: number[];
     kpis: {
@@ -51,7 +53,8 @@ async function todas<T>(armar: (desde: number, hasta: number) => PromiseLike<{ d
 
 export async function calcularPulso(): Promise<Pulso> {
     const ahora = Date.now();
-    const hace60 = new Date(ahora - 60 * DIA_MS).toISOString();
+    // 64 días alcanzan para 8 semanas completas más la semana en curso.
+    const hace60 = new Date(ahora - 64 * DIA_MS).toISOString();
     const hoyStr = dia(new Date(ahora).toISOString());
 
     const [correos, wa, cots, clientes, acciones, conCorreo, conWa, cerradas, esperando] = await Promise.all([
@@ -73,7 +76,20 @@ export async function calcularPulso(): Promise<Pulso> {
     const serie = () => dias.map(() => 0);
     const consultasCorreo = serie(), consultasWa = serie(), cotizado = serie(), leads = serie();
     for (const c of correos) { const i = indice.get(dia(c.fecha)); if (i != null) consultasCorreo[i]!++; }
+
+    // Semanas que arrancan el lunes (en horario de Argentina).
+    const hoyAr = new Date(`${dia(new Date(ahora).toISOString())}T12:00:00-03:00`);
+    const lunes = new Date(hoyAr.getTime() - ((hoyAr.getUTCDay() + 6) % 7) * DIA_MS);
+    const inicioSemanas: string[] = [];
+    for (let k = 7; k >= 0; k--) inicioSemanas.push(dia(new Date(lunes.getTime() - k * 7 * DIA_MS).toISOString()));
+    const semana = (d: string) => {
+        for (let k = inicioSemanas.length - 1; k >= 0; k--) if (d >= inicioSemanas[k]!) return k;
+        return -1;
+    };
+    const semCorreo = inicioSemanas.map(() => 0), semWa = inicioSemanas.map(() => 0);
+    for (const c of correos) { const k = semana(dia(c.fecha)); if (k >= 0) semCorreo[k]!++; }
     for (const m of wa) { const i = indice.get(dia(m.creado_en)); if (i != null) consultasWa[i]!++; }
+    for (const m of wa) { const k = semana(dia(m.creado_en)); if (k >= 0) semWa[k]!++; }
     for (const c of cots) { const i = indice.get(dia(c.creado_en)); if (i != null) cotizado[i]! += Number(c.total_usd ?? 0); }
     for (const c of clientes) { const i = indice.get(dia(c.creado_en)); if (i != null) leads[i]!++; }
 
@@ -113,6 +129,7 @@ export async function calcularPulso(): Promise<Pulso> {
         dias,
         consultas_correo: consultasCorreo,
         consultas_whatsapp: consultasWa,
+        semanas: { inicio: inicioSemanas, correo: semCorreo, whatsapp: semWa },
         cotizado_usd: cotizado.map((v) => Math.round(v * 100) / 100),
         leads_nuevos: leads,
         kpis: {

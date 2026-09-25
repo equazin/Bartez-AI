@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AccionPendiente, Pulso, ResumenHoy, listarAcciones, resumenHoy } from '../api/client.ts';
-import { Chat } from './Chat.tsx';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 import { BarrasEmbudo, ColumnasApiladas, Sparkline } from './graficos.tsx';
@@ -10,50 +9,10 @@ type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion
 const TZ = 'America/Argentina/Buenos_Aires';
 
 const usd = (n: number) => `US$ ${n.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
 const usdCorto = (n: number) => (n >= 10_000 ? `US$ ${(n / 1000).toLocaleString('es-AR', { maximumFractionDigits: 1 })} k` : usd(n));
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-AR', { timeZone: TZ, hour: '2-digit', minute: '2-digit' });
 const diaCorto = (iso: string) => new Date(iso).toLocaleDateString('es-AR', { timeZone: TZ, day: '2-digit', month: '2-digit' });
-
-// ---------- Chips: lo que pide atención, cada uno lleva a resolverlo ----------
-
-interface Chip { clave: string; texto: string; n: number; tono: 'espera' | 'urgente' | 'normal'; ir: () => void }
-
-function Chips({ chips }: { chips: Chip[] }) {
-    return (
-        <nav className="hoy-chips" aria-label="Qué pide atención hoy">
-            {chips.length === 0 && <span className="hc hc-ok"><span aria-hidden="true">✓</span> Todo al día</span>}
-            {chips.map((c) => (
-                <button key={c.clave} className={`hc hc-${c.tono}`} onClick={c.ir}>
-                    <b>{c.n}</b> {c.texto}
-                </button>
-            ))}
-        </nav>
-    );
-}
-
-// ---------- La línea: franja fina con el recorrido de hoy ----------
-
-function Linea({ r, tuOk, irA }: { r: ResumenHoy; tuOk: number; irA: (t: IrA) => void }) {
-    const l = r.linea;
-    const estaciones: Array<{ clave: string; etiqueta: string; numero: number; detalle: string; ir: IrA }> = [
-        { clave: 'entra', etiqueta: 'Entra', numero: l.entra.total, detalle: `${l.entra.correos} correo · ${l.entra.whatsapp} WA`, ir: 'whatsapp' },
-        { clave: 'propone', etiqueta: 'Propone', numero: l.propone, detalle: 'redactadas', ir: 'acciones' },
-        { clave: 'tuok', etiqueta: 'Tu OK', numero: tuOk, detalle: 'esperando', ir: 'acciones' },
-        { clave: 'sale', etiqueta: 'Sale', numero: l.sale.aprobadas, detalle: l.sale.rechazadas ? `${l.sale.rechazadas} rechazada${l.sale.rechazadas === 1 ? '' : 's'}` : 'aprobadas', ir: 'bitacora' },
-    ];
-    return (
-        <section className="franja" aria-label="Recorrido de hoy">
-            {estaciones.map((e, i) => (
-                <button key={e.clave} type="button" className={`franja-paso paso-${e.clave}`} onClick={() => irA(e.ir)}>
-                    {i > 0 && <span className="franja-flecha" aria-hidden="true">→</span>}
-                    <span className="franja-etq">{e.etiqueta}</span>
-                    <span className="franja-num">{e.numero}</span>
-                    <span className="franja-det">{e.detalle}</span>
-                </button>
-            ))}
-        </section>
-    );
-}
 
 // ---------- Indicadores ----------
 
@@ -75,43 +34,36 @@ function Kpis({ p, irA }: { p: Pulso; irA: (t: IrA) => void }) {
         perdidas_90d: p.kpis.perdidas_90d ?? 0,
     };
     const consultas = p.dias.map((_, i) => (p.consultas_correo[i] ?? 0) + (p.consultas_whatsapp[i] ?? 0));
-    const tasa = k.resueltas_30d ? Math.round((k.aprobadas_30d / k.resueltas_30d) * 100) : null;
-    const hoy = (v: number[]) => v[v.length - 1] ?? 0;
+    const cerradas = k.ganadas_90d + k.perdidas_90d;
     return (
-        <div className="kpis">
+        <div className="kpis kpis-4">
             <button className="kpi" onClick={() => irA('cotizador')}>
                 <span className="kpi-etq">Cotizado este mes</span>
                 <span className="kpi-num">{usdCorto(k.cotizado_mes_usd)}</span>
-                <span className="kpi-pie"><Delta actual={k.cotizado_mes_usd} anterior={k.cotizado_mes_anterior_usd} sufijo="vs mes ant." /><span className="kpi-hoy">hoy {usdCorto(hoy(p.cotizado_usd))}</span></span>
+                <Delta actual={k.cotizado_mes_usd} anterior={k.cotizado_mes_anterior_usd} sufijo="vs mes anterior" />
                 <Sparkline valores={p.cotizado_usd} titulo="Cotizado por día, últimos 30 días" />
             </button>
             <button className="kpi" onClick={() => irA('cotizador')}>
                 <span className="kpi-etq">Ganado este mes</span>
                 <span className="kpi-num">{usdCorto(k.ganado_mes_usd)}</span>
-                <span className="kpi-pie"><Delta actual={k.ganado_mes_usd} anterior={k.ganado_mes_anterior_usd} sufijo="vs mes ant." /></span>
+                <Delta actual={k.ganado_mes_usd} anterior={k.ganado_mes_anterior_usd} sufijo="vs mes anterior" />
                 <span className="kpi-nota">
-                    {k.ganadas_90d + k.perdidas_90d > 0
-                        ? `cierre ${Math.round((k.ganadas_90d / (k.ganadas_90d + k.perdidas_90d)) * 100)}% · ${k.ganadas_90d} de ${k.ganadas_90d + k.perdidas_90d} en 90 días`
-                        : `${k.presupuestos_mes} presupuestos este mes`}
+                    {cerradas > 0
+                        ? <>Cierre <strong>{Math.round((k.ganadas_90d / cerradas) * 100)}%</strong> · {k.ganadas_90d} de {cerradas} en 90 días</>
+                        : `${k.presupuestos_mes} presupuestos enviados este mes`}
                 </span>
             </button>
             <button className="kpi" onClick={() => irA('whatsapp')}>
                 <span className="kpi-etq">Consultas · 30 días</span>
                 <span className="kpi-num">{k.consultas_30d.toLocaleString('es-AR')}</span>
-                <span className="kpi-pie"><Delta actual={k.consultas_30d} anterior={k.consultas_30d_anterior} sufijo="vs 30 d ant." /><span className="kpi-hoy">hoy {hoy(consultas)}</span></span>
+                <Delta actual={k.consultas_30d} anterior={k.consultas_30d_anterior} sufijo="vs 30 días antes" />
                 <Sparkline valores={consultas} titulo="Consultas por día, últimos 30 días" />
             </button>
             <button className="kpi" onClick={() => irA('prospeccion')}>
                 <span className="kpi-etq">Leads nuevos · 30 días</span>
                 <span className="kpi-num">{k.leads_30d}</span>
-                <span className="kpi-pie"><Delta actual={k.leads_30d} anterior={k.leads_30d_anterior} sufijo="vs 30 d ant." /><span className="kpi-hoy">hoy {hoy(p.leads_nuevos)}</span></span>
+                <Delta actual={k.leads_30d} anterior={k.leads_30d_anterior} sufijo="vs 30 días antes" />
                 <Sparkline valores={p.leads_nuevos} titulo="Leads nuevos por día, últimos 30 días" />
-            </button>
-            <button className="kpi" onClick={() => irA('bitacora')}>
-                <span className="kpi-etq">Propuestas aprobadas</span>
-                <span className="kpi-num">{tasa == null ? '—' : `${tasa}%`}</span>
-                <span className="kpi-pie"><span className="delta">{k.aprobadas_30d} de {k.resueltas_30d} en 30 días</span></span>
-                <span className="kpi-medidor" aria-hidden="true"><span style={{ width: `${tasa ?? 0}%` }} /></span>
             </button>
         </div>
     );
@@ -162,13 +114,15 @@ function FilaAprobar({ a, idx, abierta, seleccionada, alternar, encolar, irA }: 
 function Esqueleto() {
     return (
         <div className="esqueleto" aria-busy="true" aria-label="Cargando el día">
-            <div className="esq-fila">{[90, 130, 110].map((w) => <span key={w} className="esq esq-chip" style={{ width: w }} />)}</div>
-            <span className="esq esq-franja" />
+            <span className="esq esq-plan" />
             <div className="esq-trabajo"><span className="esq esq-bloque" /><span className="esq esq-bloque" /></div>
-            <div className="esq-kpis">{[1, 2, 3, 4, 5].map((i) => <span key={i} className="esq esq-kpi" />)}</div>
+            <div className="esq-kpis">{[1, 2, 3, 4].map((i) => <span key={i} className="esq esq-kpi" />)}</div>
         </div>
     );
 }
+
+const semanaCorta = (d: string) => new Date(`${d}T12:00:00-03:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric' });
+const semanaLarga = (d: string) => `Semana del ${new Date(`${d}T12:00:00-03:00`).toLocaleDateString('es-AR', { day: 'numeric', month: 'long' })}`;
 
 export function Home({ irA }: { irA: (t: IrA) => void }) {
     const [r, setR] = useState<ResumenHoy | null>(null);
@@ -251,18 +205,14 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
     const hoyIso = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
     const tareas = (f?.tareas_notion ?? []).filter((t) => t.estado === 'pendiente');
     const tareasUrgentes = tareas.filter((t) => t.fecha_limite && t.fecha_limite <= hoyIso);
+    const tareasVencidas = tareasUrgentes.filter((t) => t.fecha_limite! < hoyIso).length;
     const prioridades = r?.prioridades?.items ?? [];
     const prioridadesDeHoy = r?.prioridades && new Date(r.prioridades.fecha).toLocaleDateString('en-CA', { timeZone: TZ }) === hoyIso;
-    const sinResponder = waPendientes.length + correosSinResp.length + tareasUrgentes.length;
-    const tuOk = Math.max((r?.linea.tu_ok ?? 0) - enCola.length, 0);
-
-    const irASinResponder = () => document.getElementById('sin-responder')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const chips: Chip[] = [];
-    if (tuOk) chips.push({ clave: 'ok', n: tuOk, texto: tuOk === 1 ? 'espera tu OK' : 'esperan tu OK', tono: 'espera', ir: () => irA('acciones') });
-    if (waPendientes.length) chips.push({ clave: 'wa', n: waPendientes.length, texto: waPendientes.length === 1 ? 'WhatsApp vence hoy' : 'WhatsApp vencen hoy', tono: waPendientes.some((w) => w.hace_horas >= 18) ? 'urgente' : 'normal', ir: () => irA('whatsapp') });
-    if (correosSinResp.length) chips.push({ clave: 'correo', n: correosSinResp.length, texto: correosSinResp.length === 1 ? 'correo sin responder' : 'correos sin responder', tono: 'normal', ir: irASinResponder });
-    if (p?.esperando_total) chips.push({ clave: 'presupuestos', n: p.esperando_total, texto: p.esperando_total === 1 ? 'presupuesto sin respuesta' : 'presupuestos sin respuesta', tono: 'normal', ir: () => irA('cotizador') });
-    if (tareasUrgentes.length) chips.push({ clave: 'tareas', n: tareasUrgentes.length, texto: tareasUrgentes.length === 1 ? 'tarea para hoy' : 'tareas para hoy', tono: tareasUrgentes.some((t) => t.fecha_limite! < hoyIso) ? 'urgente' : 'normal', ir: () => irA('notion') });
+    const paraResponder = waPendientes.length + correosSinResp.length;
+    const esperando = p?.esperando_total ?? 0;
+    const todoAlDia = visibles.length === 0 && paraResponder === 0;
+    const l = r?.linea;
+    const aprobacion = p && p.kpis.resueltas_30d ? Math.round((p.kpis.aprobadas_30d / p.kpis.resueltas_30d) * 100) : null;
 
     return (
         <div className="hoy">
@@ -270,6 +220,15 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                 <div>
                     <div className="eyebrow">{fecha}</div>
                     <h1>Hoy</h1>
+                    {l && l.entra.total === 0 && l.sale.aprobadas === 0 && (
+                        <p className="hoy-resumen">Todavía no entró ninguna consulta hoy.</p>
+                    )}
+                    {l && (l.entra.total > 0 || l.sale.aprobadas > 0) && (
+                        <p className="hoy-resumen">
+                            Entraron <strong>{plural(l.entra.total, 'consulta', 'consultas')}</strong> ({l.entra.correos} por correo, {l.entra.whatsapp} por WhatsApp)
+                            {' · '}los asistentes propusieron {l.propone}{' · '}salieron {l.sale.aprobadas}
+                        </p>
+                    )}
                 </div>
                 <div className="hoy-actualizado">
                     {r && <span className="hora">Actualizado {hace(r.generado_en)}</span>}
@@ -277,52 +236,95 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                 </div>
             </header>
 
-            {r && <Chips chips={chips} />}
             {error && <p className="error" role="alert">{error}</p>}
             {!r && !error && <Esqueleto />}
 
             {r && f && (
                 <>
-                    <Linea r={r} tuOk={tuOk} irA={irA} />
-
-                    {/* ---- Mesa de trabajo: lo que requiere una acción tuya ---- */}
-                    <section className="mesa" aria-label="Trabajo de hoy">
-                        <div className={`mesa-col mesa-ok ${visibles.length ? 'con-espera' : ''}`}>
-                            <div className="bloque-cabeza">
-                                <h2>Para aprobar <span className="cuenta">{visibles.length}</span></h2>
-                                {visibles.length > mostradas.length && <button className="enlace" onClick={() => irA('acciones')}>Ver las {visibles.length} →</button>}
-                            </div>
-                            {visibles.length === 0 ? (
-                                <div className="hoy-vacio">
-                                    <p>Nada para aprobar. Lo que redacten los asistentes aparece acá.</p>
-                                    <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Buscar prospectos →</button>
-                                </div>
-                            ) : (
-                                <>
-                                    <ul className="lista-seca">
-                                        {mostradas.map((a, i) => (
-                                            <FilaAprobar
-                                                key={a.id} a={a} idx={i} abierta={abierta === a.id} seleccionada={sel === i}
-                                                alternar={() => { setSel(i); setAbierta((v) => (v === a.id ? null : a.id)); }}
-                                                encolar={encolar} irA={irA}
-                                            />
-                                        ))}
-                                    </ul>
-                                    <p className="atajos" aria-hidden="true"><kbd>J</kbd> <kbd>K</kbd> moverse · <kbd>A</kbd> aprobar · <kbd>R</kbd> rechazar · <kbd>E</kbd> editar</p>
-                                </>
-                            )}
+                    {/* ---- El plan de hoy ---- */}
+                    <section className="plan" aria-label="El plan de hoy">
+                        <div className="plan-cab">
+                            <h2>El plan de hoy</h2>
+                            {r.prioridades && !prioridadesDeHoy && <span className="hora">de {diaCorto(r.prioridades.fecha)}</span>}
+                            <button className="enlace" onClick={() => irA('notion')}>Notion →</button>
                         </div>
+                        {prioridades.length === 0 ? (
+                            <p className="plan-vacio">El asistente de Notion arma el plan a las 8:30, 13 y 18 h. <button className="enlace" onClick={() => irA('notion')}>Pedirlo ahora</button></p>
+                        ) : (
+                            <ol className="plan-items">
+                                {prioridades.slice(0, 3).map((x, i) => (
+                                    <li key={i}>
+                                        <span className="plan-num">{i + 1}</span>
+                                        <span className="plan-texto">
+                                            <strong>{x.texto}</strong>
+                                            {x.por_que && <span>{x.por_que}</span>}
+                                        </span>
+                                    </li>
+                                ))}
+                            </ol>
+                        )}
+                        {(esperando > 0 || tareasUrgentes.length > 0) && (
+                            <p className="plan-ademas">
+                                Además:
+                                {esperando > 0 && <button className="enlace" onClick={() => irA('cotizador')}>{plural(esperando, 'presupuesto sin respuesta', 'presupuestos sin respuesta')}</button>}
+                                {tareasUrgentes.length > 0 && (
+                                    <button className={`enlace ${tareasVencidas ? 'enlace-peligro' : ''}`} onClick={() => irA('notion')}>
+                                        {plural(tareasUrgentes.length, 'tarea para hoy', 'tareas para hoy')}{tareasVencidas ? ` (${tareasVencidas} vencida${tareasVencidas > 1 ? 's' : ''})` : ''}
+                                    </button>
+                                )}
+                            </p>
+                        )}
+                    </section>
 
-                        <div className="mesa-col mesa-lado">
-                            <div id="sin-responder">
-                                <div className="bloque-cabeza">
-                                    <h2>Sin responder <span className="cuenta">{sinResponder}</span></h2>
+                    {/* ---- Mesa de trabajo ---- */}
+                    {todoAlDia ? (
+                        <section className="mesa mesa-al-dia" aria-label="Trabajo de hoy">
+                            <div className="al-dia">
+                                <span className="al-dia-icono" aria-hidden="true">✓</span>
+                                <div>
+                                    <h2>Todo al día</h2>
+                                    <p>No hay nada para aprobar ni nadie esperando respuesta.</p>
                                 </div>
-                                {sinResponder === 0 ? (
-                                    <div className="hoy-vacio">
-                                        <p>Nadie esperando respuesta.</p>
-                                        <button className="boton-fantasma" onClick={() => irA('seguimientos')}>Hacer seguimientos →</button>
-                                    </div>
+                            </div>
+                            <div className="al-dia-ideas">
+                                <span className="tenue">Buen momento para:</span>
+                                {esperando > 0 && <button className="boton-fantasma" onClick={() => irA('cotizador')}>Seguir {plural(esperando, 'presupuesto', 'presupuestos')} sin respuesta</button>}
+                                {f.pipeline.leads_sin_contacto_7d > 0 && <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Contactar {plural(f.pipeline.leads_sin_contacto_7d, 'lead quieto', 'leads quietos')}</button>}
+                                <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Buscar prospectos nuevos</button>
+                            </div>
+                        </section>
+                    ) : (
+                        <section className="mesa" aria-label="Trabajo de hoy">
+                            <div className={`mesa-col mesa-ok ${visibles.length ? 'con-espera' : ''}`}>
+                                <div className="bloque-cabeza">
+                                    <h2>Para aprobar <span className="cuenta">{visibles.length}</span></h2>
+                                    {visibles.length > mostradas.length && <button className="enlace" onClick={() => irA('acciones')}>Ver las {visibles.length} →</button>}
+                                </div>
+                                {visibles.length === 0 ? (
+                                    <p className="mesa-vacio">Nada para aprobar.</p>
+                                ) : (
+                                    <>
+                                        <ul className="lista-seca">
+                                            {mostradas.map((a, i) => (
+                                                <FilaAprobar
+                                                    key={a.id} a={a} idx={i} abierta={abierta === a.id} seleccionada={sel === i}
+                                                    alternar={() => { setSel(i); setAbierta((v) => (v === a.id ? null : a.id)); }}
+                                                    encolar={encolar} irA={irA}
+                                                />
+                                            ))}
+                                        </ul>
+                                        <p className="atajos" aria-hidden="true"><kbd>J</kbd> <kbd>K</kbd> moverse · <kbd>A</kbd> aprobar · <kbd>R</kbd> rechazar · <kbd>E</kbd> editar</p>
+                                    </>
+                                )}
+                            </div>
+
+                            <div className="mesa-col mesa-lado" id="para-responder">
+                                <div className="bloque-cabeza">
+                                    <h2>Para responder <span className="cuenta">{paraResponder}</span></h2>
+                                    {waPendientes.length > 0 && <button className="enlace" onClick={() => irA('whatsapp')}>WhatsApp →</button>}
+                                </div>
+                                {paraResponder === 0 ? (
+                                    <p className="mesa-vacio">Nadie esperando respuesta.</p>
                                 ) : (
                                     <ul className="lista-seca">
                                         {waPendientes.map((w, i) => (
@@ -334,7 +336,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                                 </button>
                                             </li>
                                         ))}
-                                        {correosSinResp.slice(0, 5).map((c, i) => (
+                                        {correosSinResp.slice(0, 6).map((c, i) => (
                                             <li key={`c${i}`}>
                                                 <div className="fila-2" title={`${c.de}: ${c.asunto}`}>
                                                     <span className="canal canal-enviar_correo">Correo</span>
@@ -343,62 +345,44 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                                 </div>
                                             </li>
                                         ))}
-                                        {tareasUrgentes.slice(0, 4).map((t) => (
-                                            <li key={t.id}>
-                                                <button className="fila-2" onClick={() => irA('notion')} title={t.titulo}>
-                                                    <span className="canal canal-tarea">Tarea</span>
-                                                    <span className="fila-2-texto"><strong>{t.titulo}</strong>{t.cliente && <span className="tenue">{t.cliente}</span>}</span>
-                                                    <span className={`hora ${t.fecha_limite! < hoyIso ? 'urgente' : ''}`}>{t.fecha_limite! < hoyIso ? `venció ${diaCorto(t.fecha_limite!)}` : 'hoy'}</span>
-                                                </button>
-                                            </li>
-                                        ))}
                                     </ul>
                                 )}
                             </div>
+                        </section>
+                    )}
 
-                            <div className="mesa-sep">
-                                <div className="bloque-cabeza">
-                                    <h2>Prioridades</h2>
-                                    <button className="enlace" onClick={() => irA('notion')}>Notion →</button>
-                                </div>
-                                {prioridades.length === 0 ? (
-                                    <div className="hoy-vacio">
-                                        <p>El asistente de Notion las arma a las 8:30, 13 y 18 h.</p>
-                                        <button className="boton-fantasma" onClick={() => irA('notion')}>Pedirlas ahora →</button>
-                                    </div>
-                                ) : (
-                                    <>
-                                        {!prioridadesDeHoy && r.prioridades && <p className="nota-tenue">Del {diaCorto(r.prioridades.fecha)} · todavía no hay de hoy</p>}
-                                        <ol className="prioridades">
-                                            {prioridades.map((x, i) => (
-                                                <li key={i}>
-                                                    <span className="prio-texto">{x.texto}</span>
-                                                    {x.por_que && <span className="prio-porque">{x.por_que}</span>}
-                                                </li>
-                                            ))}
-                                        </ol>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    </section>
-
-                    {/* ---- Pulso: para mirar, sin tarjetas ---- */}
+                    {/* ---- El negocio ---- */}
                     {p && (
-                        <section className="pulso" aria-label="Pulso de los últimos 30 días">
-                            <h2 className="zona-titulo">Pulso · últimos 30 días</h2>
+                        <section className="pulso" aria-label="El negocio">
+                            <h2 className="zona-titulo">El negocio</h2>
                             <Kpis p={p} irA={irA} />
                             <div className="pulso-graficos">
                                 <div className="grafico">
-                                    <h3>Consultas por día</h3>
-                                    <ColumnasApiladas
-                                        dias={p.dias}
-                                        unidad="consultas"
-                                        series={[
-                                            { nombre: 'Correo', valores: p.consultas_correo, clase: 'serie-1' },
-                                            { nombre: 'WhatsApp', valores: p.consultas_whatsapp, clase: 'serie-2' },
-                                        ]}
-                                    />
+                                    <h3>Consultas por semana</h3>
+                                    {p.semanas ? (
+                                        <ColumnasApiladas
+                                            dias={p.semanas.inicio}
+                                            unidad="consultas"
+                                            titulo={semanaLarga}
+                                            eje={semanaCorta}
+                                            cadaEje={1}
+                                            anchas
+                                            series={[
+                                                { nombre: 'Correo', valores: p.semanas.correo, clase: 'serie-1' },
+                                                { nombre: 'WhatsApp', valores: p.semanas.whatsapp, clase: 'serie-2' },
+                                            ]}
+                                        />
+                                    ) : (
+                                        <ColumnasApiladas
+                                            dias={p.dias}
+                                            unidad="consultas"
+                                            series={[
+                                                { nombre: 'Correo', valores: p.consultas_correo, clase: 'serie-1' },
+                                                { nombre: 'WhatsApp', valores: p.consultas_whatsapp, clase: 'serie-2' },
+                                            ]}
+                                        />
+                                    )}
+                                    <p className="nota-tenue">La última columna es la semana en curso.</p>
                                 </div>
                                 <div className="grafico">
                                     <h3>Embudo de prospectos <button className="enlace" onClick={() => irA('seguimientos')}>Clientes →</button></h3>
@@ -408,7 +392,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                                         { etiqueta: 'Respondieron', valor: p.embudo.respondieron },
                                         { etiqueta: 'Clientes', valor: p.embudo.clientes },
                                     ]} />
-                                    <p className="nota-tenue">{f.pipeline.leads_sin_contacto_7d} leads sin contacto hace más de 7 días.</p>
+                                    <p className="nota-tenue">{plural(f.pipeline.leads_sin_contacto_7d, 'lead', 'leads')} sin contacto hace más de 7 días.</p>
                                 </div>
                             </div>
                         </section>
@@ -418,10 +402,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                         <div className="grafico">
                             <h3>Cotizaciones recientes <button className="enlace" onClick={() => irA('cotizador')}>Cotizar →</button></h3>
                             {f.cotizaciones_14_dias.length === 0 ? (
-                                <div className="hoy-vacio">
-                                    <p>Sin cotizaciones en las últimas 2 semanas.</p>
-                                    <button className="boton-fantasma" onClick={() => irA('cotizador')}>Armar una cotización →</button>
-                                </div>
+                                <p className="tenue">Sin cotizaciones en las últimas 2 semanas.</p>
                             ) : (
                                 <ul className="lista-seca">
                                     {f.cotizaciones_14_dias.slice(0, 5).map((c, i) => (
@@ -436,19 +417,16 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                         <div className="grafico">
                             <h3>Leads calientes <button className="enlace" onClick={() => irA('prospeccion')}>Prospección →</button></h3>
                             {f.pipeline.leads_calientes.length === 0 ? (
-                                <div className="hoy-vacio">
-                                    <p>Todavía no hay leads.</p>
-                                    <button className="boton-fantasma" onClick={() => irA('prospeccion')}>Buscar prospectos →</button>
-                                </div>
+                                <p className="tenue">Todavía no hay leads.</p>
                             ) : (
                                 <ul className="lista-seca">
-                                    {f.pipeline.leads_calientes.slice(0, 5).map((l, i) => (
-                                        <li key={i} className="fila-dato" title={l.nombre}>
-                                            <span className="fila-principal"><strong>{l.nombre}</strong> <span className="tenue">{l.ultimo_contacto ? `contacto ${diaCorto(l.ultimo_contacto)}` : 'sin contactar'}</span></span>
-                                            {l.icp != null && (
-                                                <span className="icp" title={`ICP ${l.icp}/10`}>
-                                                    <span className="icp-barra"><span style={{ width: `${l.icp * 10}%` }} /></span>
-                                                    <span className="monto">{l.icp}</span>
+                                    {f.pipeline.leads_calientes.slice(0, 5).map((ld, i) => (
+                                        <li key={i} className="fila-dato" title={ld.nombre}>
+                                            <span className="fila-principal"><strong>{ld.nombre}</strong> <span className="tenue">{ld.ultimo_contacto ? `contacto ${diaCorto(ld.ultimo_contacto)}` : 'sin contactar'}</span></span>
+                                            {ld.icp != null && (
+                                                <span className="icp" title={`Encaje con el cliente ideal: ${ld.icp}/10`}>
+                                                    <span className="icp-barra"><span style={{ width: `${ld.icp * 10}%` }} /></span>
+                                                    <span className="monto">{ld.icp}</span>
                                                 </span>
                                             )}
                                         </li>
@@ -458,8 +436,11 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                         </div>
                     </section>
 
+                    {/* ---- Los asistentes y el sistema ---- */}
                     <footer className="hoy-sistema">
-                        <button className="enlace" onClick={() => irA('bitacora')}>IA hoy <b>US$ {r.costo_hoy_usd.toFixed(2)}</b></button>
+                        <span className="hoy-sistema-titulo">Asistentes</span>
+                        {aprobacion != null && <button className="enlace" onClick={() => irA('dashboard')}>Aprobás el <b>{aprobacion}%</b> de lo que proponen</button>}
+                        <button className="enlace" onClick={() => irA('dashboard')}>IA hoy <b>US$ {r.costo_hoy_usd.toFixed(2)}</b></button>
                         {f.proveedores.map((x) => (
                             <span key={x.nombre} title={x.ultima_sync ? `Última sincronización ${diaCorto(x.ultima_sync)} ${hora(x.ultima_sync)}` : 'Sin sincronizar'}>
                                 <span className={`semaforo ${x.estado === 'ok' ? 'verde' : x.estado ? 'rojo' : 'gris'}`} aria-hidden="true" />
@@ -471,10 +452,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                 </>
             )}
 
-            <div className="hoy-dock">
-                <AvisosDeshacer enCola={enCola} deshacer={cola.deshacer} />
-                <Chat modo="barra" alAbrirChat={() => irA('chat')} />
-            </div>
+            <div className="dock-avisos"><AvisosDeshacer enCola={enCola} deshacer={cola.deshacer} /></div>
         </div>
     );
 }

@@ -59,14 +59,16 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
         if (caja) caja.scrollTop = caja.scrollHeight;
     }, [historial, cargando, abierto]);
 
+    // Al abrir el chat flotante, el cursor queda listo para escribir.
+    useEffect(() => { if (barra && abierto) entradaRef.current?.focus(); }, [barra, abierto]);
+
     // Barra: Ctrl/Cmd+K abre, Esc o un clic afuera la cierran.
     useEffect(() => {
         if (!barra) return;
         const tecla = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
-                setAbierto(true);
-                entradaRef.current?.focus();
+                setAbierto((v) => !v);
             } else if (e.key === 'Escape' && abierto) {
                 setAbierto(false);
                 entradaRef.current?.blur();
@@ -150,13 +152,11 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
 
     const campo = (
         <div className="entrada">
-            {barra && <kbd className="atajo" aria-hidden="true">Ctrl K</kbd>}
             <textarea
                 ref={entradaRef}
                 rows={barra ? 1 : 3}
                 value={entrada}
                 onChange={(e) => setEntrada(e.target.value)}
-                onFocus={() => barra && setAbierto(true)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(); }
                 }}
@@ -169,23 +169,32 @@ export function Chat({ modo = 'pagina', alAbrirChat }: { modo?: 'pagina' | 'barr
         </div>
     );
 
+    // Chat flotante: un botón chico abajo a la derecha que abre el chat encima
+    // de cualquier pantalla (Ctrl+K), sin ocupar lugar cuando no se usa.
     if (barra) {
+        if (!abierto) {
+            return (
+                <button className="chat-fab" onClick={() => setAbierto(true)} aria-label="Abrir el chat de Bartez AI" title="Preguntale algo a Bartez AI (Ctrl+K)">
+                    <span className="chat-fab-icono" aria-hidden="true">✦</span>
+                    <span className="chat-fab-texto">Preguntar</span>
+                    <kbd className="chat-fab-atajo" aria-hidden="true">Ctrl K</kbd>
+                    {cargando && <span className="chat-fab-punto" aria-label="respondiendo" />}
+                </button>
+            );
+        }
         return (
-            <section ref={cajaRef} className={`chat chat-barra ${abierto ? 'abierto' : ''}`} aria-label="Bartez AI">
-                {abierto && (
-                    <div className="barra-panel">
-                        <div className="barra-cab">
-                            <strong>Bartez AI</strong>
-                            <span className="tenue">{historial.length ? `${historial.length} mensajes` : 'Preguntá por el negocio o pedí algo'}</span>
-                            <span className="barra-cab-acciones">
-                                {historial.length > 0 && <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva</button>}
-                                {alAbrirChat && <button className="enlace" onClick={alAbrirChat}>Abrir en Chat</button>}
-                                <button className="barra-cerrar" onClick={() => setAbierto(false)} aria-label="Minimizar el chat">✕</button>
-                            </span>
-                        </div>
-                        {historial.length === 0 && !cargando ? sugerencias : hilo(historial)}
-                    </div>
-                )}
+            <section ref={cajaRef} className="chat chat-flotante" role="dialog" aria-label="Chat con Bartez AI">
+                <div className="barra-cab">
+                    <strong>Bartez AI</strong>
+                    <span className="barra-cab-acciones">
+                        {historial.length > 0 && <button className="enlace" onClick={nuevaConversacion} disabled={cargando}>Nueva</button>}
+                        {alAbrirChat && <button className="enlace" onClick={() => { setAbierto(false); alAbrirChat(); }} title="Abrir en pantalla completa">Ampliar</button>}
+                        <button className="barra-cerrar" onClick={() => setAbierto(false)} aria-label="Cerrar el chat">✕</button>
+                    </span>
+                </div>
+                <div className="chat-flotante-cuerpo">
+                    {historial.length === 0 && !cargando ? sugerencias : hilo(historial)}
+                </div>
                 {campo}
             </section>
         );

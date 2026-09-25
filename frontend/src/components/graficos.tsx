@@ -43,14 +43,18 @@ export function Sparkline({ valores, titulo }: { valores: number[]; titulo: stri
 
 export interface Serie { nombre: string; valores: number[]; clase: 'serie-1' | 'serie-2' }
 
-export function ColumnasApiladas({ dias, series, unidad }: { dias: string[]; series: Serie[]; unidad: string }) {
+export function ColumnasApiladas({ dias, series, unidad, titulo = diaLargo, eje = diaEje, cadaEje = 7, anchas = false }: {
+    dias: string[]; series: Serie[]; unidad: string;
+    // Cómo se nombra cada columna en el tooltip y en el eje (días por defecto).
+    titulo?: (d: string) => string; eje?: (d: string) => string; cadaEje?: number; anchas?: boolean;
+}) {
     const [foco, setFoco] = useState<number | null>(null);
     const totales = dias.map((_, i) => series.reduce((s, x) => s + (x.valores[i] ?? 0), 0));
     const max = techo(Math.max(...totales));
     const marcas = [max, max / 2, 0];
     const promedio = totales.reduce((a, b) => a + b, 0) / (totales.length || 1);
     return (
-        <div className="columnas">
+        <div className={`columnas ${anchas ? 'anchas' : ''}`}>
             <div className="leyenda" aria-hidden="true">
                 {series.map((s) => (
                     <span key={s.nombre}><i className={`muestra ${s.clase}`} />{s.nombre}</span>
@@ -75,7 +79,7 @@ export function ColumnasApiladas({ dias, series, unidad }: { dias: string[]; ser
                             onFocus={() => setFoco(i)}
                             onBlur={() => setFoco(null)}
                             tabIndex={0}
-                            aria-label={`${diaLargo(d)}: ${series.map((s) => `${s.nombre} ${s.valores[i] ?? 0}`).join(', ')}`}
+                            aria-label={`${titulo(d)}: ${series.map((s) => `${s.nombre} ${s.valores[i] ?? 0}`).join(', ')}`}
                         >
                             <div className="columna-pila" style={{ height: `${(totales[i]! / max) * 100}%` }}>
                                 {series.map((s) => {
@@ -87,7 +91,7 @@ export function ColumnasApiladas({ dias, series, unidad }: { dias: string[]; ser
                     ))}
                     {foco != null && (
                         <div className={`tooltip ${foco > dias.length * 0.6 ? 'izq' : ''}`} style={{ left: `${((foco + 0.5) / dias.length) * 100}%` }}>
-                            <strong>{diaLargo(dias[foco]!)}</strong>
+                            <strong>{titulo(dias[foco]!)}</strong>
                             {series.map((s) => (
                                 <span key={s.nombre} className="tooltip-fila"><i className={`muestra ${s.clase}`} />{s.nombre}<b>{s.valores[foco] ?? 0}</b></span>
                             ))}
@@ -97,7 +101,7 @@ export function ColumnasApiladas({ dias, series, unidad }: { dias: string[]; ser
                 </div>
             </div>
             <div className="columnas-x" aria-hidden="true">
-                {dias.map((d, i) => <span key={d}>{i % 7 === (dias.length - 1) % 7 ? diaEje(d) : ''}</span>)}
+                {dias.map((d, i) => <span key={d}>{i % cadaEje === (dias.length - 1) % cadaEje ? eje(d) : ''}</span>)}
             </div>
         </div>
     );

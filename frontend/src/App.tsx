@@ -208,6 +208,9 @@ export function App() {
                 {tab === 'notion' && <NotionPanel />}
                 {tab === 'bitacora' && <Bitacora />}
             </main>
+
+            {/* El chat está a mano en todas las pantallas (menos en la suya). */}
+            {tab !== 'chat' && <Chat modo="barra" alAbrirChat={() => setTab('chat')} />}
         </div>
     );
 }

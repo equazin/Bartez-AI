@@ -1006,6 +1006,8 @@ export interface Pulso {
     dias: string[];
     consultas_correo: number[];
     consultas_whatsapp: number[];
+    // Últimas 8 semanas (lunes a domingo); falta si el backend es anterior.
+    semanas?: { inicio: string[]; correo: number[]; whatsapp: number[] };
     cotizado_usd: number[];
     leads_nuevos: number[];
     kpis: {
