@@ -200,3 +200,29 @@ export async function consultarAds(gaql: string): Promise<FilaAds[]> {
     }
     return (Array.isArray(j) ? j : [j]).flatMap((b) => ((b as { results?: FilaAds[] })?.results ?? []));
 }
+
+// Cambios en Google Ads (crear o pausar un anuncio). Siempre se prueban primero
+// con validateOnly: Google revisa el cambio sin aplicarlo; si pasa, se aplica.
+export async function mutarAds(recurso: 'adGroupAds', operaciones: unknown[]): Promise<Array<{ resourceName?: string }>> {
+    const c = adsConfig();
+    if (faltantesAds().length) throw new Error(`Falta configurar: ${faltantesAds().join(', ')}`);
+    const v = await versionApi();
+    const headers: Record<string, string> = { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' };
+    if (c.loginCustomerId) headers['login-customer-id'] = c.loginCustomerId;
+    const url = `https://googleads.googleapis.com/${v}/customers/${c.customerId}/${recurso}:mutate`;
+    const llamar = async (validateOnly: boolean) => {
+        const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ operations: operaciones, validateOnly }), signal: AbortSignal.timeout(60_000) });
+        const j = await r.json().catch(() => null) as { results?: Array<{ resourceName?: string }>; error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string; errorCode?: Record<string, string> }> }> } } | null;
+        if (!r.ok) {
+            const e0 = j?.error?.details?.[0]?.errors?.[0];
+            const codigo = Object.values(e0?.errorCode ?? {}).join(' ');
+            if (/CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION|ACTION_NOT_PERMITTED/.test(codigo)) {
+                throw new Error('Google Ads: el proyecto de Google Cloud no tiene permiso para hacer cambios en la cuenta. Pedí el acceso Básico en console.cloud.google.com/google/ads-apis/overview.');
+            }
+            throw new Error(`Google Ads: ${e0?.message ?? j?.error?.message ?? `HTTP ${r.status}`}`);
+        }
+        return j?.results ?? [];
+    };
+    await llamar(true);
+    return llamar(false);
+}

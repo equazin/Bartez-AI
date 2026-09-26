@@ -164,6 +164,8 @@ export interface ResumenPublicidad {
     campanias: Array<{ id: string; nombre: string; estado: string | null; gasto: number; clics: number; conversiones: number; presupuesto_diario: number | null }>;
     alertas: Alerta[];
     historial: Awaited<ReturnType<typeof historialMensual>>;
+    diario: Array<{ fecha: string; gasto: number; conversiones: number }>;
+    dias_mes: number;
 }
 
 export async function resumenPublicidad(): Promise<ResumenPublicidad> {
@@ -214,6 +216,16 @@ export async function resumenPublicidad(): Promise<ResumenPublicidad> {
         campanias,
         alertas: await alertasRecientes(),
         historial: await historialMensual(),
+        diario: (() => {
+            const m = new Map<string, { fecha: string; gasto: number; conversiones: number }>();
+            for (const f of filas) {
+                const a = m.get(f.fecha) ?? { fecha: f.fecha, gasto: 0, conversiones: 0 };
+                a.gasto += num(f.costo); a.conversiones += num(f.conversiones);
+                m.set(f.fecha, a);
+            }
+            return [...m.values()].sort((a, b) => a.fecha.localeCompare(b.fecha)).map((x) => ({ ...x, gasto: Math.round(x.gasto) }));
+        })(),
+        dias_mes: diasMes,
     };
 }
 

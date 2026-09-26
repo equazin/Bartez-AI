@@ -3,6 +3,32 @@ import { AccionPendiente, EnvioFallido, listarAcciones, listarEnviosFallidos, pd
 import { EnviosFallidos } from './EnviosFallidos.tsx';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
+import { AnuncioGoogle } from './publicidad/AnuncioGoogle.tsx';
+
+// Anuncio nuevo de Google Ads: cómo se vería y de dónde salió cada línea.
+function VistaAnuncio({ payload }: { payload: Record<string, unknown> }) {
+    const titulos = (payload.titulos as string[] | undefined) ?? [];
+    const descripciones = (payload.descripciones as string[] | undefined) ?? [];
+    const fuentes = (payload.fuentes as Array<{ texto: string; fuente: string }> | undefined) ?? [];
+    const claves = (payload.palabras_clave as string[] | undefined) ?? [];
+    return (
+        <div className="apr-anuncio">
+            <AnuncioGoogle modo="compu" titulos={titulos} descripciones={descripciones} url={String(payload.url ?? '')} ruta1={payload.ruta1 as string | null} ruta2={payload.ruta2 as string | null} />
+            <p className="apr-anuncio-nota">Al aprobarlo se crea <strong>pausado</strong> en Google Ads, en el grupo que lleva a <code>{String(payload.ruta ?? '')}</code>. Lo activás desde Google Ads cuando quieras que salga.</p>
+            {payload.pedido ? <p className="apr-anuncio-nota">Pedido: “{String(payload.pedido)}”</p> : null}
+            <div className="apr-anuncio-cols">
+                <div><h4>Títulos</h4><ul>{titulos.map((t) => <li key={t}>{t} <span className="largo">{t.length}</span></li>)}</ul></div>
+                <div><h4>Descripciones</h4><ul>{descripciones.map((t) => <li key={t}>{t} <span className="largo">{t.length}</span></li>)}</ul></div>
+            </div>
+            {fuentes.length > 0 && (
+                <details className="apr-anuncio-fuentes"><summary>De dónde sale cada línea</summary>
+                    <ul>{fuentes.map((f, i) => <li key={i}><strong>{f.texto}</strong> ← “{f.fuente}”</li>)}</ul>
+                </details>
+            )}
+            {claves.length > 0 && <p className="apr-anuncio-nota">Búsquedas: {claves.join(' · ')}</p>}
+        </div>
+    );
+}
 
 function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
     const [verCrudo, setVerCrudo] = useState(false);
@@ -141,7 +167,8 @@ type Edicion =
     | { id: string; tipo: 'json'; texto: string };
 
 // Una plantilla de WhatsApp se manda exactamente como la aprobó Meta.
-const editable = (a: AccionPendiente) => !(a.accion === 'enviar_whatsapp' && a.payload?.plantilla);
+// Los anuncios se corrigen regenerándolos (así se vuelven a verificar contra la web).
+const editable = (a: AccionPendiente) => !(a.accion === 'enviar_whatsapp' && a.payload?.plantilla) && !a.accion.startsWith('ads_');
 
 function empezarEdicion(a: AccionPendiente): Edicion {
     const p = a.payload ?? {};
@@ -385,6 +412,10 @@ export function Acciones() {
                                 <VistaCorreo payload={sel.payload} />
                             ) : sel.accion === 'enviar_whatsapp' ? (
                                 <VistaWhatsapp payload={sel.payload} />
+                            ) : sel.accion === 'ads_anuncio' ? (
+                                <VistaAnuncio payload={sel.payload} />
+                            ) : sel.accion === 'ads_pausar_anuncio' ? (
+                                <div className="apr-anuncio"><p>Pausar en Google Ads el anuncio <strong>“{String(sel.payload.titulo ?? '')}”</strong>{sel.payload.ruta ? <> que lleva a <code>{String(sel.payload.ruta)}</code></> : null}. Deja de mostrarse; se puede volver a activar desde Google Ads.</p></div>
                             ) : (
                                 <pre className="payload">{JSON.stringify(sel.payload, null, 2)}</pre>
                             )}
@@ -401,12 +432,12 @@ export function Acciones() {
                                 </>
                             ) : (
                                 <>
-                                    <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>Aprobar y enviar</button>
+                                    <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>{sel.accion === 'ads_anuncio' ? 'Aprobar y crear pausado' : sel.accion === 'ads_pausar_anuncio' ? 'Aprobar y pausar' : 'Aprobar y enviar'}</button>
                                     <button
                                         className="boton-fantasma"
                                         onClick={() => setEdicion(empezarEdicion(sel))}
                                         disabled={!editable(sel)}
-                                        title={editable(sel) ? undefined : 'Las plantillas se mandan tal cual están aprobadas en Meta: si no va, rechazala y armá otra desde WhatsApp.'}
+                                        title={editable(sel) ? undefined : sel.accion.startsWith('ads_') ? 'Los anuncios se corrigen generándolos de nuevo en Publicidad, así se vuelven a verificar contra la web.' : 'Las plantillas se mandan tal cual están aprobadas en Meta: si no va, rechazala y armá otra desde WhatsApp.'}
                                     >Editar</button>
                                     <button className="boton-fantasma peligro" onClick={() => setRechazando(sel.id)}>Rechazar</button>
                                 </>

@@ -24,6 +24,7 @@ import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, comp
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { bajarHistorial, busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
 import { leerWeb, leyendoWeb } from './orchestrator/web_mapa.js';
+import { generarAnuncios, listarAnuncios, proponerAnuncios, proponerPausa } from './orchestrator/anuncios.js';
 import { adsConfig, canjearCodigo, desconectar as desconectarAds, estadoConexion as estadoAds, faltantesAds, stateValido, urlAutorizacion } from './connectors/google_ads.js';
 import { COSTO_ESTIMADO_POR_CASO, armarBanco, evaluacionEnCurso, iniciarEvaluacion } from './orchestrator/evaluacion.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
@@ -686,6 +687,65 @@ app.post('/publicidad/sincronizar', async (req, res) => {
         return { resultado: await sincronizarAds({ dias, incluirHoy: true }) };
     } catch (err) {
         return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+// Anuncios: los de Google (con preview), generar nuevos a pedido y mandarlos a Para aprobar.
+app.get('/publicidad/anuncios', async (req, res) => {
+    try {
+        return { anuncios: await listarAnuncios((req.query as { refrescar?: string }).refrescar === '1') };
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+const VarianteSchema = z.object({
+    titulos: z.array(z.string().max(60)).min(1).max(15),
+    descripciones: z.array(z.string().max(120)).min(1).max(4),
+    ruta1: z.string().max(30).nullable().optional().transform((x) => x ?? null),
+    ruta2: z.string().max(30).nullable().optional().transform((x) => x ?? null),
+    fuentes: z.array(z.object({ texto: z.string().max(200), fuente: z.string().max(500) })).max(20).default([]),
+    palabras_clave: z.array(z.string().max(80)).max(12).default([]),
+    problemas: z.array(z.string()).optional().default([]),
+});
+
+app.post('/publicidad/anuncios/generar', async (req, res) => {
+    const parseo = z.object({
+        pedido: z.string().min(3).max(1000),
+        url: z.string().url().nullable().optional(),
+        variantes: z.number().int().min(1).max(5).optional(),
+        cambio: z.string().max(500).nullable().optional(),
+        anteriores: z.array(VarianteSchema).max(5).nullable().optional(),
+    }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'Contá qué querés anunciar' });
+    try {
+        return { generacion: await generarAnuncios(parseo.data) };
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+app.post('/publicidad/anuncios/proponer', async (req, res) => {
+    const parseo = z.object({ url: z.string().url(), ruta: z.string().max(300), pedido: z.string().max(1000), variantes: z.array(VarianteSchema).min(1).max(5) }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    try {
+        const r = await proponerAnuncios(parseo.data);
+        invalidarResumenHoy();
+        return r;
+    } catch (err) {
+        return res.status(400).send({ error: (err as Error).message });
+    }
+});
+
+app.post('/publicidad/anuncios/pausar', async (req, res) => {
+    const parseo = z.object({ id: z.string().max(200), titulo: z.string().max(300), ruta: z.string().max(300).nullable() }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    try {
+        await proponerPausa(parseo.data);
+        invalidarResumenHoy();
+        return { ok: true };
+    } catch (err) {
+        return res.status(400).send({ error: (err as Error).message });
     }
 });
 

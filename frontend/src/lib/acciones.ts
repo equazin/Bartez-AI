@@ -3,7 +3,7 @@
 
 import type { AccionPendiente } from '../api/client.ts';
 
-export const CANAL: Record<string, string> = { enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp' };
+export const CANAL: Record<string, string> = { enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp', ads_anuncio: 'Google Ads', ads_pausar_anuncio: 'Google Ads' };
 
 export function resumenAccion(a: AccionPendiente): { destino: string; titulo: string; cuerpo: string } {
     const p = a.payload ?? {};
@@ -20,6 +20,13 @@ export function resumenAccion(a: AccionPendiente): { destino: string; titulo: st
             titulo: String(p.asunto ?? '(sin asunto)'),
             cuerpo: String(p.cuerpo ?? ''),
         };
+    }
+    if (a.accion === 'ads_anuncio') {
+        const titulos = (p.titulos as string[] | undefined) ?? [];
+        return { destino: String(p.ruta ?? 'Anuncio nuevo'), titulo: `Anuncio nuevo: ${titulos.slice(0, 2).join(' | ')}`, cuerpo: ((p.descripciones as string[] | undefined) ?? []).join(' ') };
+    }
+    if (a.accion === 'ads_pausar_anuncio') {
+        return { destino: String(p.ruta ?? 'Anuncio'), titulo: 'Pausar anuncio', cuerpo: String(p.titulo ?? '') };
     }
     return { destino: a.asistente_nombre ?? '', titulo: a.accion, cuerpo: JSON.stringify(p).slice(0, 200) };
 }

@@ -1410,6 +1410,8 @@ export interface ResumenPublicidad {
     campanias: CampaniaAds[];
     alertas: AlertaAds[];
     historial?: Array<{ mes: string; gasto: number; clics: number; impresiones: number; conversiones: number; campanias: string[] }>;
+    diario?: Array<{ fecha: string; gasto: number; conversiones: number }>;
+    dias_mes?: number;
 }
 export interface BusquedaAds { termino: string; campanias: string[]; impresiones: number; clics: number; costo: number; conversiones: number; decision: string | null; motivo: string | null }
 export interface LecturaWeb { paginas: number; nuevas: string[]; cambiadas: string[]; con_error: string[]; quitadas: string[]; fichas: number; costo_usd: number; duracion_ms: number }
@@ -1448,4 +1450,52 @@ export async function urlConectarGoogleAds(): Promise<{ url: string }> {
 }
 export async function desconectarGoogleAds(): Promise<{ ok: boolean }> {
     return jsonOError(await apiFetch(`${BASE}/publicidad/desconectar`, { method: 'POST' }));
+}
+
+// Anuncios de Google Ads (preview, generar y proponer).
+export type RendimientoTexto = 'muy_bueno' | 'bueno' | 'bajo' | 'aprendiendo' | null;
+export interface AnuncioAds {
+    id: string;
+    origen: 'google' | 'propuesta';
+    campania: string | null;
+    grupo: string | null;
+    url: string | null;
+    ruta: string | null;
+    ruta1: string | null;
+    ruta2: string | null;
+    titulos: Array<{ texto: string; rendimiento: RendimientoTexto }>;
+    descripciones: Array<{ texto: string; rendimiento: RendimientoTexto }>;
+    estado: 'activo' | 'pausado' | 'rechazado' | 'limitado' | 'en_revision' | 'pendiente_ok' | 'sin_cargar';
+    fuerza: string | null;
+    problema: string | null;
+    metricas: { impresiones: number; clics: number; costo: number; conversiones: number } | null;
+}
+export interface VarianteAnuncio {
+    titulos: string[];
+    descripciones: string[];
+    ruta1: string | null;
+    ruta2: string | null;
+    fuentes: Array<{ texto: string; fuente: string }>;
+    palabras_clave: string[];
+    problemas: string[];
+}
+export interface GeneracionAnuncios { url: string; ruta: string; titulo: string | null; variantes: VarianteAnuncio[]; avisos: string[]; costo_usd: number }
+
+export async function listarAnunciosAds(refrescar = false): Promise<{ anuncios: AnuncioAds[] }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/anuncios${refrescar ? '?refrescar=1' : ''}`));
+}
+export async function generarAnunciosAds(d: { pedido: string; url?: string | null; variantes?: number; cambio?: string | null; anteriores?: VarianteAnuncio[] | null }): Promise<{ generacion: GeneracionAnuncios }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/anuncios/generar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
+    }));
+}
+export async function proponerAnunciosAds(d: { url: string; ruta: string; pedido: string; variantes: VarianteAnuncio[] }): Promise<{ creadas: number }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/anuncios/proponer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
+    }));
+}
+export async function pausarAnuncioAds(d: { id: string; titulo: string; ruta: string | null }): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/anuncios/pausar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
+    }));
 }
