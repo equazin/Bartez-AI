@@ -7,7 +7,7 @@ import { supabase } from '../connectors/supabase.js';
 import { crearNota } from './memoria.js';
 import { crearProspectoEnNotion, actualizarProspectoEnNotion } from './notion_sync.js';
 
-export type EstadoCliente = 'lead' | 'cliente' | 'inactivo' | 'descartado';
+export type EstadoCliente = 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'proveedor';
 
 export interface DatosCliente {
     nombre: string;
@@ -98,7 +98,7 @@ export function normalizarDatos(d: DatosCliente): { ok: true; datos: Required<Da
     }
     const sitio = urlWeb(d.sitio_web);
     if (limpiar(d.sitio_web, 200) && !sitio) return { ok: false, detalle: `El sitio web "${limpiar(d.sitio_web, 60)}" no es válido: poné algo como empresa.com.ar` };
-    const estado: EstadoCliente = d.estado && ['lead', 'cliente', 'inactivo', 'descartado'].includes(d.estado) ? d.estado : 'lead';
+    const estado: EstadoCliente = d.estado && ['lead', 'cliente', 'inactivo', 'descartado', 'proveedor'].includes(d.estado) ? d.estado : 'lead';
     return { ok: true, datos: { nombre, email, whatsapp, estado, contacto: limpiar(d.contacto, 120), sitio_web: sitio, cuit: limpiar(d.cuit, 20) } };
 }
 
@@ -162,7 +162,7 @@ export interface ResultadoCliente {
 
 export async function crearCliente(
     d: DatosCliente & { nota?: string | null },
-    opts: { origen: 'manual' | 'chat'; crearIgual?: boolean },
+    opts: { origen: 'manual' | 'chat' | 'web'; crearIgual?: boolean },
 ): Promise<ResultadoCliente> {
     const n = normalizarDatos(d);
     if (!n.ok) return { ok: false, detalle: n.detalle };
@@ -178,7 +178,7 @@ export async function crearCliente(
     if (datos.email) { const dom = datos.email.split('@')[1]; if (dom && !DOMINIOS_PERSONALES.has(dom)) metadata.dominio = dom; }
     const { data: nuevo, error } = await supabase.from('clientes').insert({
         nombre: datos.nombre, email: datos.email, whatsapp: datos.whatsapp, estado: datos.estado,
-        origen: opts.origen === 'chat' ? 'chat' : 'manual', metadata,
+        origen: opts.origen, metadata,
     }).select('id, nombre, email, whatsapp, estado').single();
     if (error || !nuevo) return { ok: false, detalle: error?.message ?? 'No se pudo crear el cliente' };
 

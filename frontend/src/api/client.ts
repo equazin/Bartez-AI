@@ -226,7 +226,7 @@ export interface Prospecto {
     nombre: string;
     email: string | null;
     whatsapp: string | null;
-    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'proveedor';
     metadata: {
         sitio_web?: string;
         senial?: string;
@@ -246,7 +246,7 @@ export interface DatosClienteForm {
     nombre: string;
     email: string | null;
     whatsapp: string | null;
-    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'proveedor';
     contacto: string | null;
     sitio_web: string | null;
     cuit: string | null;
@@ -636,7 +636,7 @@ export interface EmpresaSeguimiento {
     id: string;
     nombre: string;
     email: string | null;
-    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'detectado';
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'proveedor' | 'detectado';
     origen: string;
     creado_en: string;
     actualizado_en: string;

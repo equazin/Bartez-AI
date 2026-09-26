@@ -124,7 +124,7 @@ export async function calcularPulso(): Promise<Pulso> {
         else if (d >= inicioMesAnt && d <= finTramoAnt) ganadoMesAnt += Number(c.total_usd ?? 0);
     }
 
-    const activos = clientes.filter((c) => c.estado !== 'descartado');
+    const activos = clientes.filter((c) => c.estado !== 'descartado' && c.estado !== 'proveedor');
     const respondieron = new Set([...conCorreo.map((c) => c.cliente_id), ...conWa.map((c) => c.cliente_id)]);
 
     return {

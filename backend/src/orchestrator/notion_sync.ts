@@ -9,7 +9,7 @@ interface ClienteRow {
     id: string;
     nombre: string;
     email: string | null;
-    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado';
+    estado: 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'proveedor';
     intentos_contacto: number | null;
     ultimo_contacto_en: string | null;
     notion_page_id: string | null;

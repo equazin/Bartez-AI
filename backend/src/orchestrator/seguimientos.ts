@@ -56,10 +56,11 @@ export async function generarSeguimientoIndividual(
 
     const { data: c } = await supabase
         .from('clientes')
-        .select('id, nombre, email, intentos_contacto, ultimo_contacto_en, metadata')
+        .select('id, nombre, email, estado, intentos_contacto, ultimo_contacto_en, metadata')
         .eq('id', clienteId)
         .maybeSingle();
     if (!c) return { ok: false, detalle: 'Cliente no encontrado' };
+    if (c.estado === 'proveedor') return { ok: false, detalle: 'Es un proveedor: la IA no le escribe. Respondele vos desde tu correo.' };
     if (!c.email) return { ok: false, detalle: 'Este cliente no tiene email cargado' };
 
     const historia = await historicoConCliente(clienteId, 10);

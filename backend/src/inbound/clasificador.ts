@@ -15,6 +15,8 @@ export type CategoriaCorreo =
     | 'cotizacion_detalle' // pide cotización con datos concretos — requiere aprobación
     | 'queja'             // reclamo o problema — SIEMPRE requiere aprobación
     | 'soporte'           // consulta técnica sobre algo ya vendido
+    | 'proveedor'         // un mayorista o fabricante que le vende o cotiza a Bartez — nunca se responde solo
+    | 'sin_respuesta'     // acuse de recibo, "te aviso", ofertas para venderle a Bartez — no hace falta contestar
     | 'otro';
 
 export interface ClasificacionCorreo {
@@ -41,7 +43,11 @@ Categorías posibles (elegí UNA):
 - "cotizacion_detalle" — pide cotización con datos suficientes (cantidad + tipo + uso o marca o presupuesto o plazo).
 - "queja" — reclamo, queja formal, expresa malestar, menciona problema con algo comprado o servicio recibido.
 - "soporte" — consulta técnica postventa: "no arranca", "cómo hago X en el equipo que me vendieron".
+- "proveedor" — lo escribe un mayorista, distribuidor o fabricante que le VENDE o le COTIZA a Bartez (proformas, listas de precios para Bartez, "te paso la cotización que pediste", plazos de importación). Bartez es el que compra.
+- "sin_respuesta" — no hace falta contestar: acuse de recibo ("recibido", "gracias", "te aviso cuando tenga"), cierre de una charla, alguien que le ofrece venderle algo a Bartez (equipos usados, servicios).
 - "otro" — no encaja en ninguna anterior.
+
+Ojo: si el correo le pide a Bartez un presupuesto, es de un cliente aunque sea otra empresa del rubro (un revendedor que le compra a Bartez es cliente).
 
 Prioridad:
 - "alta" — cotización con detalle, queja, cliente enojado, mención de plata/urgencia.
@@ -132,7 +138,7 @@ export async function clasificarCorreo(params: {
 function normalizarCategoria(c: unknown): CategoriaCorreo {
     const validas: CategoriaCorreo[] = [
         'spam', 'newsletter', 'informativo', 'consulta_simple',
-        'cotizacion_vaga', 'cotizacion_detalle', 'queja', 'soporte', 'otro',
+        'cotizacion_vaga', 'cotizacion_detalle', 'queja', 'soporte', 'proveedor', 'sin_respuesta', 'otro',
     ];
     if (typeof c === 'string' && (validas as string[]).includes(c)) return c as CategoriaCorreo;
     return 'otro';

@@ -5,7 +5,7 @@ import { FormEvent, useState } from 'react';
 import { ClienteParecido, DatosClienteForm, crearClienteManual, editarDatosCliente } from '../../api/client.ts';
 
 type Estado = DatosClienteForm['estado'];
-const ESTADOS: Array<[Estado, string]> = [['lead', 'Lead'], ['cliente', 'Cliente'], ['inactivo', 'Inactivo'], ['descartado', 'Descartado']];
+const ESTADOS: Array<[Estado, string]> = [['lead', 'Lead'], ['cliente', 'Cliente'], ['inactivo', 'Inactivo'], ['descartado', 'Descartado'], ['proveedor', 'Proveedor']];
 
 export interface ClienteInicial {
     id: string;
@@ -81,11 +81,11 @@ export function FormCliente({ inicial, alGuardar, alCancelar, alAbrir }: {
                 <div className="ancho form-cliente-estado" role="radiogroup" aria-label="Estado">
                     <span>Estado</span>
                     <div className="segmentos">
-                        {ESTADOS.filter(([v]) => editando || v === 'lead' || v === 'cliente').map(([v, etq]) => (
+                        {ESTADOS.filter(([v]) => editando || v === 'lead' || v === 'cliente' || v === 'proveedor').map(([v, etq]) => (
                             <button key={v} type="button" role="radio" aria-checked={d.estado === v} className={d.estado === v ? 'on' : ''} onClick={() => setD((x) => ({ ...x, estado: v }))}>{etq}</button>
                         ))}
                     </div>
-                    <small>{d.estado === 'cliente' ? 'Ya compró.' : d.estado === 'lead' ? 'Todavía no compró.' : ''}</small>
+                    <small>{d.estado === 'cliente' ? 'Ya compró.' : d.estado === 'lead' ? 'Todavía no compró.' : d.estado === 'proveedor' ? 'Le vende a Bartez: la IA nunca le responde sola.' : ''}</small>
                 </div>
                 <label>
                     <span>Email</span>

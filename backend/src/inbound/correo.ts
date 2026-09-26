@@ -10,6 +10,31 @@ import { actualizarCotizacion, cotizar } from '../orchestrator/cotizador.js';
 import { clasificarCorreo } from './clasificador.js';
 import { registrarCorreoEnHistoria } from './registro_correos.js';
 import { casillaCorreo } from '../connectors/ferozo.js';
+import { esCorreoPropio, esLeadWeb, esProveedor, leerCorreoDeProveedor, parsearLeadWeb } from './filtros_correo.js';
+import { crearCliente } from '../orchestrator/clientes.js';
+import { crearNota } from '../orchestrator/memoria.js';
+import { crearTareaEnNotion } from '../orchestrator/notion_sync.js';
+
+// Aviso "Nuevo lead web" (formulario o bot de WhatsApp de la web): no se le
+// contesta al aviso; el lead queda cargado con su teléfono y lo que necesita.
+async function registrarLeadWeb(c: CorreoEntrante): Promise<string | null> {
+    const l = parsearLeadWeb(c.cuerpo);
+    if (!l.telefono && !l.email) return null;
+    const nota = l.necesidad ? `Lead de la web${l.telefono ? ' (WhatsApp)' : ''}: ${l.necesidad}` : null;
+    const r = await crearCliente({
+        nombre: l.empresa || l.nombre || 'Lead web', email: l.email, whatsapp: l.telefono, estado: 'lead',
+        contacto: l.empresa ? l.nombre : null, nota,
+    }, { origen: 'web' });
+    if (r.ok && r.cliente) return r.cliente.id;
+    // Ya estaba (mismo teléfono o email): se le suma lo que pidió ahora.
+    const mismo = r.parecidos?.find((p) => p.motivo === 'mismo teléfono' || p.motivo === 'mismo email');
+    if (mismo) {
+        if (nota) await crearNota(mismo.id, nota).catch(() => undefined);
+        return mismo.id;
+    }
+    const nuevo = await crearCliente({ nombre: l.empresa || l.nombre || 'Lead web', email: l.email, whatsapp: l.telefono, estado: 'lead', contacto: l.empresa ? l.nombre : null, nota }, { origen: 'web', crearIgual: true });
+    return nuevo.ok && nuevo.cliente ? nuevo.cliente.id : null;
+}
 
 async function buscarOCrearCliente(emailRecibido: string, nombre?: string): Promise<string | null> {
     // Buscar cliente existente por email, exacto y en minúscula: "MMarsilla@…" es
@@ -57,8 +82,39 @@ async function buscarConversacionAbierta(clienteId: string, threadRef?: string):
     return null;
 }
 
-async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
+export async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
     console.log(`[inbound-correo] correo de ${c.de}: "${c.asunto}"`);
+    const historia = (clienteId: string | null, categoria: string, ignorable: boolean) => registrarCorreoEnHistoria({
+        direccion: 'entrante', de: c.de, deNombre: c.deNombre ?? null, para: casillaCorreo, asunto: c.asunto, cuerpo: c.cuerpo,
+        fecha: c.fecha, messageId: c.messageId, clienteId, categoria, ignorable, carpeta: 'INBOX',
+    });
+
+    // 0. Reglas fijas, antes de la IA.
+    // Correos propios (avisos de Bartez AI que llegan a ventas@, envíos internos):
+    // nunca se responden. El "Nuevo lead web" se carga como lead.
+    if (esCorreoPropio(c.de, c.asunto)) {
+        if (esLeadWeb(c.asunto)) {
+            const id = await registrarLeadWeb(c).catch((err) => { console.warn('[inbound-correo] lead web:', (err as Error).message); return null; });
+            await historia(id, 'lead_web', true);
+            console.log(`[inbound-correo] lead web ${id ? 'cargado' : 'sin datos de contacto'}`);
+        } else {
+            await historia(null, 'interno', true);
+        }
+        return;
+    }
+    // Proveedores: nunca se les responde solo ni se les confirma una compra. Si
+    // mandan una cotización, queda la tarea de armar el presupuesto al cliente.
+    const prov = await esProveedor(c.de);
+    if (prov.proveedor) {
+        await historia(prov.clienteId, 'proveedor', false);
+        const leido = await leerCorreoDeProveedor(c);
+        if (leido.tarea) {
+            await crearTareaEnNotion({ titulo: leido.tarea, contexto: `Correo de ${c.deNombre ? `${c.deNombre} <${c.de}>` : c.de}: "${c.asunto}"` })
+                .catch((err) => console.warn('[inbound-correo] tarea de proveedor:', (err as Error).message));
+        }
+        console.log(`[inbound-correo] proveedor ${c.de}: ${leido.tarea ?? 'sin cotización, solo historial'}`);
+        return;
+    }
 
     // 1. Clasificar primero — filtra spam/newsletter/informativo antes de gastar en el asistente principal
     const asistenteCorreoId = await idAsistente('correo');
@@ -82,6 +138,20 @@ async function procesarCorreoEntrante(c: CorreoEntrante): Promise<void> {
         // Descartado: no crear cliente ni conversación. Log y listo.
         console.log(`[inbound-correo] ignorado por categoría "${clasificacion.categoria}"`);
         await aHistoria(null);
+        return;
+    }
+
+    // Sin respuesta (acuse, "te aviso", ofertas para venderle a Bartez) o un
+    // proveedor que no estaba en la lista: queda en la historia del contacto si ya
+    // existe, sin crear clientes ni borradores.
+    if (clasificacion.categoria === 'sin_respuesta' || clasificacion.categoria === 'proveedor') {
+        const { data: yaEsta } = await supabase.from('clientes').select('id').eq('email', emailNormal(c.de)).limit(1);
+        await aHistoria((yaEsta?.[0]?.id as string | undefined) ?? null);
+        if (clasificacion.categoria === 'proveedor') {
+            const leido = await leerCorreoDeProveedor(c);
+            if (leido.tarea) await crearTareaEnNotion({ titulo: leido.tarea, contexto: `Correo de ${c.de}: "${c.asunto}"` }).catch(() => undefined);
+        }
+        console.log(`[inbound-correo] ${clasificacion.categoria}: sin borrador`);
         return;
     }
 

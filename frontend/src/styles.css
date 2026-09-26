@@ -1374,6 +1374,7 @@ textarea.payload.editable {
 .badge-estado.est-cliente { background: rgba(16,163,127,0.15); color: var(--ok); }
 .badge-estado.est-inactivo { background: var(--borde-soft); color: var(--sutil); }
 .badge-estado.est-descartado { background: rgba(239,68,68,0.12); color: var(--peligro); }
+.badge-estado.est-proveedor { background: var(--dato-soft); color: var(--serie-1); }
 .badge-estado.est-detectado { background: rgba(217,119,6,0.12); color: var(--alerta); border: 1px dashed var(--alerta); }
 .det-head button.peligro {
     background: var(--panel);

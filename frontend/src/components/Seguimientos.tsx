@@ -19,10 +19,10 @@ import { EnviosFallidos } from './EnviosFallidos.tsx';
 import { ClienteInicial, FormCliente } from './seguimientos/FormCliente.tsx';
 import { movimientoReducido } from '../lib/animar.ts';
 
-type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'con_correos' | 'detectado';
+type EstadoFiltro = 'todos' | 'lead' | 'cliente' | 'inactivo' | 'descartado' | 'proveedor' | 'con_correos' | 'detectado';
 const ETIQUETA_FILTRO: Record<EstadoFiltro, string> = {
     todos: 'Todos', lead: 'Leads', cliente: 'Clientes', con_correos: 'Con correos',
-    detectado: 'Detectados', inactivo: 'Inactivos', descartado: 'Descartados',
+    detectado: 'Detectados', inactivo: 'Inactivos', descartado: 'Descartados', proveedor: 'Proveedores',
 };
 
 export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
@@ -205,7 +205,7 @@ export function Seguimientos({ irA }: { irA?: (tab: string) => void } = {}) {
                             onChange={(e) => setBusqueda(e.target.value)}
                         />
                         <div className="chips">
-                            {(['todos', 'lead', 'cliente', 'con_correos', 'detectado', 'inactivo', 'descartado'] as EstadoFiltro[]).map((f) => (
+                            {(['todos', 'lead', 'cliente', 'con_correos', 'detectado', 'proveedor', 'inactivo', 'descartado'] as EstadoFiltro[]).map((f) => (
                                 <button key={f} type="button" className={filtro === f ? 'chip on' : 'chip'} aria-pressed={filtro === f} onClick={() => setFiltro(f)}>
                                     {ETIQUETA_FILTRO[f]}
                                 </button>

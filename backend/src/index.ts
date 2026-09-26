@@ -738,7 +738,7 @@ app.get('/clientes/:id', async (req, res) => {
 });
 
 const ClienteUpdateSchema = z.object({
-    estado: z.enum(['lead', 'cliente', 'inactivo', 'descartado']).optional(),
+    estado: z.enum(['lead', 'cliente', 'inactivo', 'descartado', 'proveedor']).optional(),
     metadata: z.record(z.unknown()).optional(),
     nombre: z.string().optional(),
     email: z.string().email().optional(),
@@ -752,7 +752,7 @@ const DatosClienteSchema = z.object({
     nombre: z.string().max(200),
     email: texto(200),
     whatsapp: texto(40),
-    estado: z.enum(['lead', 'cliente', 'inactivo', 'descartado']).optional(),
+    estado: z.enum(['lead', 'cliente', 'inactivo', 'descartado', 'proveedor']).optional(),
     contacto: texto(200),
     sitio_web: texto(300),
     cuit: texto(30),
