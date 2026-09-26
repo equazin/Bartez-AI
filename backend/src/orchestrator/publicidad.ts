@@ -46,18 +46,34 @@ export interface CuentaAds { nombre: string | null; moneda: string; zona_horaria
 
 export interface ResultadoSync { ok: boolean; desde: string; hasta: string; campanias: number; paginas: number; busquedas: number; detalle?: string }
 
-export async function sincronizarAds(opts: { dias?: number; incluirHoy?: boolean } = {}): Promise<ResultadoSync> {
+export async function sincronizarAds(opts: { dias?: number; incluirHoy?: boolean; sinBusquedas?: boolean } = {}): Promise<ResultadoSync> {
     // Google ajusta las conversiones de los últimos días: se vuelven a bajar.
-    const dias = Math.max(1, Math.min(opts.dias ?? 3, 90));
+    // Rangos largos (historial) se piden de a 90 días.
+    const dias = Math.max(1, Math.min(opts.dias ?? 3, 1200));
     const hasta = opts.incluirHoy ? fechaAR(0) : fechaAR(-1);
     const desde = fechaAR(opts.incluirHoy ? -(dias - 1) : -dias);
+    if (dias > 90) {
+        const total: ResultadoSync = { ok: true, desde, hasta, campanias: 0, paginas: 0, busquedas: 0 };
+        for (let fin = 0; fin < dias; fin += 90) {
+            const tramoHasta = fechaAR((opts.incluirHoy ? 0 : -1) - fin);
+            const tramoDias = Math.min(90, dias - fin);
+            const r = await sincronizarRango(fechaAR((opts.incluirHoy ? 0 : -1) - fin - tramoDias + 1), tramoHasta, fin === 0 || !opts.sinBusquedas);
+            total.campanias = Math.max(total.campanias, r.campanias); total.paginas += r.paginas; total.busquedas += r.busquedas;
+        }
+        return total;
+    }
+    return sincronizarRango(desde, hasta, !opts.sinBusquedas);
+}
+
+async function sincronizarRango(desde: string, hasta: string, conBusquedas: boolean): Promise<ResultadoSync> {
     const rango = `segments.date BETWEEN '${desde}' AND '${hasta}'`;
     const ahora = new Date().toISOString();
 
-    const [cuenta] = await consultarAds('SELECT customer.descriptive_name, customer.currency_code, customer.time_zone, customer.auto_tagging_enabled FROM customer LIMIT 1');
+    const [cuenta] = await consultarAds('SELECT customer.id, customer.descriptive_name, customer.currency_code, customer.time_zone, customer.auto_tagging_enabled FROM customer LIMIT 1');
     if (cuenta) {
+        const id = String(cuenta.customer?.id ?? '').replace(/^(\d{3})(\d{3})(\d{4})$/, '$1-$2-$3');
         const c: CuentaAds = {
-            nombre: cuenta.customer?.descriptiveName ?? null,
+            nombre: cuenta.customer?.descriptiveName || (id ? `cuenta ${id}` : null),
             moneda: cuenta.customer?.currencyCode ?? 'ARS',
             zona_horaria: cuenta.customer?.timeZone ?? null,
             autoetiquetado: cuenta.customer?.autoTaggingEnabled ?? null,
@@ -97,7 +113,7 @@ export async function sincronizarAds(opts: { dias?: number; incluirHoy?: boolean
     const filasPag = [...porPagina.values()].map((p) => ({ ...p, actualizado_en: ahora }));
     if (filasPag.length) await supabase.from('ads_paginas_diarias').upsert(filasPag, { onConflict: 'fecha,url' });
 
-    const bus = await consultarAds(`SELECT segments.date, search_term_view.search_term, campaign.name, ad_group.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM search_term_view WHERE ${rango}`);
+    const bus = !conBusquedas ? [] : await consultarAds(`SELECT segments.date, search_term_view.search_term, campaign.name, ad_group.name, metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions FROM search_term_view WHERE ${rango}`);
     const filasBus = bus.map((f: FilaAds) => ({
         fecha: f.segments?.date,
         termino: String(f.searchTermView?.searchTerm ?? '').slice(0, 300),
@@ -147,6 +163,7 @@ export interface ResumenPublicidad {
     hoy: { gasto: number; clics: number };
     campanias: Array<{ id: string; nombre: string; estado: string | null; gasto: number; clics: number; conversiones: number; presupuesto_diario: number | null }>;
     alertas: Alerta[];
+    historial: Awaited<ReturnType<typeof historialMensual>>;
 }
 
 export async function resumenPublicidad(): Promise<ResumenPublicidad> {
@@ -196,7 +213,33 @@ export async function resumenPublicidad(): Promise<ResumenPublicidad> {
         hoy: { gasto: suma(deHoy, (f) => num(f.costo)), clics: suma(deHoy, (f) => num(f.clics)) },
         campanias,
         alertas: await alertasRecientes(),
+        historial: await historialMensual(),
     };
+}
+
+// Historial completo de la cuenta (una sola vez, al conectar): campañas y
+// páginas de hasta 3 años; búsquedas del último año.
+export async function bajarHistorial(): Promise<ResultadoSync | null> {
+    if (await leerClave('google_ads_historial_bajado')) return null;
+    const r = await sincronizarAds({ dias: 365 * 3, incluirHoy: true, sinBusquedas: true });
+    await sincronizarAds({ dias: 365, incluirHoy: true }).catch(() => undefined);
+    const ahora = new Date().toISOString();
+    await supabase.from('integraciones_config').upsert({ clave: 'google_ads_historial_bajado', valor: ahora, actualizado_en: ahora });
+    return r;
+}
+
+// Gasto, clics y conversiones por mes (últimos 24 meses), para ver qué pasó antes.
+export async function historialMensual(): Promise<Array<{ mes: string; gasto: number; clics: number; impresiones: number; conversiones: number; campanias: string[] }>> {
+    const { data } = await supabase.from('ads_metricas_diarias').select('fecha, campania, costo, clics, impresiones, conversiones').gte('fecha', fechaAR(-730)).limit(20000);
+    const m = new Map<string, { mes: string; gasto: number; clics: number; impresiones: number; conversiones: number; campanias: Set<string> }>();
+    for (const f of data ?? []) {
+        const mes = String(f.fecha).slice(0, 7);
+        const a = m.get(mes) ?? { mes, gasto: 0, clics: 0, impresiones: 0, conversiones: 0, campanias: new Set<string>() };
+        a.gasto += num(f.costo); a.clics += num(f.clics); a.impresiones += num(f.impresiones); a.conversiones += num(f.conversiones);
+        if (f.campania && num(f.costo) > 0) a.campanias.add(f.campania as string);
+        m.set(mes, a);
+    }
+    return [...m.values()].sort((a, b) => b.mes.localeCompare(a.mes)).map((x) => ({ ...x, gasto: Math.round(x.gasto), conversiones: Math.round(x.conversiones * 10) / 10, campanias: [...x.campanias] }));
 }
 
 // Páginas de la web con lo que gastaron y trajeron en Google (últimos N días).

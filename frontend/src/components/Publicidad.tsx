@@ -9,7 +9,7 @@ import {
     releerWeb, resumenPublicidad, sincronizarPublicidad, urlConectarGoogleAds,
 } from '../api/client.ts';
 
-type Seccion = 'paginas' | 'busquedas' | 'campanias' | 'ajustes';
+type Seccion = 'paginas' | 'busquedas' | 'campanias' | 'historial' | 'ajustes';
 type FiltroPag = 'anunciables' | 'todas' | 'cambios' | 'error';
 
 const TIPO: Record<string, string> = {
@@ -185,6 +185,7 @@ export function Publicidad() {
                             <div>
                                 <strong>Conectado{r.cuenta?.nombre ? ` a ${r.cuenta.nombre}` : ''}</strong>
                                 <p>Datos al {fechaHora(r.sincronizado_en)} · moneda {moneda}{r.cuenta?.autoetiquetado === false ? ' · el etiquetado automático está apagado' : ''}</p>
+                                {r.campanias.length === 0 && <p className="pub-quieta">La cuenta no tuvo anuncios activos este mes. Si Google Ads muestra un pago pendiente, los anuncios no salen hasta regularizarlo.</p>}
                             </div>
                             <div className="pub-botones">
                                 <button className="boton-fantasma" onClick={sincronizar} disabled={!!ocupado}>{ocupado === 'sync' ? 'Actualizando…' : 'Actualizar ahora'}</button>
@@ -236,7 +237,7 @@ export function Publicidad() {
             )}
 
             <div className="segmentos pub-secciones" role="tablist" aria-label="Sección">
-                {([['paginas', 'Páginas de la web'], ['busquedas', 'Búsquedas'], ['campanias', 'Campañas'], ['ajustes', 'Ajustes']] as Array<[Seccion, string]>).map(([id, etq]) => (
+                {([['paginas', 'Páginas de la web'], ['busquedas', 'Búsquedas'], ['campanias', 'Campañas'], ['historial', 'Historial'], ['ajustes', 'Ajustes']] as Array<[Seccion, string]>).map(([id, etq]) => (
                     <button key={id} role="tab" aria-selected={seccion === id} className={seccion === id ? 'on' : ''} onClick={() => setSeccion(id)}>{etq}</button>
                 ))}
             </div>
@@ -338,6 +339,29 @@ export function Publicidad() {
                                             <td>{c.nombre}</td>
                                             <td><span className={`pub-estado ${c.estado === 'ENABLED' ? 'ok' : ''}`}>{c.estado === 'ENABLED' ? 'Activa' : c.estado === 'PAUSED' ? 'Pausada' : c.estado ?? '—'}</span></td>
                                             <td className="num">{plata(c.presupuesto_diario)}</td><td className="num">{plata(c.gasto)}</td><td className="num">{c.clics}</td><td className="num">{c.conversiones}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {seccion === 'historial' && (
+                <div className="pub-bloque">
+                    <p className="sutil">Lo que pasó en la cuenta mes a mes (últimos 2 años). Sirve para ver qué campañas funcionaron antes de armar las nuevas.</p>
+                    {!r?.historial?.length ? <p className="vacio">{con?.conectado ? 'Bajando el historial de la cuenta… aparece en unos minutos.' : 'Aparece cuando Google Ads esté conectado.'}</p> : (
+                        <div className="tabla-scroll">
+                            <table className="pub-tabla">
+                                <thead><tr><th>Mes</th><th>Gasto</th><th>Clics</th><th>Costo por clic</th><th>Conv.</th><th>Campañas con gasto</th></tr></thead>
+                                <tbody>
+                                    {r.historial.map((h) => (
+                                        <tr key={h.mes}>
+                                            <td>{new Date(`${h.mes}-15T12:00:00`).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' })}</td>
+                                            <td className="num">{plata(h.gasto)}</td><td className="num">{h.clics.toLocaleString('es-AR')}</td>
+                                            <td className="num">{h.clics ? plata(h.gasto / h.clics) : '—'}</td><td className="num">{h.conversiones}</td>
+                                            <td className="sutil">{h.campanias.join(', ') || '—'}</td>
                                         </tr>
                                     ))}
                                 </tbody>

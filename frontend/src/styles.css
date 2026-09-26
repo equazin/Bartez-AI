@@ -3219,3 +3219,5 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .pub-ajustes .pub-primario { justify-self: start; }
 @media (max-width: 900px) { .pub-kpis { grid-template-columns: 1fr 1fr; } .pub-kpi.grande { grid-column: 1 / -1; } }
 @media (max-width: 560px) { .pub-alerta { grid-template-columns: 1fr; gap: 2px; } }
+
+.pub-conexion p.pub-quieta { color: var(--texto); margin-top: 6px; }

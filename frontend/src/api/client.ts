@@ -1409,6 +1409,7 @@ export interface ResumenPublicidad {
     hoy: { gasto: number; clics: number };
     campanias: CampaniaAds[];
     alertas: AlertaAds[];
+    historial?: Array<{ mes: string; gasto: number; clics: number; impresiones: number; conversiones: number; campanias: string[] }>;
 }
 export interface BusquedaAds { termino: string; campanias: string[]; impresiones: number; clics: number; costo: number; conversiones: number; decision: string | null; motivo: string | null }
 export interface LecturaWeb { paginas: number; nuevas: string[]; cambiadas: string[]; con_error: string[]; quitadas: string[]; fichas: number; costo_usd: number; duracion_ms: number }

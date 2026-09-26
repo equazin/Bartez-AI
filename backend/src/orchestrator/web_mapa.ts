@@ -241,14 +241,15 @@ export async function leerWeb(opts: { rehacerFichas?: boolean } = {}): Promise<R
             if (p.empresa && !empresa) empresa = p.empresa;
             const h = huella(p);
             const cambio = !!previa && previa.huella !== h;
-            if (!previa) res.nuevas.push(url);
+            if (!previa && antes.size > 0) res.nuevas.push(url);
             else if (cambio) res.cambiadas.push(url);
             const fila: Record<string, unknown> = {
                 url, ruta: p.ruta, tipo, estado_http: estado, titulo: p.titulo, descripcion: p.descripcion, h1: p.h1,
                 subtitulos: p.subtitulos, items: p.items, faq: p.faq, texto: p.texto, huella: h, en_sitemap: true, leida_en: ahora,
             };
             if (!previa) fila.anunciable = anunciable;
-            if (!previa || cambio) fila.cambio_en = ahora;
+            // En la primera lectura de todas nada "cambió": recién se conoce la web.
+            if ((!previa && antes.size > 0) || cambio) fila.cambio_en = ahora;
             // La elección hecha desde el panel se respeta.
             const seAnuncia = previa ? previa.anunciable === true : anunciable;
             if (seAnuncia && (opts.rehacerFichas || previa?.ficha_huella !== h)) {

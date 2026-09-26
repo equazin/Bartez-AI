@@ -22,7 +22,7 @@ import { calcularMapa } from './orchestrator/mapa.js';
 import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
-import { busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
+import { bajarHistorial, busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
 import { leerWeb, leyendoWeb } from './orchestrator/web_mapa.js';
 import { adsConfig, canjearCodigo, desconectar as desconectarAds, estadoConexion as estadoAds, faltantesAds, stateValido, urlAutorizacion } from './connectors/google_ads.js';
 import { COSTO_ESTIMADO_POR_CASO, armarBanco, evaluacionEnCurso, iniciarEvaluacion } from './orchestrator/evaluacion.js';
@@ -709,8 +709,10 @@ app.get('/ads/oauth/callback', async (req, res) => {
     if (!q.code || !stateValido(q.state)) return volver('ads-error');
     try {
         await canjearCodigo(q.code);
-        // Primera bajada: el último mes.
-        sincronizarAds({ dias: 30, incluirHoy: true }).catch((err) => app.log.warn({ err }, '[publicidad] primera sincronización falló'));
+        // Primera bajada: el último mes, y después el historial de la cuenta.
+        sincronizarAds({ dias: 30, incluirHoy: true })
+            .then(() => bajarHistorial())
+            .catch((err) => app.log.warn({ err }, '[publicidad] primera sincronización falló'));
         return volver('ads-conectado');
     } catch (err) {
         app.log.warn({ err }, '[publicidad] no se pudo conectar Google Ads');
@@ -1560,6 +1562,11 @@ async function main() {
         try { const r = await guardiaPublicidad(); if (r.alertas) app.log.info(r, '[publicidad] guardia con alertas'); }
         catch (err) { app.log.error({ err }, '[publicidad] guardia falló'); }
     }, ZONA);
+    // Si Google Ads ya está conectado y falta el historial, se baja una vez.
+    setTimeout(async () => {
+        try { if ((await estadoAds()).conectado) { const r = await bajarHistorial(); if (r) app.log.info(r, '[publicidad] historial de Google Ads bajado'); } }
+        catch (err) { app.log.warn({ err }, '[publicidad] historial de Google Ads falló'); }
+    }, 90_000);
     // Si la web nunca se leyó, se lee al rato de arrancar.
     setTimeout(async () => {
         try {
