@@ -96,12 +96,15 @@ export async function generarSeguimientoIndividual(
         ? `\n\nCONTEXTO ADICIONAL DEL OPERADOR (info que NO está en los correos — llamadas, WhatsApp, mensajes verbales, notas propias):\n${opts.contexto_extra.trim().slice(0, 20_000)}\n\nTratalo como fuente de verdad — el operador lo aporta desde canales que el sistema no ve. Referí a esta info al redactar el correo si corresponde.`
         : '';
 
+    // Primer contacto en frío: sin lo investigado del prospecto (señal, encaje), que
+    // era lo que terminaba en el correo ("vi que abrieron sucursal") y rechazabas.
+    const primerContacto = historia.length === 0 && wa.length === 0 && intentos === 0;
     const contexto = [
         `Lead: ${c.nombre}`,
         c.metadata?.sitio_web ? `Sitio: ${c.metadata.sitio_web}` : null,
-        c.metadata?.senial ? `Señal detectada en prospección: ${c.metadata.senial}` : null,
-        c.metadata?.razon_prospeccion ? `Encaje ICP: ${c.metadata.razon_prospeccion}` : null,
-        typeof c.metadata?.puntaje_icp === 'number' ? `Puntaje ICP: ${c.metadata.puntaje_icp}/10` : null,
+        !primerContacto && c.metadata?.senial ? `Señal detectada en prospección: ${c.metadata.senial}` : null,
+        !primerContacto && c.metadata?.razon_prospeccion ? `Encaje ICP: ${c.metadata.razon_prospeccion}` : null,
+        !primerContacto && typeof c.metadata?.puntaje_icp === 'number' ? `Puntaje ICP: ${c.metadata.puntaje_icp}/10` : null,
         intentos > 0 ? `Intentos previos desde Bartez: ${intentos}` : 'Sin contactos previos oficiales desde Bartez (pero puede haber correos históricos importados).',
         c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : null,
         bloqueHistoria,
@@ -112,7 +115,7 @@ export async function generarSeguimientoIndividual(
         'Redactá un correo de seguimiento siguiendo las reglas de tu prompt.',
         historia.length > 0
             ? 'IMPORTANTE: hay correos previos con este cliente. NO hagas un primer contacto en frío ni una presentación desde cero — retomá la conversación desde donde quedó. Si hay compromisos pendientes, cotizaciones sin respuesta, o preguntas sin cerrar, respondé a eso. Si el último toque fue de Bartez y no hubo respuesta, hacé un follow-up ameno.'
-            : 'Este cliente no tiene correos previos. Presentá Bartez brevemente y abrí la puerta a una charla.',
+            : 'Este cliente no tiene correos previos: es un primer contacto. Corto (4-6 líneas): saludo, en una línea qué hace Bartez (equipamiento IT, infraestructura y soporte para empresas, en Rosario y todo el país), a lo sumo un gancho concreto, y un cierre suave del estilo "si en algún momento necesitás equipamiento o una cotización, nos escribís". Sin preguntas abiertas, sin datos investigados del prospecto. Firmá "Bartez Tecnología".',
     ].filter(Boolean).join('\n');
 
     const resultado = await asistente.procesar({
@@ -122,7 +125,7 @@ export async function generarSeguimientoIndividual(
         metadata: {
             emailDestino: c.email,
             nombreDestino: c.nombre,
-            asuntoOriginal: `Retomando contacto — Bartez Tecnología`,
+            asuntoOriginal: historia.length || intentos > 0 ? `Retomando contacto — Bartez Tecnología` : `Bartez Tecnología — equipamiento IT para ${c.nombre}`.slice(0, 120),
             origen: 'seguimiento_individual',
             intento: intentos + 1,
         },

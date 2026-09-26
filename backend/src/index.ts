@@ -818,6 +818,18 @@ app.post('/clientes/:id/contactar', async (req, res) => {
     if (parseo.data.area === 'correo' && !cliente.email) {
         return res.status(400).send({ error: 'Este prospecto no tiene email cargado' });
     }
+    // Primer contacto por correo: lo escribe Seguimientos (con sus lecciones y
+    // tu estilo: corto, datos reales de Bartez). Antes lo escribía Correo, que
+    // está hecho para contestar clientes, y rechazabas casi todos.
+    if (parseo.data.area === 'correo') {
+        try {
+            const r = await generarSeguimientoIndividual(id, { contexto_extra: parseo.data.contexto });
+            if (!r.ok) return res.status(400).send({ error: r.detalle ?? 'No se pudo redactar' });
+            return { resultado: { respuesta: r.respuesta }, mensaje: 'Contacto propuesto, va a Para aprobar esperando tu ok' };
+        } catch (err) {
+            return res.status(500).send({ error: (err as Error).message });
+        }
+    }
     if (parseo.data.area === 'whatsapp' && !cliente.whatsapp) {
         return res.status(400).send({ error: 'Este prospecto no tiene WhatsApp cargado' });
     }
@@ -847,7 +859,7 @@ app.post('/clientes/:id/contactar', async (req, res) => {
         // Invoco al asistente directamente (no vía enrutar) porque no queremos que
         // registre el "pedido" del operador como si fuera un correo entrante del cliente.
         const resultado = await asistente.procesar({
-            canal: parseo.data.area === 'correo' ? 'correo' : 'whatsapp',
+            canal: 'whatsapp',
             clienteId: id,
             texto,
             metadata: {
