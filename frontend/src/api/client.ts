@@ -1385,3 +1385,65 @@ export async function correrEvaluacion(): Promise<{ id: string; casos: number }>
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     }));
 }
+
+// Publicidad (Google Ads) — fase 1: solo mirar.
+export interface FichaWeb { tema: string; publico: string; ofrece: string[]; marcas: string[]; frases: string[]; palabras_clave: string[] }
+export interface MetricasPagina { clics: number; costo: number; conversiones: number; impresiones: number }
+export interface PaginaWeb {
+    url: string; ruta: string; tipo: string; anunciable: boolean; estado_http: number | null;
+    titulo: string | null; descripcion: string | null; h1: string | null; preguntas: number;
+    ficha: FichaWeb | null; en_sitemap: boolean; leida_en: string | null; cambio_en: string | null;
+    metricas: MetricasPagina | null;
+}
+export interface AlertaAds { clave: string; tipo: string; nivel: 'aviso' | 'urgente'; texto: string; en: string }
+export interface CampaniaAds { id: string; nombre: string; estado: string | null; gasto: number; clics: number; conversiones: number; presupuesto_diario: number | null }
+export interface ResumenPublicidad {
+    conexion: { configurado: boolean; faltan: string[]; conectado: boolean; conectado_en: string | null };
+    cuenta: { nombre: string | null; moneda: string; zona_horaria: string | null; autoetiquetado: boolean | null } | null;
+    config: { tope_mensual_ars: number | null; zona: string | null; modo: string };
+    sincronizado_en: string | null;
+    web_leida_en: string | null;
+    tipo_cambio: number | null;
+    mes: { desde: string; hasta: string; gasto: number; clics: number; impresiones: number; conversiones: number; cpc: number | null; costo_por_conversion: number | null; tope: number | null; uso_tope: number | null; proyeccion: number | null; presupuesto_diario_activo: number };
+    hoy: { gasto: number; clics: number };
+    campanias: CampaniaAds[];
+    alertas: AlertaAds[];
+}
+export interface BusquedaAds { termino: string; campanias: string[]; impresiones: number; clics: number; costo: number; conversiones: number; decision: string | null; motivo: string | null }
+export interface LecturaWeb { paginas: number; nuevas: string[]; cambiadas: string[]; con_error: string[]; quitadas: string[]; fichas: number; costo_usd: number; duracion_ms: number }
+
+export async function resumenPublicidad(): Promise<ResumenPublicidad> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad`));
+}
+export async function paginasPublicidad(dias = 30): Promise<{ paginas: PaginaWeb[]; destinos_fuera_de_la_web: Array<{ url: string; metricas: MetricasPagina }>; dias: number }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/paginas?dias=${dias}`));
+}
+export async function busquedasPublicidad(dias = 30): Promise<{ busquedas: BusquedaAds[] }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/busquedas?dias=${dias}`));
+}
+export async function marcarAnunciable(url: string, anunciable: boolean): Promise<{ pagina: { url: string; anunciable: boolean } }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/paginas`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url, anunciable }),
+    }));
+}
+export async function guardarConfigPublicidad(c: { tope_mensual_ars?: number | null; zona?: string | null }): Promise<{ config: ResumenPublicidad['config'] }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/config`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c),
+    }));
+}
+export async function releerWeb(rehacerFichas = false): Promise<{ resultado: LecturaWeb }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/web/leer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rehacer_fichas: rehacerFichas }),
+    }));
+}
+export async function sincronizarPublicidad(dias = 30): Promise<{ resultado: { desde: string; hasta: string; campanias: number; paginas: number; busquedas: number } }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/sincronizar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dias }),
+    }));
+}
+export async function urlConectarGoogleAds(): Promise<{ url: string }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/conectar`));
+}
+export async function desconectarGoogleAds(): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/desconectar`, { method: 'POST' }));
+}

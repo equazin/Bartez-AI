@@ -22,6 +22,9 @@ import { calcularMapa } from './orchestrator/mapa.js';
 import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
+import { busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
+import { leerWeb, leyendoWeb } from './orchestrator/web_mapa.js';
+import { adsConfig, canjearCodigo, desconectar as desconectarAds, estadoConexion as estadoAds, faltantesAds, stateValido, urlAutorizacion } from './connectors/google_ads.js';
 import { COSTO_ESTIMADO_POR_CASO, armarBanco, evaluacionEnCurso, iniciarEvaluacion } from './orchestrator/evaluacion.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
@@ -626,6 +629,93 @@ app.post('/bartez/refresh-web', async () => {
 app.get('/bartez/web', async () => {
     const texto = await textoWebBartez();
     return { largo: texto.length, muestra: texto.slice(0, 500) };
+});
+
+// ---------------------------------------------------------------- Publicidad
+// Fase 1: solo mirar. Mapa de la web, métricas de Google Ads y alertas.
+app.get('/publicidad', async () => resumenPublicidad());
+
+app.get('/publicidad/paginas', async (req) => {
+    const dias = Math.min(Math.max(Number((req.query as { dias?: string }).dias) || 30, 1), 365);
+    return paginasConMetricas(dias);
+});
+
+app.get('/publicidad/pagina', async (req, res) => {
+    const url = String((req.query as { url?: string }).url ?? '');
+    const { data } = await supabase.from('web_paginas').select('*').eq('url', url).maybeSingle();
+    if (!data) return res.status(404).send({ error: 'Página no encontrada' });
+    return { pagina: data };
+});
+
+app.patch('/publicidad/paginas', async (req, res) => {
+    const parseo = z.object({ url: z.string().url(), anunciable: z.boolean() }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    const { data, error } = await supabase.from('web_paginas').update({ anunciable: parseo.data.anunciable }).eq('url', parseo.data.url).select('url, anunciable').maybeSingle();
+    if (error || !data) return res.status(404).send({ error: 'Página no encontrada' });
+    return { pagina: data };
+});
+
+app.get('/publicidad/busquedas', async (req) => {
+    const dias = Math.min(Math.max(Number((req.query as { dias?: string }).dias) || 30, 1), 365);
+    return { busquedas: await busquedasRecientes(dias) };
+});
+
+app.put('/publicidad/config', async (req, res) => {
+    const parseo = z.object({
+        tope_mensual_ars: z.number().min(0).max(1e12).nullable().optional(),
+        zona: z.string().max(200).nullable().optional(),
+    }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    return { config: await guardarConfig(parseo.data) };
+});
+
+app.post('/publicidad/web/leer', async (req, res) => {
+    if (leyendoWeb()) return res.status(409).send({ error: 'Ya se está leyendo la web' });
+    const rehacer = (req.body as { rehacer_fichas?: boolean } | null)?.rehacer_fichas === true;
+    try {
+        return { resultado: await leerWeb({ rehacerFichas: rehacer }) };
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+app.post('/publicidad/sincronizar', async (req, res) => {
+    if (!(await estadoAds()).conectado) return res.status(400).send({ error: 'Google Ads no está conectado' });
+    const dias = Math.min(Math.max(Number((req.body as { dias?: number } | null)?.dias) || 30, 1), 90);
+    try {
+        return { resultado: await sincronizarAds({ dias, incluirHoy: true }) };
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+app.get('/publicidad/conectar', async (_req, res) => {
+    const faltan = faltantesAds();
+    if (faltan.length) return res.status(400).send({ error: `Faltan estas variables en Railway: ${faltan.join(', ')}`, faltan });
+    return { url: urlAutorizacion() };
+});
+
+app.post('/publicidad/desconectar', async () => {
+    await desconectarAds();
+    return { ok: true };
+});
+
+// Vuelta de Google después de "Conectar Google Ads". Es pública (Google redirige
+// el navegador acá); la protege el "state" firmado y con vencimiento.
+app.get('/ads/oauth/callback', async (req, res) => {
+    const q = req.query as { code?: string; state?: string; error?: string };
+    const volver = (estado: string) => res.redirect(`${adsConfig().panelUrl}#${estado}`);
+    if (q.error) return volver('ads-cancelado');
+    if (!q.code || !stateValido(q.state)) return volver('ads-error');
+    try {
+        await canjearCodigo(q.code);
+        // Primera bajada: el último mes.
+        sincronizarAds({ dias: 30, incluirHoy: true }).catch((err) => app.log.warn({ err }, '[publicidad] primera sincronización falló'));
+        return volver('ads-conectado');
+    } catch (err) {
+        app.log.warn({ err }, '[publicidad] no se pudo conectar Google Ads');
+        return volver('ads-error');
+    }
 });
 
 // Banco de prueba: compara el modelo de antes con el nuevo sobre tus casos reales.
@@ -1453,6 +1543,30 @@ async function main() {
         }
     }, { timezone: 'America/Argentina/Buenos_Aires' });
     app.log.info('[cron] barrido de seguimientos programado 09:00 AR (todos los días)');
+
+    // Publicidad (fase 1, solo mirar): lectura semanal de la web, métricas diarias
+    // de Google Ads y guardia de gasto cada 2 horas.
+    const ZONA = { timezone: 'America/Argentina/Buenos_Aires' };
+    cron.schedule('0 6 * * 1', async () => {
+        try { const r = await leerWeb(); app.log.info({ paginas: r.paginas, nuevas: r.nuevas.length, cambiadas: r.cambiadas.length, con_error: r.con_error.length, costo: r.costo_usd }, '[publicidad] web leída'); }
+        catch (err) { app.log.error({ err }, '[publicidad] lectura de la web falló'); }
+    }, ZONA);
+    cron.schedule('15 7 * * *', async () => {
+        try { await revisarDestinos(); } catch (err) { app.log.warn({ err }, '[publicidad] revisión de páginas falló'); }
+        try { if ((await estadoAds()).conectado) app.log.info(await sincronizarAds({ dias: 3 }), '[publicidad] métricas del día'); }
+        catch (err) { app.log.error({ err }, '[publicidad] sincronización diaria falló'); }
+    }, ZONA);
+    cron.schedule('0 8-21/2 * * *', async () => {
+        try { const r = await guardiaPublicidad(); if (r.alertas) app.log.info(r, '[publicidad] guardia con alertas'); }
+        catch (err) { app.log.error({ err }, '[publicidad] guardia falló'); }
+    }, ZONA);
+    // Si la web nunca se leyó, se lee al rato de arrancar.
+    setTimeout(async () => {
+        try {
+            const { data } = await supabase.from('integraciones_config').select('valor').eq('clave', 'web_mapa_leida').maybeSingle();
+            if (!data?.valor) { const r = await leerWeb(); app.log.info({ paginas: r.paginas, fichas: r.fichas, costo: r.costo_usd }, '[publicidad] primera lectura de la web'); }
+        } catch (err) { app.log.warn({ err }, '[publicidad] primera lectura de la web falló'); }
+    }, 60_000);
 
     // Cron semanal — lunes 8 AM AR — informe de Analítica.
     cron.schedule('0 8 * * 1', async () => {

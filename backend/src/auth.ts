@@ -6,7 +6,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 
 const DURACION_MS = 30 * 24 * 60 * 60 * 1000; // 30 días
-const RUTAS_PUBLICAS = new Set(['/health', '/auth/login', '/auth/estado']);
+const RUTAS_PUBLICAS = new Set(['/health', '/auth/login', '/auth/estado', '/ads/oauth/callback']);
 
 const enProduccion = () => Boolean(process.env.RAILWAY_ENVIRONMENT) || process.env.NODE_ENV === 'production';
 const password = () => process.env.PANEL_PASSWORD ?? '';

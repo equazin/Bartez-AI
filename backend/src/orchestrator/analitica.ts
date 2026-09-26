@@ -3,6 +3,7 @@
 // con resumen + propuestas de ajuste. Guarda en reportes_analitica, manda
 // por email y sincroniza a Notion Notas.
 
+import { bloquePublicidadParaInforme } from './publicidad.js';
 import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo, textoDe } from '../connectors/anthropic.js';
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
 import { chunkText, idsNotion, notion, notionConfigurado } from '../connectors/notion.js';
@@ -179,8 +180,11 @@ export async function correrAnalitica(dias = 7): Promise<ReporteAnalitica> {
 
     // ---------- Invocación al modelo ----------
     const snapshotJson = JSON.stringify(stats, null, 2);
+    // Publicidad (Google Ads) y cambios en la web, si hay algo que contar.
+    const publicidad = await bloquePublicidadParaInforme(dias).catch(() => null);
     const consigna =
         `Snapshot del sistema de los últimos ${dias} días:\n\n\`\`\`json\n${snapshotJson}\n\`\`\`\n\n` +
+        (publicidad ? `${publicidad}\n\nIncluí una sección corta "Publicidad" con esto.\n\n` : '') +
         `Redactá el informe completo siguiendo la estructura del prompt. Terminá con el bloque <propuestas>[...]</propuestas>.`;
 
     const resp = await anthropic.messages.create({
