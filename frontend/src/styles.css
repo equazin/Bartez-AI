@@ -3126,3 +3126,26 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
     .form-cliente-grid { grid-template-columns: minmax(0, 1fr); }
     .seguimientos .analitica-top { flex-direction: column; }
 }
+
+/* Prueba de modelos */
+.eval .sutil { color: var(--sutil); font-size: 12px; }
+.eval-corridas { margin-bottom: 12px; flex-wrap: wrap; }
+.eval-bloque { margin-top: 20px; }
+.eval-bloque h4 { margin: 0 0 8px; font-size: 13px; }
+.eval-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+.eval-tabla th { text-align: left; font-weight: 500; color: var(--sutil); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--borde); }
+.eval-tabla td { padding: 8px; border-bottom: 1px solid var(--borde-soft); }
+.eval-tabla td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.eval-empates { margin: 6px 0 0; }
+.eval-casos-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.eval-caso { border: 1px solid var(--borde-soft); border-radius: 8px; margin-bottom: 8px; background: var(--panel); }
+.eval-caso summary { cursor: pointer; padding: 10px 12px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.eval-caso-tit { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.eval-gana { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--hover); color: var(--sutil); white-space: nowrap; }
+.eval-gana.gana-b { background: var(--acento-soft); color: var(--texto); }
+.eval-razon { margin: 0 12px 8px; font-size: 13px; color: var(--sutil); }
+.eval-par { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 12px 12px; }
+.eval-borrador { border: 1px solid var(--borde-soft); border-radius: 6px; padding: 10px; min-width: 0; }
+.eval-borrador-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 12px; }
+.eval-borrador pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; font-size: 13px; margin: 0; }
+@media (max-width: 760px) { .eval-par { grid-template-columns: 1fr; } .analitica-top { flex-direction: column; } }

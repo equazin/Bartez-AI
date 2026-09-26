@@ -12,7 +12,7 @@
 // es Bartez AI y se sincroniza sola). Nunca borra: archiva (recuperable).
 
 import Anthropic from '@anthropic-ai/sdk';
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { idsNotion, notion, notionConfigurado } from '../connectors/notion.js';
 import { likeLiteral, supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
@@ -734,8 +734,8 @@ export async function correrCurador(opts: { instruccion?: string } = {}): Promis
         let tokensIn = 0, tokensOut = 0, texto = '';
         for (let i = 0; i < 25; i++) {
             const resp = await anthropic.messages.create({
-                model: idModelo(modelo),
-                max_tokens: 4096,
+                ...opcionesModelo(modelo),
+                max_tokens: maxTokens(modelo, 4096),
                 system: `${PROMPT_CURADOR}\n\n${contextoFecha()}`,
                 tools: TOOLS_CURADOR,
                 messages: mensajes,

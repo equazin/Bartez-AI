@@ -10,7 +10,7 @@
 // El bot de la web sigue atendiendo el primer contacto: Bartez AI solo
 // propone en conversaciones escaladas, para no responder dos veces.
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo, textoDe } from '../connectors/anthropic.js';
 import type { ModeloClaude } from './types.js';
 import { textoWebBartez } from '../connectors/bartez_web.js';
 import {
@@ -325,14 +325,12 @@ async function redactarWhatsapp(
 
     const inicio = Date.now();
     const resp = await anthropic.messages.create({
-        model: idModelo(modelo),
-        max_tokens: 600,
+        ...opcionesModelo(modelo, 'low'),
+        max_tokens: maxTokens(modelo, 600),
         system,
         messages: [{ role: 'user', content: consigna }],
     });
-    const texto = resp.content
-        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-        .map((c) => c.text).join('\n').trim()
+    const texto = textoDe(resp)
         .replace(/^["«]|["»]$/g, '');
     if (!texto) return { ok: false, detalle: 'El asistente no devolvió texto' };
     const costo = calcularCosto(modelo, resp.usage.input_tokens, resp.usage.output_tokens);

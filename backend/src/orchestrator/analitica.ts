@@ -3,7 +3,7 @@
 // con resumen + propuestas de ajuste. Guarda en reportes_analitica, manda
 // por email y sincroniza a Notion Notas.
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo, textoDe } from '../connectors/anthropic.js';
 import { enviarCorreo, ferozoConfigurado } from '../connectors/ferozo.js';
 import { chunkText, idsNotion, notion, notionConfigurado } from '../connectors/notion.js';
 import { supabase } from '../connectors/supabase.js';
@@ -184,12 +184,12 @@ export async function correrAnalitica(dias = 7): Promise<ReporteAnalitica> {
         `Redactá el informe completo siguiendo la estructura del prompt. Terminá con el bloque <propuestas>[...]</propuestas>.`;
 
     const resp = await anthropic.messages.create({
-        model: idModelo('sonnet'),
-        max_tokens: 4096,
+        ...opcionesModelo('sonnet'),
+        max_tokens: maxTokens('sonnet', 4096),
         system: PROMPT_SYSTEM,
         messages: [{ role: 'user', content: consigna }],
     });
-    const texto = resp.content.filter((c): c is { type: 'text'; text: string } => c.type === 'text').map((t) => t.text).join('\n');
+    const texto = textoDe(resp);
     const tokensIn = resp.usage.input_tokens;
     const tokensOut = resp.usage.output_tokens;
     const costo = calcularCosto('sonnet', tokensIn, tokensOut);

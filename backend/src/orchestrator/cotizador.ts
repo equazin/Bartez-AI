@@ -6,7 +6,7 @@
 // números nunca son inventados.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { supabase } from '../connectors/supabase.js';
 import { tipoDeCambio } from './catalogo_proveedores.js';
 
@@ -191,8 +191,8 @@ export async function cotizar(pedido: string, opts: { cliente_id?: string } = {}
 
     for (let i = 0; i < 15; i++) {
         const resp = await anthropic.messages.create({
-            model: idModelo(modelo),
-            max_tokens: 4096,
+            ...opcionesModelo(modelo),
+            max_tokens: maxTokens(modelo, 4096),
             system,
             tools: TOOLS,
             messages: mensajes,

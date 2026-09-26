@@ -1353,3 +1353,35 @@ export async function mapaNegocio(refrescar = false): Promise<Mapa> {
 export async function sugerenciasBartez(): Promise<{ sugerencias: Sugerencia[] }> {
     return jsonOError(await apiFetch(`${BASE}/sugerencias`));
 }
+
+// Prueba de modelos (banco de casos reales).
+export interface ResumenModeloEval { modelo: string; casos: number; aprobables: number; puntaje: number; costoUsd: number; msPromedio: number; errores: number }
+export interface ResumenLado { a: ResumenModeloEval; b: ResumenModeloEval; ganaA: number; ganaB: number; empates: number }
+export interface NotaEval { aprobable: boolean; puntaje: number; problema: string }
+export interface BorradorEval { modelo: string; filtrado: string | null; asunto: string | null; cuerpo: string | null; costoUsd: number; ms: number; error?: string }
+export interface CasoEvalResultado {
+    caso: { id: string; area: 'correo' | 'seguimientos'; estado: 'aprobada' | 'editada' | 'rechazada'; para: string; asunto: string; motivo: string | null };
+    a: BorradorEval; b: BorradorEval;
+    juez: { a: NotaEval; b: NotaEval; mejor: 'a' | 'b' | 'empate'; razon: string } | null;
+}
+export interface Evaluacion {
+    id: string; creado_en: string; terminado_en: string | null; estado: 'corriendo' | 'lista' | 'error';
+    modelos: { antes?: Record<string, string>; nuevo?: string; juez?: string };
+    casos: number; hechos: number; costo_usd: number; error: string | null;
+    resumen: { porArea: Record<string, ResumenLado>; total: ResumenLado } | null;
+    detalle?: CasoEvalResultado[];
+}
+
+export async function listarEvaluaciones(): Promise<{ evaluaciones: Evaluacion[]; banco: { casos: number; costo_estimado_usd: number }; corriendo: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/evaluaciones`));
+}
+
+export async function obtenerEvaluacion(id: string): Promise<{ evaluacion: Evaluacion }> {
+    return jsonOError(await apiFetch(`${BASE}/evaluaciones/${encodeURIComponent(id)}`));
+}
+
+export async function correrEvaluacion(): Promise<{ id: string; casos: number }> {
+    return jsonOError(await apiFetch(`${BASE}/evaluaciones`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }));
+}

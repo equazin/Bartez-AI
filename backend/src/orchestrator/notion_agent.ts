@@ -10,7 +10,7 @@
 //     POST /notion/pedir { texto } → consigna custom
 
 import Anthropic from '@anthropic-ai/sdk';
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { idsNotion, notion, notionConfigurado } from '../connectors/notion.js';
 import { supabase } from '../connectors/supabase.js';
 
@@ -274,8 +274,8 @@ export async function correrNotionAgent(
 
     for (let i = 0; i < maxIteraciones; i++) {
         const resp = await anthropic.messages.create({
-            model: idModelo(modelo),
-            max_tokens: 4096,
+            ...opcionesModelo(modelo),
+            max_tokens: maxTokens(modelo, 4096),
             system: systemCustom,
             tools: TOOLS,
             messages: mensajes,

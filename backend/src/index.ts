@@ -22,6 +22,7 @@ import { calcularMapa } from './orchestrator/mapa.js';
 import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
+import { COSTO_ESTIMADO_POR_CASO, armarBanco, evaluacionEnCurso, iniciarEvaluacion } from './orchestrator/evaluacion.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
 import { ajustesWa, borradorWhatsapp, crearClienteDesdeWa, enviarPlantillaAMano, detalleConversacionWa, guardarAjustesWa, guardarPlantillasWa, listarConversacionesWa, listarPlantillasWa, proponerPlantillaWa, proponerRespuestaWhatsapp, responderWhatsappAMano, sincronizarWhatsapp, vincularClienteWa } from './orchestrator/whatsapp.js';
@@ -625,6 +626,32 @@ app.post('/bartez/refresh-web', async () => {
 app.get('/bartez/web', async () => {
     const texto = await textoWebBartez();
     return { largo: texto.length, muestra: texto.slice(0, 500) };
+});
+
+// Banco de prueba: compara el modelo de antes con el nuevo sobre tus casos reales.
+app.get('/evaluaciones', async () => {
+    const { data } = await supabase.from('evaluaciones')
+        .select('id, creado_en, terminado_en, estado, modelos, casos, hechos, resumen, costo_usd, error')
+        .order('creado_en', { ascending: false }).limit(10);
+    const casos = (await armarBanco()).length;
+    return { evaluaciones: data ?? [], banco: { casos, costo_estimado_usd: Math.round(casos * COSTO_ESTIMADO_POR_CASO * 100) / 100 }, corriendo: evaluacionEnCurso() };
+});
+
+app.get('/evaluaciones/:id', async (req, res) => {
+    const { id } = req.params as { id: string };
+    const { data } = await supabase.from('evaluaciones').select('*').eq('id', id).maybeSingle();
+    if (!data) return res.status(404).send({ error: 'Evaluación no encontrada' });
+    return { evaluacion: data };
+});
+
+app.post('/evaluaciones', async (req, res) => {
+    const parseo = z.object({ limite: z.number().int().min(1).max(60).optional() }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
+    try {
+        return await iniciarEvaluacion({ limite: parseo.data.limite });
+    } catch (err) {
+        return res.status(409).send({ error: (err as Error).message });
+    }
 });
 
 app.post('/catalogo/recargar', async () => {

@@ -5,7 +5,7 @@
 // seguimientos) siguen yendo a su asistente.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
@@ -253,7 +253,7 @@ export async function responderOperador(texto: string, conversacionId: string | 
 
     let tokensIn = 0, tokensOut = 0, respuesta = '';
     for (let i = 0; i < 8; i++) {
-        const resp = await anthropic.messages.create({ model: idModelo(modelo), max_tokens: 1500, system, tools: TOOLS, messages: mensajes });
+        const resp = await anthropic.messages.create({ ...opcionesModelo(modelo), max_tokens: maxTokens(modelo, 1500), system, tools: TOOLS, messages: mensajes });
         tokensIn += resp.usage.input_tokens;
         tokensOut += resp.usage.output_tokens;
         mensajes.push({ role: 'assistant', content: resp.content });

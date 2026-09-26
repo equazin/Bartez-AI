@@ -9,7 +9,7 @@
 //   mandan una cotización, queda una tarea para armar el presupuesto al cliente.
 
 import { supabase } from '../connectors/supabase.js';
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 
 export const DOMINIO_PROPIO = 'bartez.com.ar';
 
@@ -77,8 +77,8 @@ export function parsearLeadWeb(cuerpo: string): LeadWeb {
 export async function leerCorreoDeProveedor(c: { de: string; asunto: string; cuerpo: string }): Promise<{ cotizacion: boolean; tarea: string | null; costoUsd: number }> {
     try {
         const r = await anthropic.messages.create({
-            model: idModelo('haiku'),
-            max_tokens: 200,
+            ...opcionesModelo('haiku'),
+            max_tokens: maxTokens('haiku', 200),
             system: `Sos el asistente de Bartez Tecnología (mayorista de IT en Rosario). Te llega un correo de un PROVEEDOR (mayorista, distribuidor o fabricante que le vende a Bartez). Nunca se le responde solo.
 Decidí si trae una cotización, proforma, precios, disponibilidad o plazo de entrega que Andrés tenga que usar para armarle el presupuesto a un cliente.
 Respondé SOLO JSON: {"cotizacion": true|false, "tarea": "Acción en una línea para Andrés, ej: \\"Armar presupuesto al cliente con la cotización de Grupo Air (Server Dell R760 con GPU)\\"" o null}.

@@ -7,7 +7,7 @@
 // por asistente, que se suma al final de su prompt. Las lecciones se pueden
 // ver, editar o borrar desde la pestaña Asistentes.
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { supabase } from '../connectors/supabase.js';
 
 type Tipo = 'rechazo' | 'edicion';
@@ -143,8 +143,8 @@ export async function destilarLecciones(asistenteId: string, forzar = false): Pr
         const pedido = `Asistente: ${asist.nombre} (área ${asist.area}).\n\nLECCIONES ACTUALES:\n${texto(asist.lecciones) || '(ninguna todavía)'}\n\nCORRECCIONES (de la más vieja a la más nueva):\n\n${casos}\n\nDevolvé la lista actualizada de lecciones.`;
         const modelo = 'sonnet' as const;
         const r = await anthropic.messages.create({
-            model: idModelo(modelo),
-            max_tokens: 900,
+            ...opcionesModelo(modelo),
+            max_tokens: maxTokens(modelo, 900),
             system: PROMPT_DESTILAR,
             messages: [{ role: 'user', content: pedido }],
         });

@@ -2,7 +2,7 @@
 // la conversión a ResultadoAsistente. Cada asistente concreto define su prompt
 // y qué herramientas puede llamar.
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo, textoDe } from '../connectors/anthropic.js';
 import { conLecciones } from '../orchestrator/aprendizaje.js';
 import { conMemoria } from '../orchestrator/memoria.js';
 import type { Asistente, AsistenteConfig, ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
@@ -35,14 +35,13 @@ export abstract class AsistenteBase implements Asistente {
         const inicio = Date.now();
 
         const respuesta = await anthropic.messages.create({
-            model: idModelo(this.config.modelo),
-            max_tokens: 1024,
+            ...opcionesModelo(this.config.modelo),
+            max_tokens: maxTokens(this.config.modelo, 1024),
             system: await this.construirSystem(tarea),
             messages: [{ role: 'user', content: tarea.texto }],
         });
 
-        const bloqueTexto = respuesta.content.find((c) => c.type === 'text');
-        const texto = bloqueTexto?.type === 'text' ? bloqueTexto.text : '';
+        const texto = textoDe(respuesta);
 
         const tokensIn = respuesta.usage.input_tokens;
         const tokensOut = respuesta.usage.output_tokens;

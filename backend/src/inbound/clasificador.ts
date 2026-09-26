@@ -3,7 +3,7 @@
 // Filtra spam/newsletters/informativos y tags la categoría de los que sí
 // requieren respuesta, para que el asistente sepa qué tratamiento darle.
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { bitacora } from '../logging/bitacora.js';
 
 export type CategoriaCorreo =
@@ -69,8 +69,8 @@ export async function clasificarCorreo(params: {
 
     try {
         const respuesta = await anthropic.messages.create({
-            model: idModelo('haiku'),
-            max_tokens: 200,
+            ...opcionesModelo('haiku'),
+            max_tokens: maxTokens('haiku', 200),
             system: SYSTEM_PROMPT,
             messages: [{
                 role: 'user',

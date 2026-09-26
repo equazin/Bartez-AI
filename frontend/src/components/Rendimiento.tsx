@@ -5,13 +5,15 @@ import { useState } from 'react';
 import { Dashboard } from './Dashboard.tsx';
 import { Analitica } from './Analitica.tsx';
 import { Bitacora } from './Bitacora.tsx';
+import { PruebaModelos } from './PruebaModelos.tsx';
 
-export type SeccionRendimiento = 'hoy' | 'informes' | 'bitacora';
+export type SeccionRendimiento = 'hoy' | 'informes' | 'bitacora' | 'modelos';
 
 const SECCIONES: Array<{ id: SeccionRendimiento; etq: string; sub: string }> = [
     { id: 'hoy', etq: 'Hoy', sub: 'Resultados comerciales del día y la actividad de cada asistente.' },
     { id: 'informes', etq: 'Informes semanales', sub: 'El análisis de los lunes: diagnóstico y hasta 3 propuestas de ajuste.' },
     { id: 'bitacora', etq: 'Bitácora', sub: 'Cada paso de los asistentes: qué hicieron, cuánto tardaron y cuánto costaron.' },
+    { id: 'modelos', etq: 'Prueba de modelos', sub: 'Tus correos reales, repetidos con el modelo de antes y el nuevo.' },
 ];
 
 export function Rendimiento({ inicial = 'hoy' }: { inicial?: SeccionRendimiento }) {
@@ -36,6 +38,7 @@ export function Rendimiento({ inicial = 'hoy' }: { inicial?: SeccionRendimiento 
                 {seccion === 'hoy' && <Dashboard />}
                 {seccion === 'informes' && <Analitica />}
                 {seccion === 'bitacora' && <Bitacora />}
+                {seccion === 'modelos' && <PruebaModelos />}
             </div>
         </section>
     );

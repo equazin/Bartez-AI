@@ -2,7 +2,7 @@
 // Agrega toda la info que hay (datos del cliente, correos previos, acciones,
 // último contacto) y devuelve diagnóstico + propuesta de próximos pasos.
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo, textoDe } from '../connectors/anthropic.js';
 import { mensajesWhatsappDeCliente } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
@@ -160,12 +160,12 @@ export async function generarInformeCliente(
 
     try {
         const resp = await anthropic.messages.create({
-            model: idModelo('sonnet'),
-            max_tokens: 1800,
+            ...opcionesModelo('sonnet'),
+            max_tokens: maxTokens('sonnet', 1800),
             system: previo ? PROMPT_SYSTEM + PROMPT_ACTUALIZAR : PROMPT_SYSTEM,
             messages: [{ role: 'user', content: consigna }],
         });
-        const texto = resp.content.filter((c): c is { type: 'text'; text: string } => c.type === 'text').map((t) => t.text).join('\n').trim();
+        const texto = textoDe(resp).trim();
         if (!texto) return vacio('La IA no devolvió el informe');
         const tokensIn = resp.usage.input_tokens;
         const tokensOut = resp.usage.output_tokens;

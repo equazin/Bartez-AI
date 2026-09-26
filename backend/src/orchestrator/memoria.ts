@@ -5,7 +5,7 @@
 // (conMemoria / bloqueMemoria).
 
 import type Anthropic from '@anthropic-ai/sdk';
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import { anthropic, calcularCosto, idModelo, maxTokens, opcionesModelo } from '../connectors/anthropic.js';
 import { supabase } from '../connectors/supabase.js';
 import {
     DatosDocumento, TotalManual, VERSION_DATOS, aplicarTotalManual, necesitaRelectura, normalizarPresupuesto,
@@ -157,8 +157,8 @@ async function resumirNota(id: string, texto: string, clienteId: string): Promis
     const { data: cliente } = await supabase.from('clientes').select('nombre').eq('id', clienteId).maybeSingle();
     const modelo = 'sonnet' as const;
     const r = await anthropic.messages.create({
-        model: idModelo(modelo),
-        max_tokens: 1200,
+        ...opcionesModelo(modelo),
+        max_tokens: maxTokens(modelo, 1200),
         system: PROMPT_NOTA,
         messages: [{ role: 'user', content: `Cliente: ${cliente?.nombre ?? 'sin nombre'}\n\n<texto>\n${texto}\n</texto>` }],
     });
@@ -340,8 +340,8 @@ export async function procesarDocumento(id: string, bufferDado?: Buffer): Promis
         const contenido = await contenidoParaClaude(buffer, doc.tipo_mime as string);
         const modelo = 'sonnet' as const;
         const r = await anthropic.messages.create({
-            model: idModelo(modelo),
-            max_tokens: 2000,
+            ...opcionesModelo(modelo),
+            max_tokens: maxTokens(modelo, 2000),
             system: PROMPT_DOCUMENTO,
             messages: [{ role: 'user', content: [...contenido, { type: 'text', text: `Cliente: ${cliente?.nombre ?? 'sin nombre'}\nArchivo: ${doc.nombre}\n\nDevolvé el JSON.` }] }],
         });

@@ -4,7 +4,13 @@
 // El destinatario NUNCA lo decide el LLM sin un email real encontrado en
 // web (política estricta: sin fabricar direcciones).
 
-import { anthropic, calcularCosto, idModelo } from '../connectors/anthropic.js';
+import type Anthropic from '@anthropic-ai/sdk';
+import { anthropic, calcularCosto, idModelo, maxTokens as maxTokensModelo, opcionesModelo, piensa, textoDe } from '../connectors/anthropic.js';
+import type { ModeloClaude } from '../orchestrator/types.js';
+
+// Los modelos nuevos filtran los resultados de búsqueda antes de leerlos (más
+// preciso y menos tokens); los viejos usan la versión básica.
+const webSearch = (modelo: ModeloClaude) => (piensa(idModelo(modelo)) ? 'web_search_20260209' : 'web_search_20250305');
 import type { Asistente, AsistenteConfig, ResultadoAsistente, TareaEntrante } from '../orchestrator/types.js';
 import { contextoFecha } from './base.js';
 
@@ -74,23 +80,29 @@ uno inventado. Sin sector público ni bancos.`
         const maxTokens = modo === 'sweep' ? 16384 : 8192;
 
         try {
-            const respuesta = await anthropic.messages.create({
-                model: idModelo(this.config.modelo),
-                max_tokens: maxTokens,
-                system: `${contextoFecha()}\n\n${prompt}`,
-                messages: [{ role: 'user', content: consigna }],
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: maxUses } as any],
-            });
+            // Con muchas búsquedas el servidor corta la vuelta ("pause_turn"): se
+            // reenvía lo hecho hasta ahora y sigue desde ahí (antes se perdía lo que
+            // faltaba y salían pocos prospectos).
+            const mensajes: Anthropic.MessageParam[] = [{ role: 'user', content: consigna }];
+            let respuesta: Anthropic.Message | undefined;
+            let texto = '';
+            let tokensIn = 0;
+            let tokensOut = 0;
+            for (let vuelta = 0; vuelta < 6; vuelta++) {
+                respuesta = await anthropic.messages.create({
+                    ...opcionesModelo(this.config.modelo),
+                    max_tokens: maxTokensModelo(this.config.modelo, maxTokens),
+                    system: `${contextoFecha()}\n\n${prompt}`,
+                    messages: mensajes,
+                    tools: [{ type: webSearch(this.config.modelo), name: 'web_search', max_uses: maxUses } as unknown as Anthropic.ToolUnion],
+                });
+                tokensIn += respuesta.usage.input_tokens;
+                tokensOut += respuesta.usage.output_tokens;
+                texto += (texto ? '\n' : '') + textoDe(respuesta);
+                if (respuesta.stop_reason !== 'pause_turn') break;
+                mensajes.push({ role: 'assistant', content: respuesta.content });
+            }
 
-            // Concatenar todos los bloques de texto de la respuesta
-            const texto = respuesta.content
-                .filter((c) => c.type === 'text')
-                .map((c) => (c as { text: string }).text)
-                .join('\n');
-
-            const tokensIn = respuesta.usage.input_tokens;
-            const tokensOut = respuesta.usage.output_tokens;
             const costoUsd = calcularCosto(this.config.modelo, tokensIn, tokensOut);
 
             const prospectos = extraerProspectos(texto);

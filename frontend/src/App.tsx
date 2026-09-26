@@ -18,7 +18,7 @@ import { BACKEND_ES_DEMO, BACKEND_NORMAL_ES_LOCAL, BACKEND_URL, EVENTO_LOGOUT, e
 export type Tab = 'home' | 'chat' | 'acciones' | 'asistentes' | 'rendimiento' | 'prospeccion' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion';
 
 // Las tres pantallas viejas de Sistema viven ahora como pestañas de Rendimiento.
-const A_RENDIMIENTO: Record<string, SeccionRendimiento> = { dashboard: 'hoy', analitica: 'informes', bitacora: 'bitacora' };
+const A_RENDIMIENTO: Record<string, SeccionRendimiento> = { dashboard: 'hoy', analitica: 'informes', bitacora: 'bitacora', modelos: 'modelos' };
 
 type Contador = 'tu_ok' | 'whatsapp';
 

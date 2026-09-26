@@ -12,6 +12,7 @@ import { catalogo } from './catalog.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { presupuestosSinRespuesta } from './cotizador.js';
 import { mensajesWhatsappDeCliente } from './whatsapp.js';
+import type { TareaEntrante } from './types.js';
 
 const DIAS_SILENCIO = 7;
 const MAX_INTENTOS = 4;
@@ -54,6 +55,43 @@ export async function generarSeguimientoIndividual(
     const asistente = catalogo.obtenerPorArea('seguimientos');
     if (!asistente) return { ok: false, detalle: 'Asistente Seguimientos no está activo' };
 
+    const armado = await armarTareaSeguimiento(clienteId, opts);
+    if (!armado.ok) return { ok: false, detalle: armado.detalle };
+    const { tarea, intentos } = armado;
+    const resultado = await asistente.procesar(tarea);
+
+    await supabase.from('logs_asistente').insert({
+        asistente_id: asistente.config.id,
+        entrada: { origen: 'seguimiento_individual', cliente_id: clienteId, intento: intentos + 1 },
+        salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
+        tokens_in: resultado.tokensIn,
+        tokens_out: resultado.tokensOut,
+        costo_usd: resultado.costoUsd,
+        duracion_ms: resultado.duracionMs,
+    });
+
+    if (!resultado.accionPropuesta) {
+        return { ok: false, detalle: 'El asistente no propuso ninguna acción — probablemente el prompt necesita ajuste' };
+    }
+
+    const { data: nuevaAccion } = await supabase.from('acciones_pendientes').insert({
+        asistente_id: asistente.config.id,
+        accion: resultado.accionPropuesta.tipo,
+        payload: resultado.accionPropuesta.payload,
+        estado: 'pendiente',
+        respuesta: { por: 'sistema', origen: 'seguimiento_individual', cliente_id: clienteId },
+    }).select('id').single();
+
+    return { ok: true, accion_id: nuevaAccion?.id, respuesta: resultado.respuesta };
+}
+
+// Arma el pedido para Seguimientos (contexto del cliente, historial, pautas).
+// Con `hasta`, lo arma como estaba ese día (para el banco de prueba, que repite
+// casos viejos sin ver lo que pasó después).
+export async function armarTareaSeguimiento(
+    clienteId: string,
+    opts: { informe_previo?: string; contexto_extra?: string; hasta?: string } = {},
+): Promise<{ ok: false; detalle: string } | { ok: true; tarea: TareaEntrante; intentos: number }> {
     const { data: c } = await supabase
         .from('clientes')
         .select('id, nombre, email, estado, intentos_contacto, ultimo_contacto_en, metadata')
@@ -63,7 +101,8 @@ export async function generarSeguimientoIndividual(
     if (c.estado === 'proveedor') return { ok: false, detalle: 'Es un proveedor: la IA no le escribe. Respondele vos desde tu correo.' };
     if (!c.email) return { ok: false, detalle: 'Este cliente no tiene email cargado' };
 
-    const historia = await historicoConCliente(clienteId, 10);
+    const antes = (f: string) => !opts.hasta || f < opts.hasta;
+    const historia = (await historicoConCliente(clienteId, opts.hasta ? 40 : 10)).filter((h) => antes(new Date(h.fecha).toISOString())).slice(0, 10);
     const bloqueHistoria = historia.length > 0
         ? '\n\nHistorial de correos previos (cronológico):\n' +
           historia.slice().reverse().map((h) => {
@@ -74,7 +113,7 @@ export async function generarSeguimientoIndividual(
           }).join('\n\n')
         : '';
 
-    const wa = await mensajesWhatsappDeCliente(clienteId, 15);
+    const wa = (await mensajesWhatsappDeCliente(clienteId, opts.hasta ? 60 : 15)).filter((m) => antes(m.creado_en)).slice(0, 15);
     const bloqueWhatsapp = wa.length > 0
         ? '\n\nConversación de WhatsApp reciente (cronológica):\n' +
           wa.slice().reverse().map((m) => {
@@ -83,8 +122,8 @@ export async function generarSeguimientoIndividual(
           }).join('\n')
         : '';
 
-    const intentos = c.intentos_contacto ?? 0;
-    const diasSilencio = c.ultimo_contacto_en
+    const intentos = opts.hasta ? historia.filter((h) => h.direccion === 'saliente').length : (c.intentos_contacto ?? 0);
+    const diasSilencio = !opts.hasta && c.ultimo_contacto_en
         ? Math.floor((Date.now() - new Date(c.ultimo_contacto_en).getTime()) / (24 * 3600_000))
         : 0;
 
@@ -106,7 +145,7 @@ export async function generarSeguimientoIndividual(
         !primerContacto && c.metadata?.razon_prospeccion ? `Encaje ICP: ${c.metadata.razon_prospeccion}` : null,
         !primerContacto && typeof c.metadata?.puntaje_icp === 'number' ? `Puntaje ICP: ${c.metadata.puntaje_icp}/10` : null,
         intentos > 0 ? `Intentos previos desde Bartez: ${intentos}` : 'Sin contactos previos oficiales desde Bartez (pero puede haber correos históricos importados).',
-        c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : null,
+        !opts.hasta && c.ultimo_contacto_en ? `Días desde último contacto Bartez: ${diasSilencio}` : null,
         bloqueHistoria,
         bloqueWhatsapp,
         bloqueInforme,
@@ -118,7 +157,7 @@ export async function generarSeguimientoIndividual(
             : 'Este cliente no tiene correos previos: es un primer contacto. Corto (4-6 líneas): saludo, en una línea qué hace Bartez (equipamiento IT, infraestructura y soporte para empresas, en Rosario y todo el país), a lo sumo un gancho concreto, y un cierre suave del estilo "si en algún momento necesitás equipamiento o una cotización, nos escribís". Sin preguntas abiertas, sin datos investigados del prospecto. Firmá "Bartez Tecnología".',
     ].filter(Boolean).join('\n');
 
-    const resultado = await asistente.procesar({
+    const tarea: TareaEntrante = {
         canal: 'correo',
         clienteId: c.id,
         texto: contexto,
@@ -129,31 +168,8 @@ export async function generarSeguimientoIndividual(
             origen: 'seguimiento_individual',
             intento: intentos + 1,
         },
-    });
-
-    await supabase.from('logs_asistente').insert({
-        asistente_id: asistente.config.id,
-        entrada: { origen: 'seguimiento_individual', cliente_id: c.id, intento: intentos + 1 },
-        salida: { respuesta: resultado.respuesta, accion: resultado.accionPropuesta },
-        tokens_in: resultado.tokensIn,
-        tokens_out: resultado.tokensOut,
-        costo_usd: resultado.costoUsd,
-        duracion_ms: resultado.duracionMs,
-    });
-
-    if (!resultado.accionPropuesta) {
-        return { ok: false, detalle: 'El asistente no propuso ninguna acción — probablemente el prompt necesita ajuste' };
-    }
-
-    const { data: nuevaAccion } = await supabase.from('acciones_pendientes').insert({
-        asistente_id: asistente.config.id,
-        accion: resultado.accionPropuesta.tipo,
-        payload: resultado.accionPropuesta.payload,
-        estado: 'pendiente',
-        respuesta: { por: 'sistema', origen: 'seguimiento_individual', cliente_id: c.id },
-    }).select('id').single();
-
-    return { ok: true, accion_id: nuevaAccion?.id, respuesta: resultado.respuesta };
+    };
+    return { ok: true, tarea, intentos };
 }
 
 export async function correrBarridoSeguimientos(): Promise<ResultadoBarrido> {
