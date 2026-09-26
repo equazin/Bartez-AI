@@ -27,12 +27,13 @@ const W = 860, H = 600, C = { x: 430, y: 290 }, RX = 245, RY = 180, R_NODO = 70;
 
 // Dónde va cada asistente (grados, 0 = derecha) y hacia dónde abre sus nodos.
 const LUGAR: Record<AreaMapa | 'notion', { ang: number; abanico: number }> = {
-    prospeccion: { ang: -150, abanico: -160 },
+    prospeccion: { ang: -142, abanico: -155 },
     cotizador: { ang: -90, abanico: -90 },
-    seguimientos: { ang: -30, abanico: -20 },
-    correo: { ang: 30, abanico: 30 },
-    notion: { ang: 90, abanico: 90 },
-    whatsapp: { ang: 150, abanico: 160 },
+    seguimientos: { ang: -38, abanico: -25 },
+    correo: { ang: 12, abanico: 18 },
+    publicidad: { ang: 62, abanico: 55 },
+    notion: { ang: 116, abanico: 116 },
+    whatsapp: { ang: 166, abanico: 170 },
 };
 
 const rad = (g: number) => (g * Math.PI) / 180;
@@ -40,6 +41,7 @@ const corto = (s: string, n = 16) => (s.length > n ? `${s.slice(0, n - 1).trimEn
 const v = (o: Record<string, string | number>) => o as CSSProperties;
 
 export function metricaAsistente(a: AsistenteMapa): string {
+    if (a.metrica) return a.metrica;
     if (a.area === 'cotizador') return `${a.nodos.length + a.mas} en curso`;
     if (a.aprobacion_pct != null) return `${a.aprobacion_pct}% aprobado`;
     if (a.pendientes) return `${a.pendientes} para aprobar`;
@@ -192,6 +194,7 @@ export function MapaNegocio({ mapa, tareasNotion, seleccion, elegir, soloUrgente
                     <radialGradient id={`${uid}rosa`} cx="38%" cy="32%"><stop offset="0" stopColor="#ffe0ee" /><stop offset="0.5" stopColor="#e35b97" /><stop offset="1" stopColor="#6b1a42" /></radialGradient>
                     <radialGradient id={`${uid}vio`} cx="38%" cy="30%"><stop offset="0" stopColor="#f1e8ff" /><stop offset="0.5" stopColor="#9f7cf0" /><stop offset="1" stopColor="#3b2378" /></radialGradient>
                     <radialGradient id={`${uid}ver`} cx="38%" cy="30%"><stop offset="0" stopColor="#d8fff0" /><stop offset="0.5" stopColor="#3fbf8c" /><stop offset="1" stopColor="#0f4a33" /></radialGradient>
+                    <radialGradient id={`${uid}cel`} cx="38%" cy="30%"><stop offset="0" stopColor="#e2f6ff" /><stop offset="0.5" stopColor="#3fb2e8" /><stop offset="1" stopColor="#0d4566" /></radialGradient>
                     <radialGradient id={`${uid}oro`} cx="40%" cy="35%"><stop offset="0" stopColor="#fff4d6" /><stop offset="0.5" stopColor="#d9b77a" /><stop offset="1" stopColor="#6d5228" /></radialGradient>
                     <radialGradient id={`${uid}halo`}><stop offset="0" stopColor="#5cc8ff" stopOpacity="0.55" /><stop offset="1" stopColor="#5cc8ff" stopOpacity="0" /></radialGradient>
                     <radialGradient id={`${uid}halorosa`}><stop offset="0" stopColor="#f38bb8" stopOpacity="0.32" /><stop offset="1" stopColor="#f38bb8" stopOpacity="0" /></radialGradient>
@@ -273,7 +276,7 @@ export function MapaNegocio({ mapa, tareasNotion, seleccion, elegir, soloUrgente
                                             </g>
                                         )}
                                         <circle cx={x} cy={y} r={14} className="mapa-orbita" />
-                                        <circle cx={x} cy={y} r={10.5} className="mapa-orbe" fill={`url(#${uid}${n.tipo === 'presupuesto' ? 'oro' : n.tipo === 'conversacion' ? 'ver' : 'vio'})`} />
+                                        <circle cx={x} cy={y} r={10.5} className="mapa-orbe" fill={`url(#${uid}${n.tipo === 'presupuesto' ? 'oro' : n.tipo === 'conversacion' ? 'ver' : n.tipo === 'pagina' ? 'cel' : 'vio'})`} />
                                         <text x={x + (der ? (sel ? 32 : 19) : -19)} y={y + 4} textAnchor={der ? 'start' : 'end'} className="mapa-nombre">{corto(n.nombre)}</text>
                                         {n.consultas > 0 && (
                                             <g>

@@ -7,7 +7,7 @@ import { abrirEnCotizador } from '../lib/cotizador.ts';
 import { useContar } from '../lib/animar.ts';
 import { ListaNegocio, MapaNegocio, Seleccion, metricaAsistente } from './inicio/MapaNegocio.tsx';
 
-type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'bitacora' | 'dashboard' | 'chat';
+type IrA = 'acciones' | 'whatsapp' | 'cotizador' | 'seguimientos' | 'prospeccion' | 'notion' | 'publicidad' | 'bitacora' | 'dashboard' | 'chat';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 
@@ -21,9 +21,9 @@ const MESES_LARGOS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Ju
 
 // A qué pantalla lleva cada asistente del mapa.
 const PANTALLA: Record<AreaMapa | 'notion', IrA> = {
-    seguimientos: 'seguimientos', cotizador: 'cotizador', correo: 'acciones', whatsapp: 'whatsapp', prospeccion: 'prospeccion', notion: 'notion',
+    seguimientos: 'seguimientos', cotizador: 'cotizador', correo: 'acciones', whatsapp: 'whatsapp', prospeccion: 'prospeccion', notion: 'notion', publicidad: 'publicidad',
 };
-const QUE_ES: Record<NodoMapa['tipo'], string> = { cliente: 'Cliente', presupuesto: 'Presupuesto', conversacion: 'Conversación de WhatsApp' };
+const QUE_ES: Record<NodoMapa['tipo'], string> = { cliente: 'Cliente', presupuesto: 'Presupuesto', conversacion: 'Conversación de WhatsApp', pagina: 'Página de bartez.com.ar' };
 
 function Delta({ actual, anterior }: { actual: number; anterior: number }) {
     if (!anterior) return null;
@@ -478,7 +478,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                             <div className="g-mapa-pie">
                                 {modo === 'mapa' && (
                                     <span className="g-mapa-leyenda" aria-label="Referencias">
-                                        <span><i className="asist" />Asistentes</span><span><i className="cli" />Clientes</span><span><i className="pres" />Presupuestos</span><span><i className="cons" />Consultas</span>
+                                        <span><i className="asist" />Asistentes</span><span><i className="cli" />Clientes</span><span><i className="pres" />Presupuestos</span><span><i className="cons" />Consultas</span><span><i className="web" />Páginas web</span>
                                     </span>
                                 )}
                                 <form className="g-preguntar" onSubmit={(e) => { e.preventDefault(); enviarPregunta(); }}>

@@ -2590,7 +2590,7 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .g-mapa-leyenda span { display: inline-flex; align-items: center; gap: 5px; }
 .g-mapa-leyenda i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 .g-mapa-leyenda i.asist { background: #e35b97; } .g-mapa-leyenda i.cli { background: #9f7cf0; }
-.g-mapa-leyenda i.pres { background: #d9b77a; } .g-mapa-leyenda i.cons { background: #3fbf8c; }
+.g-mapa-leyenda i.pres { background: #d9b77a; } .g-mapa-leyenda i.cons { background: #3fbf8c; } .g-mapa-leyenda i.web { background: #3fb2e8; }
 .g-preguntar { margin-left: auto; flex: 1 1 240px; max-width: 360px; min-width: 0; display: flex; align-items: center; background: linear-gradient(180deg, #fbfcff, #dfe6f3); border-radius: 999px; padding: 4px 4px 4px 16px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(92, 200, 255, 0.25); transition: box-shadow 0.25s; }
 .g-preguntar:focus-within { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(92, 200, 255, 0.55); }
 .g-preguntar input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: var(--t-sm); color: #0e1422; }
@@ -2691,7 +2691,7 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .mapa-lista-fila:hover { background: rgba(255, 255, 255, 0.05); }
 .mapa-lista-fila.sel { border-color: #5cc8ff; background: rgba(92, 200, 255, 0.1); }
 .mapa-lista-orbe { width: 12px; height: 12px; flex: none; border-radius: 50%; background: #9f7cf0; }
-.mapa-lista-orbe.presupuesto { background: #d9b77a; } .mapa-lista-orbe.conversacion { background: #3fbf8c; }
+.mapa-lista-orbe.presupuesto { background: #d9b77a; } .mapa-lista-orbe.conversacion { background: #3fbf8c; } .mapa-lista-orbe.pagina { background: #3fb2e8; }
 .mapa-lista-texto { display: flex; flex-direction: column; min-width: 0; }
 .mapa-lista-texto strong { font-size: var(--t-sm); font-weight: 600; }
 .mapa-lista-texto span { font-size: 11.5px; color: #a3b4d4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -2738,6 +2738,7 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .g-orbe { flex: none; width: 34px; height: 34px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #f1e8ff, #9f7cf0 50%, #3b2378); }
 .g-orbe.presupuesto { background: radial-gradient(circle at 35% 30%, #fff4d6, #d9b77a 50%, #6d5228); }
 .g-orbe.conversacion { background: radial-gradient(circle at 35% 30%, #d8fff0, #3fbf8c 50%, #0f4a33); }
+.g-orbe.pagina { background: radial-gradient(circle at 35% 30%, #e2f6ff, #3fb2e8 50%, #0d4566); }
 .g-orbe.asistente { background: radial-gradient(circle at 35% 30%, #ffe0ee, #e35b97 50%, #6b1a42); }
 .g-orbe.tarea { background: var(--borde); }
 .g-orbe.chico { width: 12px; height: 12px; margin-top: 4px; }

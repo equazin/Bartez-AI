@@ -1302,12 +1302,12 @@ export async function resumenHoy(refrescar = false): Promise<ResumenHoy> {
 
 // ---------- Mapa del negocio (Inicio) y sugerencias de Bartez AI ----------
 
-export type AreaMapa = 'seguimientos' | 'cotizador' | 'correo' | 'whatsapp' | 'prospeccion';
-export type DestinoMapa = 'acciones' | 'cotizador' | 'seguimientos' | 'whatsapp' | 'prospeccion';
+export type AreaMapa = 'seguimientos' | 'cotizador' | 'correo' | 'whatsapp' | 'prospeccion' | 'publicidad';
+export type DestinoMapa = 'acciones' | 'cotizador' | 'seguimientos' | 'whatsapp' | 'prospeccion' | 'publicidad';
 
 export interface NodoMapa {
     id: string;
-    tipo: 'cliente' | 'presupuesto' | 'conversacion';
+    tipo: 'cliente' | 'presupuesto' | 'conversacion' | 'pagina';
     nombre: string;
     subtitulo: string;
     urgente: boolean;
@@ -1329,6 +1329,7 @@ export interface AsistenteMapa {
     pendientes: number;
     nodos: NodoMapa[];
     mas: number;
+    metrica?: string;
 }
 
 export interface Sugerencia { texto: string; pedido: string }

@@ -12,7 +12,7 @@ const TZ = 'America/Argentina/Buenos_Aires';
 const DIA_MS = 86_400_000;
 const POR_ASISTENTE = 4;
 
-export type AreaMapa = 'seguimientos' | 'cotizador' | 'correo' | 'whatsapp' | 'prospeccion';
+export type AreaMapa = 'seguimientos' | 'cotizador' | 'correo' | 'whatsapp' | 'prospeccion' | 'publicidad';
 
 export interface EventoNodo { fecha: string; texto: string; tipo: 'consulta' | 'presupuesto' | 'venta' | 'contacto' }
 
@@ -21,14 +21,14 @@ export interface AccionNodo {
     // 'chat': abre Bartez AI con el pedido escrito; 'ir': cambia de pantalla.
     tipo: 'chat' | 'ir';
     texto?: string;
-    destino?: 'acciones' | 'cotizador' | 'seguimientos' | 'whatsapp' | 'prospeccion';
+    destino?: 'acciones' | 'cotizador' | 'seguimientos' | 'whatsapp' | 'prospeccion' | 'publicidad';
     // Con destino 'cotizador': abre esa cotización.
     cotizacion_id?: string;
 }
 
 export interface NodoMapa {
     id: string;
-    tipo: 'cliente' | 'presupuesto' | 'conversacion';
+    tipo: 'cliente' | 'presupuesto' | 'conversacion' | 'pagina';
     nombre: string;
     subtitulo: string;
     urgente: boolean;
@@ -50,6 +50,8 @@ export interface AsistenteMapa {
     pendientes: number;
     nodos: NodoMapa[];
     mas: number;
+    // Texto propio para el asistente (si no, se arma con aprobación o cantidad).
+    metrica?: string;
 }
 
 export interface Sugerencia { texto: string; pedido: string }
@@ -63,7 +65,7 @@ export interface Mapa {
 }
 
 const NOMBRES: Record<AreaMapa, string> = {
-    seguimientos: 'Seguimientos', cotizador: 'Cotizador', correo: 'Correo', whatsapp: 'WhatsApp', prospeccion: 'Prospección',
+    seguimientos: 'Seguimientos', cotizador: 'Cotizador', correo: 'Correo', whatsapp: 'WhatsApp', prospeccion: 'Prospección', publicidad: 'Publicidad',
 };
 
 const dias = (iso: string | null | undefined) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DIA_MS) : null);
@@ -95,7 +97,8 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
     const hace30 = new Date(ahora - 30 * DIA_MS).toISOString();
     const anio = new Date(ahora).toLocaleDateString('en-CA', { timeZone: TZ }).slice(0, 4);
 
-    const [asist, acciones, cotsRes, clientesRes, correosRes, waRes, sinRespuesta] = await Promise.all([
+    const mesDesde = `${new Date(ahora).toLocaleDateString('en-CA', { timeZone: TZ }).slice(0, 8)}01`;
+    const [asist, acciones, cotsRes, clientesRes, correosRes, waRes, sinRespuesta, webRes, adsPagRes, adsMesRes, adsConRes] = await Promise.all([
         supabase.from('asistentes').select('id, area').in('area', Object.keys(NOMBRES)),
         supabase.from('acciones_pendientes').select('asistente_id, estado, resuelto_en, creado_en').or(`estado.eq.pendiente,resuelto_en.gte.${hace30}`),
         supabase.from('cotizaciones')
@@ -108,8 +111,14 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
         supabase.from('wa_conversaciones').select('wa_id, nombre, cliente_id, ultimo_entrante_en, ultimo_mensaje, ultimo_direccion, actualizado_en')
             .gte('actualizado_en', new Date(ahora - 14 * DIA_MS).toISOString()).order('actualizado_en', { ascending: false }).limit(40),
         presupuestosSinRespuesta(5, 50),
+        // Publicidad: páginas de la web, lo que gastaron en Google y si la cuenta está conectada.
+        supabase.from('web_paginas').select('url, ruta, tipo, titulo, anunciable, estado_http, en_sitemap, cambio_en, leida_en, ficha').eq('en_sitemap', true),
+        supabase.from('ads_paginas_diarias').select('url, clics, costo, conversiones').gte('fecha', new Date(ahora - 30 * DIA_MS).toISOString().slice(0, 10)),
+        supabase.from('ads_metricas_diarias').select('costo, clics').gte('fecha', mesDesde),
+        supabase.from('integraciones_config').select('clave').eq('clave', 'google_ads_refresh_token').maybeSingle(),
     ]);
     for (const r of [asist, acciones, cotsRes, clientesRes, correosRes, waRes]) if (r.error) throw new Error(r.error.message);
+    // Si las tablas de publicidad fallan, el mapa sale igual (sin ese asistente con datos).
 
     const cots = (cotsRes.data ?? []) as FilaCot[];
     type FilaCliente = { id: string; nombre: string; email: string | null; estado: string | null; metadata: Record<string, unknown> | null; creado_en: string; ultimo_contacto_en: string | null; intentos_contacto: number | null };
@@ -241,6 +250,55 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
             };
         });
 
+    // Publicidad: páginas de bartez.com.ar. Primero las que dan error, después las
+    // que más gastan en Google, las que cambiaron y el resto de las que se anuncian.
+    type FilaWeb = { url: string; ruta: string; tipo: string; titulo: string | null; anunciable: boolean; estado_http: number | null; cambio_en: string | null; leida_en: string | null; ficha: { tema?: string; frases?: string[] } | null };
+    const normUrl = (u: string) => { try { const x = new URL(u); return `https://${x.hostname.replace(/^www\./, '')}${x.pathname.replace(/\/+$/, '')}`; } catch { return u; } };
+    const gastoPag = new Map<string, { clics: number; costo: number; conv: number }>();
+    for (const f of (adsPagRes.data ?? []) as Array<{ url: string; clics: number; costo: number; conversiones: number }>) {
+        const k = normUrl(f.url);
+        const a = gastoPag.get(k) ?? { clics: 0, costo: 0, conv: 0 };
+        a.clics += Number(f.clics) || 0; a.costo += Number(f.costo) || 0; a.conv += Number(f.conversiones) || 0;
+        gastoPag.set(k, a);
+    }
+    const plata = (n: number) => `$${Math.round(n).toLocaleString('es-AR')}`;
+    const tituloPag = (w: FilaWeb) => w.titulo?.replace(/\s*[|—-]\s*Bartez Tecnolog[ií]a\s*$/i, '').trim() || w.ruta;
+    const webs = ((webRes.data ?? []) as FilaWeb[]).filter((w) => w.anunciable || gastoPag.has(normUrl(w.url)));
+    const prioridad = (w: FilaWeb) => {
+        const g = gastoPag.get(normUrl(w.url));
+        if (w.estado_http !== 200) return 1e12;
+        if (g?.costo) return 1e9 + g.costo;
+        if (w.cambio_en && ahora - new Date(w.cambio_en).getTime() < 7 * DIA_MS && w.leida_en && w.cambio_en !== w.leida_en) return 1e6;
+        return w.tipo === 'solucion' ? 10 : 1;
+    };
+    const nodosPub: NodoMapa[] = webs.sort((a, b) => prioridad(b) - prioridad(a) || a.ruta.localeCompare(b.ruta)).map((w) => {
+        const g = gastoPag.get(normUrl(w.url));
+        const caida = w.estado_http !== 200;
+        const frases = w.ficha?.frases?.length ?? 0;
+        const historia: EventoNodo[] = [];
+        if (w.cambio_en) historia.push({ fecha: w.cambio_en, texto: 'La página cambió en la web', tipo: 'contacto' });
+        if (w.leida_en) historia.push({ fecha: w.leida_en, texto: `Leída por el asistente${frases ? ` · ${frases} frases para anuncios` : ''}`, tipo: 'consulta' });
+        return {
+            id: `web:${w.ruta}`, tipo: 'pagina' as const, nombre: w.ruta === '/' ? 'Portada' : tituloPag(w),
+            subtitulo: caida ? `La página da error (${w.estado_http || 'sin respuesta'})`
+                : g ? `${g.clics} clics · ${plata(g.costo)} en 30 días${g.conv ? ` · ${Math.round(g.conv)} conv.` : ''}`
+                    : `${w.ruta}${frases ? ` · ${frases} frases para anuncios` : ''}`,
+            urgente: caida, consultas: 0, presupuestos: 0, en_juego_usd: null, dias_sin_respuesta: null, compras: null,
+            historia,
+            sugerencia: caida ? 'Si un anuncio lleva acá, se pagan clics a una página rota. Revisala en la web.'
+                : g ? 'Mirá en Publicidad qué búsquedas traen estos clics y si terminan en consultas.'
+                    : w.ficha?.tema ? `Lista para anunciar: ${w.ficha.tema}.` : 'Se anuncia: el asistente arma los textos con lo que dice esta página.',
+            acciones: [
+                { etiqueta: 'Ver en Publicidad', tipo: 'ir', destino: 'publicidad' },
+                { etiqueta: 'Preguntar', tipo: 'chat', texto: `¿Qué anuncio de Google armarías para la página ${w.ruta} de bartez.com.ar, usando solo lo que dice la página?` },
+            ],
+        };
+    });
+    const gastoMes = ((adsMesRes.data ?? []) as Array<{ costo: number }>).reduce((t, f) => t + (Number(f.costo) || 0), 0);
+    const adsConectado = !!adsConRes.data;
+    const anunciables = webs.filter((w) => w.anunciable).length;
+    const metricaPub = adsConectado ? `${plata(gastoMes)} este mes` : webs.length ? `${anunciables} páginas · sin conectar` : 'sin leer la web';
+
     // Aprobación y pendientes por asistente.
     const areaDe = new Map(((asist.data ?? []) as Array<{ id: string; area: AreaMapa }>).map((a) => [a.id, a.area]));
     const stats = new Map<AreaMapa, { res: number; ok: number; pend: number }>();
@@ -276,6 +334,7 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
     const asistentes = [
         armar('seguimientos', nodosSeg), armar('cotizador', nodosCot), armar('correo', nodosCorreo),
         armar('whatsapp', nodosWa), armar('prospeccion', nodosPros),
+        { ...armar('publicidad', nodosPub), metrica: metricaPub },
     ];
 
     // Sugerencias del botón flotante: lo más urgente primero, después preguntas útiles.
@@ -284,6 +343,8 @@ export async function calcularMapa(forzar = false): Promise<Mapa> {
     for (const n of nodosWa.filter((w) => w.urgente).slice(0, 1)) sugerencias.push({ texto: `${n.nombre} espera respuesta por WhatsApp y la ventana está por cerrar.`, pedido: `¿Qué me escribió ${n.nombre} por WhatsApp y qué le respondo?` });
     const sinEnviar = nodosCot.filter((n) => n.dias_sin_respuesta == null);
     if (sinEnviar.length) sugerencias.push({ texto: `Tenés ${sinEnviar.length} ${sinEnviar.length === 1 ? 'presupuesto armado' : 'presupuestos armados'} sin enviar.`, pedido: '¿Qué presupuestos están armados y todavía no se enviaron?' });
+    const caida = nodosPub.find((n) => n.urgente);
+    if (caida) sugerencias.push({ texto: `La página ${caida.nombre} de la web da error.`, pedido: `¿Qué pasa con la página ${caida.nombre} de bartez.com.ar? Da error y se anuncia en Google.` });
     const pendTotal = [...stats.values()].reduce((s, x) => s + x.pend, 0);
     if (pendTotal) sugerencias.push({ texto: `${pendTotal} ${pendTotal === 1 ? 'respuesta espera' : 'respuestas esperan'} tu OK.`, pedido: '¿Qué tengo para aprobar y qué es lo más urgente?' });
     sugerencias.push({ texto: '¿Querés que te cuente cómo viene el mes?', pedido: '¿Cómo viene el mes? Cotizado, ganado y consultas comparado con el mes pasado.' });
