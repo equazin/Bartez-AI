@@ -1,8 +1,12 @@
 // Conexión con la API de Google Ads (REST). Fase 1: solo lectura.
 //
-// Credenciales en el entorno (Railway): GOOGLE_ADS_DEVELOPER_TOKEN,
-// GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_CUSTOMER_ID y, si se
-// entra por una cuenta administradora, GOOGLE_ADS_LOGIN_CUSTOMER_ID.
+// Credenciales en el entorno (Railway): GOOGLE_ADS_CLIENT_ID,
+// GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_CUSTOMER_ID y, si se entra por una cuenta
+// administradora, GOOGLE_ADS_LOGIN_CUSTOMER_ID.
+// Google dio de baja los tokens de desarrollador el 9/9/2026: el nivel de acceso
+// (Test, Explorer, Basic) ahora es del proyecto de Google Cloud dueño del
+// ID de cliente OAuth, y se pide en console.cloud.google.com/google/ads-apis/overview.
+// Por eso no se manda el token aunque esté cargado.
 // El permiso de acceso (refresh token) no se copia a mano: se obtiene con el
 // botón "Conectar Google Ads" del panel y queda cifrado en la base.
 
@@ -13,7 +17,6 @@ const env = (k: string) => (process.env[k] ?? '').trim();
 const soloDigitos = (s: string) => s.replace(/\D/g, '');
 
 export const adsConfig = () => ({
-    developerToken: env('GOOGLE_ADS_DEVELOPER_TOKEN'),
     clientId: env('GOOGLE_ADS_CLIENT_ID'),
     clientSecret: env('GOOGLE_ADS_CLIENT_SECRET'),
     customerId: soloDigitos(env('GOOGLE_ADS_CUSTOMER_ID')),
@@ -26,7 +29,6 @@ export const adsConfig = () => ({
 export function faltantesAds(): string[] {
     const c = adsConfig();
     return [
-        !c.developerToken && 'GOOGLE_ADS_DEVELOPER_TOKEN',
         !c.clientId && 'GOOGLE_ADS_CLIENT_ID',
         !c.clientSecret && 'GOOGLE_ADS_CLIENT_SECRET',
         !c.customerId && 'GOOGLE_ADS_CUSTOMER_ID',
@@ -180,7 +182,6 @@ export async function consultarAds(gaql: string): Promise<FilaAds[]> {
     const v = await versionApi();
     const headers: Record<string, string> = {
         Authorization: `Bearer ${await accessToken()}`,
-        'developer-token': c.developerToken,
         'Content-Type': 'application/json',
     };
     if (c.loginCustomerId) headers['login-customer-id'] = c.loginCustomerId;
@@ -189,9 +190,13 @@ export async function consultarAds(gaql: string): Promise<FilaAds[]> {
     });
     const j = await r.json().catch(() => null) as unknown;
     if (!r.ok) {
-        const err = (Array.isArray(j) ? j[0] : j) as { error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string }> }> } } | null;
-        const detalle = err?.error?.details?.[0]?.errors?.[0]?.message ?? err?.error?.message ?? `HTTP ${r.status}`;
-        throw new Error(`Google Ads: ${detalle}`);
+        const err = (Array.isArray(j) ? j[0] : j) as { error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string; errorCode?: Record<string, string> }> }> } } | null;
+        const e0 = err?.error?.details?.[0]?.errors?.[0];
+        const codigo = Object.values(e0?.errorCode ?? {}).join(' ');
+        if (/CLOUD_PROJECT_NOT_APPROVED_FOR_PRODUCTION|ACTION_NOT_PERMITTED/.test(codigo)) {
+            throw new Error('Google Ads: el proyecto de Google Cloud todavía tiene acceso de prueba. Pedí el acceso "Explorer" en console.cloud.google.com/google/ads-apis/overview y volvé a probar.');
+        }
+        throw new Error(`Google Ads: ${e0?.message ?? err?.error?.message ?? `HTTP ${r.status}`}`);
     }
     return (Array.isArray(j) ? j : [j]).flatMap((b) => ((b as { results?: FilaAds[] })?.results ?? []));
 }
