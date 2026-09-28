@@ -104,6 +104,17 @@ export async function listarAnuncios(forzar = false): Promise<AnuncioGoogle[]> {
             estado: sinCargar ? 'sin_cargar' : 'pendiente_ok', fuerza: null, problema: sinCargar ? (detalle ?? 'Aprobado, falta cargarlo en Google Ads') : null, metricas: null,
         });
     }
+    // Anuncios que vienen dentro de una campaña nueva que espera tu ok.
+    const { data: camps } = await supabase.from('acciones_pendientes').select('id, payload').eq('accion', 'ads_campania').eq('estado', 'pendiente').limit(20);
+    for (const a of camps ?? []) {
+        const p = a.payload as Record<string, unknown>;
+        ((p.anuncios as Array<{ titulos: string[]; descripciones: string[]; ruta1?: string | null; ruta2?: string | null }> | undefined) ?? []).forEach((x, i) => out.push({
+            id: `${a.id as string}#${i}`, origen: 'propuesta', campania: 'Campaña nueva', grupo: null,
+            url: String(p.url ?? ''), ruta: String(p.ruta ?? ''), ruta1: x.ruta1 ?? null, ruta2: x.ruta2 ?? null,
+            titulos: x.titulos.map((t) => ({ texto: t, rendimiento: null })), descripciones: x.descripciones.map((t) => ({ texto: t, rendimiento: null })),
+            estado: 'pendiente_ok', fuerza: null, problema: null, metricas: null,
+        }));
+    }
     cache = { en: Date.now(), datos: out };
     return out;
 }
@@ -169,6 +180,10 @@ export function revisarVariante(v: Omit<Variante, 'problemas'>, p: Pagina): stri
 async function paginasAnunciables(): Promise<Pagina[]> {
     const { data } = await supabase.from('web_paginas').select('url, ruta, titulo, descripcion, h1, subtitulos, items, faq, texto, ficha').eq('anunciable', true).eq('en_sitemap', true);
     return (data ?? []) as Pagina[];
+}
+
+export async function paginaAnunciable(url: string): Promise<Pagina | undefined> {
+    return (await paginasAnunciables()).find((p) => normalizarUrl(p.url) === normalizarUrl(url));
 }
 
 async function elegirPagina(pedido: string, paginas: Pagina[]): Promise<{ pagina: Pagina; costo: number }> {
@@ -293,7 +308,7 @@ export async function ejecutarAnuncio(p: Record<string, unknown>): Promise<{ ok:
     const grupos = await consultarAds(`SELECT ad_group.resource_name, ad_group.name, ad_group.status, ad_group_ad.ad.final_urls FROM ad_group_ad WHERE ad_group_ad.status != 'REMOVED' AND ad_group.status != 'REMOVED'`);
     const destino = grupos.find((g: FilaAds) => (g.adGroupAd?.ad?.finalUrls ?? []).some((u: string) => normalizarUrl(u) === normalizarUrl(url)));
     if (!destino) {
-        return { ok: false, detalle: `En Google Ads no hay un grupo de anuncios que lleve a ${String(p.ruta ?? url)}. Hay que crear la campaña para esa página; el anuncio queda guardado para cargarlo ahí.` };
+        return { ok: false, detalle: `En Google Ads no hay un grupo de anuncios que lleve a ${String(p.ruta ?? url)}. Proponé la campaña desde “Generar anuncios” en Publicidad; cuando esté creada, reintentá este envío.` };
     }
     const res = await mutarAds('adGroupAds', [{
         create: {

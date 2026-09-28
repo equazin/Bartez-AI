@@ -1494,6 +1494,26 @@ export async function proponerAnunciosAds(d: { url: string; ruta: string; pedido
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
     }));
 }
+export type ZonaAds = { tipo: 'pais' } | { tipo: 'radio'; km: number };
+export interface InfoCampania {
+    conectado: boolean;
+    grupo_existente: string | null;
+    propuesta_pendiente: boolean;
+    moneda: string;
+    tope: number | null;
+    comprometido_diario: number;
+    disponible_diario: number | null;
+    sugerido_diario: number | null;
+    zona: ZonaAds;
+}
+export async function infoCampaniaAds(url: string): Promise<{ info: InfoCampania }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/campania/info?url=${encodeURIComponent(url)}`));
+}
+export async function proponerCampaniaAds(d: { url: string; ruta: string; pedido: string; variantes: VarianteAnuncio[]; palabras_clave: string[]; presupuesto_diario: number; zona: ZonaAds }): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/publicidad/campania/proponer`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
+    }));
+}
 export async function pausarAnuncioAds(d: { id: string; titulo: string; ruta: string | null }): Promise<{ ok: boolean }> {
     return jsonOError(await apiFetch(`${BASE}/publicidad/anuncios/pausar`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),

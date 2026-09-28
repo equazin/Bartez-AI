@@ -3,7 +3,7 @@
 
 import type { AccionPendiente } from '../api/client.ts';
 
-export const CANAL: Record<string, string> = { enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp', ads_anuncio: 'Google Ads', ads_pausar_anuncio: 'Google Ads' };
+export const CANAL: Record<string, string> = { enviar_correo: 'Correo', enviar_whatsapp: 'WhatsApp', ads_anuncio: 'Google Ads', ads_pausar_anuncio: 'Google Ads', ads_campania: 'Google Ads' };
 
 export function resumenAccion(a: AccionPendiente): { destino: string; titulo: string; cuerpo: string } {
     const p = a.payload ?? {};
@@ -24,6 +24,10 @@ export function resumenAccion(a: AccionPendiente): { destino: string; titulo: st
     if (a.accion === 'ads_anuncio') {
         const titulos = (p.titulos as string[] | undefined) ?? [];
         return { destino: String(p.ruta ?? 'Anuncio nuevo'), titulo: `Anuncio nuevo: ${titulos.slice(0, 2).join(' | ')}`, cuerpo: ((p.descripciones as string[] | undefined) ?? []).join(' ') };
+    }
+    if (a.accion === 'ads_campania') {
+        const n = ((p.anuncios as unknown[] | undefined) ?? []).length;
+        return { destino: String(p.ruta ?? 'Campaña nueva'), titulo: `Campaña nueva: ${n} ${n === 1 ? 'anuncio' : 'anuncios'}, ${Number(p.presupuesto_diario ?? 0).toLocaleString('es-AR')} por día`, cuerpo: ((p.palabras_clave as string[] | undefined) ?? []).join(' · ') };
     }
     if (a.accion === 'ads_pausar_anuncio') {
         return { destino: String(p.ruta ?? 'Anuncio'), titulo: 'Pausar anuncio', cuerpo: String(p.titulo ?? '') };

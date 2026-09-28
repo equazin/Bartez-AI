@@ -30,6 +30,45 @@ function VistaAnuncio({ payload }: { payload: Record<string, unknown> }) {
     );
 }
 
+// Campaña nueva: todo lo que se crea en Google Ads al aprobar.
+function VistaCampania({ payload }: { payload: Record<string, unknown> }) {
+    const anuncios = (payload.anuncios as Array<{ titulos: string[]; descripciones: string[]; ruta1?: string | null; ruta2?: string | null; fuentes?: Array<{ texto: string; fuente: string }> }> | undefined) ?? [];
+    const palabras = (payload.palabras_clave as string[] | undefined) ?? [];
+    const negativas = (payload.negativas as string[] | undefined) ?? [];
+    const zona = payload.zona as { tipo: 'pais' } | { tipo: 'radio'; km: number } | undefined;
+    const diario = Number(payload.presupuesto_diario ?? 0);
+    const moneda = String(payload.moneda ?? 'ARS');
+    const plata = (n: number) => `${moneda === 'USD' ? 'US$' : '$'} ${Math.round(n).toLocaleString('es-AR')}`;
+    return (
+        <div className="apr-anuncio apr-campania">
+            <dl className="apr-campania-datos">
+                <div><dt>Lleva a</dt><dd><code>{String(payload.ruta ?? '')}</code></dd></div>
+                <div><dt>Presupuesto</dt><dd>{plata(diario)} por día <small>(hasta {plata(diario * 30.4)} por mes)</small></dd></div>
+                <div><dt>Zona</dt><dd>{zona?.tipo === 'pais' ? 'Todo el país' : `Rosario y ${zona?.tipo === 'radio' ? zona.km : 80} km alrededor`}</dd></div>
+                <div><dt>Dónde sale</dt><dd>Solo en la búsqueda de Google, en castellano</dd></div>
+            </dl>
+            <p className="apr-anuncio-nota">Al aprobarla se crea <strong>pausada</strong> en Google Ads, con todo lo de abajo. No gasta nada hasta que la prendas en Google Ads.</p>
+            {payload.pedido ? <p className="apr-anuncio-nota">Pedido: “{String(payload.pedido)}”</p> : null}
+            <h4>{anuncios.length} {anuncios.length === 1 ? 'anuncio' : 'anuncios'}</h4>
+            <div className="apr-campania-anuncios">
+                {anuncios.map((a, i) => (
+                    <div key={i}>
+                        <AnuncioGoogle modo="tarjeta" titulos={a.titulos} descripciones={a.descripciones} url={String(payload.url ?? '')} ruta1={a.ruta1} ruta2={a.ruta2} />
+                        {a.fuentes && a.fuentes.length > 0 && (
+                            <details className="apr-anuncio-fuentes"><summary>De dónde sale cada línea</summary>
+                                <ul>{a.fuentes.map((f, j) => <li key={j}><strong>{f.texto}</strong> ← “{f.fuente}”</li>)}</ul>
+                            </details>
+                        )}
+                    </div>
+                ))}
+            </div>
+            <h4>Búsquedas que la activan <small>(frase)</small></h4>
+            <p className="apr-campania-chips">{palabras.map((k) => <span key={k}>{k}</span>)}</p>
+            {negativas.length > 0 && <p className="apr-anuncio-nota">No se muestra si la búsqueda dice: {negativas.join(', ')}.</p>}
+        </div>
+    );
+}
+
 function VistaCorreo({ payload }: { payload: Record<string, unknown> }) {
     const [verCrudo, setVerCrudo] = useState(false);
     const para = String(payload.para ?? '');
@@ -414,6 +453,8 @@ export function Acciones() {
                                 <VistaWhatsapp payload={sel.payload} />
                             ) : sel.accion === 'ads_anuncio' ? (
                                 <VistaAnuncio payload={sel.payload} />
+                            ) : sel.accion === 'ads_campania' ? (
+                                <VistaCampania payload={sel.payload} />
                             ) : sel.accion === 'ads_pausar_anuncio' ? (
                                 <div className="apr-anuncio"><p>Pausar en Google Ads el anuncio <strong>“{String(sel.payload.titulo ?? '')}”</strong>{sel.payload.ruta ? <> que lleva a <code>{String(sel.payload.ruta)}</code></> : null}. Deja de mostrarse; se puede volver a activar desde Google Ads.</p></div>
                             ) : (
@@ -432,7 +473,7 @@ export function Acciones() {
                                 </>
                             ) : (
                                 <>
-                                    <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>{sel.accion === 'ads_anuncio' ? 'Aprobar y crear pausado' : sel.accion === 'ads_pausar_anuncio' ? 'Aprobar y pausar' : 'Aprobar y enviar'}</button>
+                                    <button className="btn-aprobar" onClick={() => resolver(sel, 'aprobar')}>{sel.accion === 'ads_anuncio' ? 'Aprobar y crear pausado' : sel.accion === 'ads_campania' ? 'Aprobar y crear pausada' : sel.accion === 'ads_pausar_anuncio' ? 'Aprobar y pausar' : 'Aprobar y enviar'}</button>
                                     <button
                                         className="boton-fantasma"
                                         onClick={() => setEdicion(empezarEdicion(sel))}

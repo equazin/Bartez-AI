@@ -8,6 +8,7 @@ import { enviarPlantillaWa, enviarWhatsapp } from './whatsapp.js';
 import { supabase } from '../connectors/supabase.js';
 import { urlWeb } from './clientes.js';
 import { ejecutarAnuncio, ejecutarPausa } from './anuncios.js';
+import { ejecutarCampania } from './campanias.js';
 import { numeroPresupuesto, obtenerCotizacion } from './cotizador.js';
 import { generarPresupuestoPdf } from '../pdf/presupuesto.js';
 import { actualizarProspectoEnNotion, crearNotaEnNotion, crearProspectoEnNotion, crearTareaEnNotion, TareaNueva } from './notion_sync.js';
@@ -30,6 +31,7 @@ export async function ejecutarAccion(a: AccionAEjecutar): Promise<ResultadoEjecu
         // Google Ads: crear un anuncio (queda pausado) o pausar uno.
         if (a.accion === 'ads_anuncio') return await ejecutarAnuncio(a.payload);
         if (a.accion === 'ads_pausar_anuncio') return await ejecutarPausa(a.payload);
+        if (a.accion === 'ads_campania') return await ejecutarCampania(a.payload);
 
         if (a.accion === 'enviar_whatsapp') {
             const p = a.payload;

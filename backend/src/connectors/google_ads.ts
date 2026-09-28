@@ -201,18 +201,18 @@ export async function consultarAds(gaql: string): Promise<FilaAds[]> {
     return (Array.isArray(j) ? j : [j]).flatMap((b) => ((b as { results?: FilaAds[] })?.results ?? []));
 }
 
-// Cambios en Google Ads (crear o pausar un anuncio). Siempre se prueban primero
-// con validateOnly: Google revisa el cambio sin aplicarlo; si pasa, se aplica.
-export async function mutarAds(recurso: 'adGroupAds', operaciones: unknown[]): Promise<Array<{ resourceName?: string }>> {
+// Cambios en Google Ads. Siempre se prueban primero con validateOnly: Google
+// revisa el cambio sin aplicarlo; si pasa, se aplica.
+async function mutar<T>(ruta: string, cuerpo: Record<string, unknown>, leer: (j: Record<string, unknown> | null) => T): Promise<T> {
     const c = adsConfig();
     if (faltantesAds().length) throw new Error(`Falta configurar: ${faltantesAds().join(', ')}`);
     const v = await versionApi();
     const headers: Record<string, string> = { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' };
     if (c.loginCustomerId) headers['login-customer-id'] = c.loginCustomerId;
-    const url = `https://googleads.googleapis.com/${v}/customers/${c.customerId}/${recurso}:mutate`;
+    const url = `https://googleads.googleapis.com/${v}/customers/${c.customerId}/${ruta}`;
     const llamar = async (validateOnly: boolean) => {
-        const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ operations: operaciones, validateOnly }), signal: AbortSignal.timeout(60_000) });
-        const j = await r.json().catch(() => null) as { results?: Array<{ resourceName?: string }>; error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string; errorCode?: Record<string, string> }> }> } } | null;
+        const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...cuerpo, validateOnly }), signal: AbortSignal.timeout(60_000) });
+        const j = await r.json().catch(() => null) as { error?: { message?: string; details?: Array<{ errors?: Array<{ message?: string; errorCode?: Record<string, string> }> }> } } & Record<string, unknown> | null;
         if (!r.ok) {
             const e0 = j?.error?.details?.[0]?.errors?.[0];
             const codigo = Object.values(e0?.errorCode ?? {}).join(' ');
@@ -221,8 +221,21 @@ export async function mutarAds(recurso: 'adGroupAds', operaciones: unknown[]): P
             }
             throw new Error(`Google Ads: ${e0?.message ?? j?.error?.message ?? `HTTP ${r.status}`}`);
         }
-        return j?.results ?? [];
+        return leer(j);
     };
     await llamar(true);
     return llamar(false);
 }
+
+// Crear o pausar un anuncio.
+export async function mutarAds(recurso: 'adGroupAds', operaciones: unknown[]): Promise<Array<{ resourceName?: string }>> {
+    return mutar(`${recurso}:mutate`, { operations: operaciones }, (j) => (j?.results as Array<{ resourceName?: string }>) ?? []);
+}
+
+// Varios recursos juntos (presupuesto, campaña, grupo, palabras, anuncios): o se
+// crea todo o nada. Los ids negativos (…/campaigns/-2) son temporales.
+export async function mutarVarios(operaciones: Array<Record<string, unknown>>): Promise<Array<Record<string, { resourceName?: string }>>> {
+    return mutar('googleAds:mutate', { mutateOperations: operaciones, partialFailure: false }, (j) => (j?.mutateOperationResponses as Array<Record<string, { resourceName?: string }>>) ?? []);
+}
+
+export function customerId(): string { return adsConfig().customerId; }

@@ -22,6 +22,7 @@ import { calcularMapa } from './orchestrator/mapa.js';
 import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
+import { infoCampania, proponerCampania } from './orchestrator/campanias.js';
 import { bajarHistorial, busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
 import { leerWeb, leyendoWeb } from './orchestrator/web_mapa.js';
 import { generarAnuncios, listarAnuncios, proponerAnuncios, proponerPausa } from './orchestrator/anuncios.js';
@@ -730,6 +731,34 @@ app.post('/publicidad/anuncios/proponer', async (req, res) => {
     if (!parseo.success) return res.status(400).send({ error: parseo.error.flatten() });
     try {
         const r = await proponerAnuncios(parseo.data);
+        invalidarResumenHoy();
+        return r;
+    } catch (err) {
+        return res.status(400).send({ error: (err as Error).message });
+    }
+});
+
+app.get('/publicidad/campania/info', async (req, res) => {
+    const url = String((req.query as { url?: string }).url ?? '');
+    if (!/^https:\/\//.test(url)) return res.status(400).send({ error: 'Falta la página' });
+    try {
+        return { info: await infoCampania(url) };
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+app.post('/publicidad/campania/proponer', async (req, res) => {
+    const parseo = z.object({
+        url: z.string().url(), ruta: z.string().max(300), pedido: z.string().max(1000),
+        variantes: z.array(VarianteSchema).min(1).max(5),
+        palabras_clave: z.array(z.string().max(80)).min(1).max(40),
+        presupuesto_diario: z.number().positive().max(1e10),
+        zona: z.union([z.object({ tipo: z.literal('pais') }), z.object({ tipo: z.literal('radio'), km: z.number().int().min(5).max(500) })]),
+    }).safeParse(req.body ?? {});
+    if (!parseo.success) return res.status(400).send({ error: 'Faltan datos de la campaña' });
+    try {
+        const r = await proponerCampania(parseo.data);
         invalidarResumenHoy();
         return r;
     } catch (err) {

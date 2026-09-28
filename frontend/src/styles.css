@@ -3417,3 +3417,35 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
     .apr-anuncio-cols { grid-template-columns: 1fr; }
     .cab-anuncios { grid-template-columns: 1fr; }
 }
+
+/* Campaña nueva (Generar anuncios y Para aprobar) */
+.gen-campania { border: 1px solid var(--borde); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 14px; background: var(--bg); }
+.gen-campania-cab h3 { margin: 0 0 4px; font-size: 16px; }
+.gen-campania-cab p { margin: 0; font-size: 13px; color: var(--sutil); line-height: 1.5; }
+.gen-campania-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.gen-campania-campos label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
+.gen-campania-campos input, .gen-campania-campos select, .gen-palabras-sumar input { border-radius: 8px; border: 1px solid var(--borde); background: var(--bg); color: var(--texto); padding: 9px 10px; font: inherit; font-size: 14px; font-weight: 400; }
+.gen-campania small, .gen-palabras small { font-size: 12px; font-weight: 400; color: var(--sutil); line-height: 1.4; }
+.gen-campania small.mal { color: var(--peligro); }
+.gen-palabras { display: flex; flex-direction: column; gap: 8px; }
+.gen-palabras > span { font-size: 13px; font-weight: 600; }
+.gen-palabras ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.gen-palabras li { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 999px; border: 1px solid var(--borde); font-size: 13px; }
+.gen-palabras li button { border: 0; background: none; color: var(--sutil); cursor: pointer; width: 24px; height: 24px; border-radius: 50%; font-size: 11px; }
+.gen-palabras li button:hover, .gen-palabras li button:focus-visible { background: var(--peligro-soft, rgba(200,0,0,.1)); color: var(--peligro); }
+.gen-palabras-sumar { display: flex; gap: 8px; }
+.gen-palabras-sumar input { flex: 1 1 auto; min-width: 0; }
+.gen-campania > .pub-primario { align-self: flex-start; }
+.apr-campania h4 { margin: 12px 0 6px; font-size: 14px; }
+.apr-campania h4 small { font-weight: 400; color: var(--sutil); }
+.apr-campania-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 0 0 8px; }
+.apr-campania-datos div { border: 1px solid var(--borde); border-radius: 10px; padding: 10px 12px; }
+.apr-campania-datos dt { font-size: 12px; color: var(--sutil); margin-bottom: 2px; }
+.apr-campania-datos dd { margin: 0; font-size: 14px; font-weight: 600; }
+.apr-campania-datos dd small { font-weight: 400; color: var(--sutil); }
+.apr-campania-anuncios { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.apr-campania-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.apr-campania-chips span { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--borde); font-size: 13px; }
+.apr-campania-datos div { min-width: 0; }
+.apr-campania-datos dd code { word-break: break-all; }
+.gen-palabras li button { display: inline-grid; place-items: center; padding: 0; line-height: 1; }

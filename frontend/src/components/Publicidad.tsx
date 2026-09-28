@@ -44,6 +44,14 @@ function avisoDeVuelta(): { ok: boolean; texto: string } | null {
     return null;
 }
 
+// La zona se guarda como "pais" o "rosario:<km>"; si quedó texto libre de antes, se interpreta.
+function zonaValor(z: string): string {
+    const t = z.toLowerCase();
+    if (/^pais$|pa[ií]s|argentina|nacional/.test(t)) return 'pais';
+    const km = Number(t.match(/\d+/)?.[0]);
+    return `rosario:${km >= 5 && km <= 500 ? km : 80}`;
+}
+
 // Medio círculo con el uso del tope mensual.
 function Medidor({ pct }: { pct: number }) {
     const p = Math.max(0, Math.min(pct, 100)) / 100;
@@ -198,7 +206,7 @@ export function Publicidad() {
         const n = tope.trim() === '' ? null : Number(tope.replace(/\./g, '').replace(',', '.'));
         if (n != null && (!Number.isFinite(n) || n < 0)) { setError('El tope tiene que ser un número en pesos, por ejemplo 300000.'); return; }
         setOcupado('guardar');
-        try { await guardarConfigPublicidad({ tope_mensual_ars: n, zona: zona.trim() || null }); setAviso({ ok: true, texto: 'Ajustes guardados.' }); await cargar(); }
+        try { await guardarConfigPublicidad({ tope_mensual_ars: n, zona: zonaValor(zona) }); setAviso({ ok: true, texto: 'Ajustes guardados.' }); await cargar(); }
         catch (e) { setError((e as Error).message); }
         finally { setOcupado(''); }
     }
@@ -502,8 +510,12 @@ export function Publicidad() {
                         </label>
                         <label htmlFor="pub-zona">
                             <span>Zona donde se muestran los anuncios</span>
-                            <input id="pub-zona" placeholder="Ej. Rosario y 100 km, o todo el país" value={zona} onChange={(e) => setZona(e.target.value)} />
-                            <small>El asistente la usa al proponer campañas.</small>
+                            <select id="pub-zona" value={zonaValor(zona)} onChange={(e) => setZona(e.target.value)}>
+                                {[30, 50, 80, 150, 300].map((km) => <option key={km} value={`rosario:${km}`}>Rosario y {km} km alrededor</option>)}
+                                {![30, 50, 80, 150, 300].map((km) => `rosario:${km}`).includes(zonaValor(zona)) && zonaValor(zona) !== 'pais' && <option value={zonaValor(zona)}>Rosario y {zonaValor(zona).split(':')[1]} km alrededor</option>}
+                                <option value="pais">Todo el país</option>
+                            </select>
+                            <small>La que viene elegida al proponer una campaña; en cada una se puede cambiar.</small>
                         </label>
                         <button className="pub-primario" type="submit" disabled={ocupado === 'guardar'}>{ocupado === 'guardar' ? 'Guardando…' : 'Guardar'}</button>
                     </form>
@@ -537,7 +549,7 @@ export function Publicidad() {
                     paginas={paginas}
                     inicial={generar}
                     cerrar={() => setGenerar(null)}
-                    listo={(n) => { setGenerar(null); setAviso({ ok: true, texto: `${n} ${n === 1 ? 'anuncio quedó' : 'anuncios quedaron'} en Para aprobar. Al aprobarlos se crean pausados en Google Ads.` }); setVista('anuncios'); setFiltroAd('aprobar'); cargarAnuncios(true); }}
+                    listo={(n, campania) => { setGenerar(null); setAviso({ ok: true, texto: campania ? `La campaña con ${n} ${n === 1 ? 'anuncio' : 'anuncios'} quedó en Para aprobar. Al aprobarla se crea pausada en Google Ads.` : `${n} ${n === 1 ? 'anuncio quedó' : 'anuncios quedaron'} en Para aprobar. Al aprobarlos se crean pausados en Google Ads.` }); setVista('anuncios'); setFiltroAd('aprobar'); cargarAnuncios(true); }}
                 />
             )}
         </section>
