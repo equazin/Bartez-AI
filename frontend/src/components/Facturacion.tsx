@@ -45,7 +45,11 @@ export function Facturacion() {
     const cargar = useCallback(async () => {
         setCargando(true); setError(undefined);
         try { setR(await resumenFacturacion(diasAntes(dias))); }
-        catch (e) { setError((e as Error).message); }
+        catch (e) {
+            const m = (e as Error).message;
+            // 404: el servidor corre una versión anterior, sin Facturación.
+            setError(/^not found$/i.test(m.trim()) ? 'El servidor todavía no tiene esta versión (Railway no terminó de publicarla o el deploy falló). Revisá el último deploy en Railway y volvé a entrar.' : m);
+        }
         finally { setCargando(false); }
     }, [dias]);
     useEffect(() => { void cargar(); }, [cargar]);
