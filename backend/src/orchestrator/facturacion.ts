@@ -21,6 +21,8 @@ export interface FacturaFila {
     id: string; numero: string; fecha: string; vence: string | null; cliente: string | null; cliente_id: string | null;
     tipo: string; estado: string; total: number; neto: number; iva: number; moneda: string; dolar: number | null;
     cae: string | null; error_arca: string | null; de_bartez_ai: boolean; cobrado: number; saldo: number;
+    acreditado: number;             // notas de crédito aplicadas a esta factura
+    notas: string[];                // números de las NC que la cancelan (o, en una NC, la factura que cancela)
     renglones: Array<{ descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number }>;
 }
 export interface PedidoFila {
@@ -40,20 +42,50 @@ export interface ResumenFacturacion {
     totales: { facturado: number; por_autorizar: number; por_cobrar: number; vencido: number };
 }
 
-const esNota = (tipo: string) => /^(NC|ND)$/i.test(tipo);
+const esNC = (tipo: string) => /^NC$/i.test(tipo);
 
-function aFactura(d: DocumentoAsimov, deAi: Set<string>, cobros: Map<string, number>): FacturaFila {
+function aFactura(d: DocumentoAsimov, deAi: Set<string>, cobros: Map<string, number>, creditos: Map<string, { monto: number; notas: string[] }>, aplicaA: Map<string, string>): FacturaFila {
     const h = d.header;
     const total = num(h.total);
-    const cobrado = r2(Math.min(total, cobros.get(d.docId) ?? cobros.get(`#${String(h.number ?? d.number)}`) ?? 0));
+    const nc = esNC(String(h.tipo ?? ''));
+    const credito = creditos.get(d.docId);
+    const acreditado = nc ? 0 : r2(Math.min(total, credito?.monto ?? 0));
+    const cobrado = nc ? 0 : r2(Math.min(total - acreditado, cobros.get(d.docId) ?? cobros.get(`#${String(h.number ?? d.number)}`) ?? 0));
     return {
+        acreditado, notas: nc ? (aplicaA.has(d.docId) ? [aplicaA.get(d.docId)!] : []) : credito?.notas ?? [],
         id: d.docId, numero: String(h.number ?? d.number), fecha: String(h.date ?? '').slice(0, 10), vence: str(h.due_date)?.slice(0, 10) ?? null,
         cliente: str(h.client_name), cliente_id: str(h.client_id), tipo: String(h.tipo ?? 'B'),
         estado: String(h.cae ? 'autorizada' : h.status ?? 'borrador'), total, neto: num(h.subtotal), iva: num(h.iva_amount),
         moneda: String(h.source_currency ?? 'ARS'), dolar: h.usd_rate != null ? num(h.usd_rate) : null,
-        cae: str(h.cae), error_arca: str(h.afip_error), de_bartez_ai: deAi.has(d.docId), cobrado, saldo: r2(total - cobrado),
+        cae: str(h.cae), error_arca: str(h.afip_error), de_bartez_ai: deAi.has(d.docId), cobrado, saldo: nc ? 0 : r2(total - acreditado - cobrado),
         renglones: (d.items ?? []).map((i) => ({ descripcion: String(i.description ?? ''), cantidad: num(i.qty), precio: num(i.unit_price), iva: num(i.iva_pct), subtotal: num(i.subtotal) })),
     };
+}
+
+// Qué factura cancela cada nota de crédito autorizada. Asimov lo guarda como
+// vínculo factura → NC (lo exige para pedir el CAE de la NC). Si la API todavía
+// no devuelve los vínculos, se usa un respaldo: NC del mismo cliente por el
+// mismo importe que una única factura anterior.
+export function notasDeCredito(docs: DocumentoAsimov[]): Map<string, { monto: number; notas: string[]; ids: string[] }> {
+    const out = new Map<string, { monto: number; notas: string[]; ids: string[] }>();
+    const facturas = docs.filter((d) => !esNC(String(d.header.tipo ?? '')) && d.header.cae);
+    const usadas = new Set<string>();
+    for (const nc of docs.filter((d) => esNC(String(d.header.tipo ?? '')) && d.header.cae)) {
+        let destino: string | undefined = nc.sources?.find((x) => x.type === 'invoice')?.id;
+        if (!destino && nc.sources === undefined) {
+            const cands = facturas.filter((f) => !usadas.has(f.docId) && f.header.client_id === nc.header.client_id
+                && Math.abs(num(f.header.total) - num(nc.header.total)) < 0.01 && String(f.header.date ?? '') <= String(nc.header.date ?? ''));
+            if (cands.length === 1) destino = cands[0]!.docId;
+        }
+        if (!destino) continue;
+        usadas.add(destino);
+        const a = out.get(destino) ?? { monto: 0, notas: [], ids: [] };
+        a.monto = r2(a.monto + num(nc.header.total));
+        a.notas.push(`NC ${String(nc.header.number ?? nc.number)}`);
+        a.ids.push(nc.docId);
+        out.set(destino, a);
+    }
+    return out;
 }
 
 export async function resumenFacturacion(opts: { desde?: string; hasta?: string } = {}): Promise<ResumenFacturacion> {
@@ -86,7 +118,12 @@ export async function resumenFacturacion(opts: { desde?: string; hasta?: string 
         }
     }
 
-    const todas = docs.filter((d) => d.type === 'invoice' && !/anulad/i.test(String(d.header.status ?? ''))).map((d) => aFactura(d, deAi, cobros));
+    const vigentes = docs.filter((d) => d.type === 'invoice' && !/anulad/i.test(String(d.header.status ?? '')));
+    const creditos = notasDeCredito(vigentes);
+    const aplicaA = new Map<string, string>();
+    const numeroDe = new Map(vigentes.map((d) => [d.docId, `${String(d.header.tipo ?? '')} ${String(d.header.number ?? d.number)}`]));
+    for (const [facturaId, c] of creditos) for (const ncId of c.ids) aplicaA.set(ncId, numeroDe.get(facturaId) ?? '');
+    const todas = vigentes.map((d) => aFactura(d, deAi, cobros, creditos, aplicaA));
     const facturas = todas.filter((f) => f.fecha >= desde);
     const pedidos: PedidoFila[] = docs.filter((d) => d.type === 'sale_order' && String(d.header.date ?? '').slice(0, 10) >= desde).map((d) => {
         const h = d.header;
@@ -102,7 +139,7 @@ export async function resumenFacturacion(opts: { desde?: string; hasta?: string 
     const conRecordatorio = new Set((recs ?? []).map((a) => (a.payload as { factura_asimov_id?: string }).factura_asimov_id).filter(Boolean) as string[]);
     const h = hoy();
     const cobranzas: CobranzaFila[] = todas
-        .filter((f) => f.estado === 'autorizada' && !esNota(f.tipo) && f.saldo > 0.5)
+        .filter((f) => f.estado === 'autorizada' && !esNC(f.tipo) && f.saldo > 0.5)
         .map((f) => {
             const vence = f.vence ?? new Date(new Date(`${f.fecha}T12:00:00`).getTime() + DIAS_PLAZO * 86_400_000).toISOString().slice(0, 10);
             const dias = Math.floor((new Date(`${h}T12:00:00`).getTime() - new Date(`${f.fecha}T12:00:00`).getTime()) / 86_400_000);
@@ -114,7 +151,8 @@ export async function resumenFacturacion(opts: { desde?: string; hasta?: string 
     return {
         configurado: true, faltan: [], api_lista: true, desde, hasta, facturas, pedidos, cobranzas,
         totales: {
-            facturado: suma(facturas.filter((f) => f.estado === 'autorizada' && !esNota(f.tipo)).map((f) => f.total)),
+            // Facturas y notas de débito, menos notas de crédito.
+            facturado: suma(facturas.filter((f) => f.estado === 'autorizada').map((f) => (esNC(f.tipo) ? -f.total : f.total))),
             por_autorizar: facturas.filter((f) => f.estado !== 'autorizada').length,
             por_cobrar: suma(cobranzas.map((c) => c.factura.saldo)),
             vencido: suma(cobranzas.filter((c) => c.vencida).map((c) => c.factura.saldo)),

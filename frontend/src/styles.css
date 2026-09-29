@@ -3541,3 +3541,4 @@ button.fac-fila:hover, button.fac-fila:focus-visible { background: var(--hover);
   .fac-renglones { font-size: 13px; }
   .fac-renglones th:nth-child(4), .fac-renglones td:nth-child(4) { display: none; }
 }
+.fac-nota { color: var(--sutil); font-size: 13px; font-family: inherit; }

@@ -1525,6 +1525,7 @@ export interface FacturaAsimov {
     id: string; numero: string; fecha: string; vence: string | null; cliente: string | null; cliente_id: string | null;
     tipo: string; estado: string; total: number; neto: number; iva: number; moneda: string; dolar: number | null;
     cae: string | null; error_arca: string | null; de_bartez_ai: boolean; cobrado: number; saldo: number;
+    acreditado: number; notas: string[];
     renglones: Array<{ descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number }>;
 }
 export interface PedidoAsimov {

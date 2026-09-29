@@ -26,6 +26,17 @@ const ESTADO: Record<string, { texto: string; clase: string }> = {
     rechazada: { texto: 'Rechazada por ARCA', clase: 'mal' },
 };
 const estadoFactura = (e: string) => ESTADO[e] ?? { texto: e, clase: '' };
+const esNC = (f: FacturaAsimov) => /^NC$/i.test(f.tipo);
+
+// Saldo de una fila: la NC no se cobra (dice qué factura cancela); una factura
+// cancelada por NC lo dice en vez de "Cobrada".
+function saldoCelda(f: FacturaAsimov) {
+    if (f.estado !== 'autorizada') return '—';
+    if (esNC(f)) return <span className="fac-nota">{f.notas[0] ? `Cancela ${f.notas[0]}` : 'Nota de crédito'}</span>;
+    if (f.saldo > 0.5) return <>{plata(f.saldo)}{f.acreditado > 0 && <small>NC {plata(f.acreditado)}</small>}</>;
+    if (f.acreditado >= f.total - 0.5) return <span className="fac-nota">Cancelada con {f.notas.join(', ') || 'NC'}</span>;
+    return <span className="fac-cobrada">Cobrada</span>;
+}
 
 export function Facturacion() {
     const [vista, setVistaState] = useState<Vista>(() => (leer('bartez_fac_vista') as Vista) || 'facturas');
@@ -150,7 +161,7 @@ export function Facturacion() {
                                 <span role="cell" className="fac-cliente">{f.cliente ?? '—'}</span>
                                 <span role="cell"><span className={`pub-estado ${estadoFactura(f.estado).clase}`}>{estadoFactura(f.estado).texto}</span></span>
                                 <span role="cell" className="num">{plata(f.total)}</span>
-                                <span role="cell" className="num">{f.estado === 'autorizada' ? (f.saldo > 0.5 ? plata(f.saldo) : <span className="fac-cobrada">Cobrada</span>) : '—'}</span>
+                                <span role="cell" className="num">{saldoCelda(f)}</span>
                             </button>
                         ))}
                     </div>
@@ -191,7 +202,7 @@ export function Facturacion() {
                                 <span role="cell" className="fac-cliente">{c.factura.cliente ?? '—'}</span>
                                 <span role="cell"><button className="enlace" onClick={() => setDetalle(c.factura)}>{c.factura.tipo} {c.factura.numero}</button><small> · {fecha(c.factura.fecha)}</small></span>
                                 <span role="cell">{c.dias} días {c.vencida && <span className="pub-estado mal">Vencida</span>}</span>
-                                <span role="cell" className="num">{plata(c.factura.saldo)}{c.factura.cobrado > 0 && <small> de {plata(c.factura.total)}</small>}</span>
+                                <span role="cell" className="num">{plata(c.factura.saldo)}{(c.factura.cobrado > 0 || c.factura.acreditado > 0) && <small> de {plata(c.factura.total)}</small>}</span>
                                 <span role="cell" className="fac-accion">
                                     <button className="boton-fantasma" onClick={() => void recordar(c)} disabled={!!ocupado || c.recordatorio_pendiente}>
                                         {c.recordatorio_pendiente ? 'Recordatorio en Para aprobar' : ocupado === c.factura.id ? 'Armando…' : 'Mandar recordatorio'}
@@ -246,9 +257,11 @@ function DetalleFactura({ f, cerrar }: { f: FacturaAsimov; cerrar: () => void })
                     <div><dt>Neto</dt><dd>{plata(f.neto)}</dd></div>
                     <div><dt>IVA</dt><dd>{plata(f.iva)}</dd></div>
                     <div className="total"><dt>Total</dt><dd>{plata(f.total)}</dd></div>
-                    {f.estado === 'autorizada' && <div><dt>Cobrado</dt><dd>{plata(f.cobrado)}{f.saldo > 0.5 ? ` · saldo ${plata(f.saldo)}` : ''}</dd></div>}
+                    {f.estado === 'autorizada' && !esNC(f) && f.acreditado > 0 && <div><dt>Notas de crédito</dt><dd>− {plata(f.acreditado)}</dd></div>}
+                    {f.estado === 'autorizada' && !esNC(f) && <div><dt>Cobrado</dt><dd>{plata(f.cobrado)}{f.saldo > 0.5 ? ` · saldo ${plata(f.saldo)}` : ''}</dd></div>}
                 </dl>
                 <dl className="fac-datos">
+                    {f.notas.length > 0 && <div><dt>{esNC(f) ? 'Cancela' : 'Canceladas con'}</dt><dd>{f.notas.join(', ')}</dd></div>}
                     {f.cae && <div><dt>CAE</dt><dd><code>{f.cae}</code></dd></div>}
                     {f.moneda === 'USD' && f.dolar && <div><dt>Precios en dólares</dt><dd>a {plata(f.dolar)}</dd></div>}
                     {f.vence && <div><dt>Vence</dt><dd>{fecha(f.vence)}</dd></div>}

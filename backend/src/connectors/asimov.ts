@@ -136,6 +136,7 @@ export interface DocumentoAsimov {
     updatedAt: string;
     header: Record<string, unknown>;
     items: Array<Record<string, unknown>> | null;
+    sources?: Array<{ type: string; id: string }>;   // origen (factura de una NC, pedido de una factura); falta en versiones viejas
 }
 
 // Consulta de documentos (facturas, pedidos, recibos) por tipo y fecha. Si la
