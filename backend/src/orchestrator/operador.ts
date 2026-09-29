@@ -10,6 +10,7 @@ import { supabase } from '../connectors/supabase.js';
 import { contextoFecha } from '../assistants/base.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { cotizar } from './cotizador.js';
+import { enviarFactura, facturasRecientes, prepararFactura } from './facturador.js';
 import { crearCliente } from './clientes.js';
 import { documentosDeCliente, notasDeCliente, textoDeNota, ultimoInforme } from './memoria.js';
 import { resumenHoy } from './hoy.js';
@@ -39,7 +40,64 @@ Reglas:
 - Respuestas cortas y concretas, en español rioplatense, sin relleno. Usá
   listas cuando haya varios ítems. Montos en US$ con dos decimales.`;
 
+// Van siempre, aunque el prompt del General se haya editado desde el panel.
+const REGLAS_FACTURACION = `Facturación (Asimov):
+- Si te piden facturar ("facturale a X…", "haceme una factura…"), usá preparar_factura con
+  los productos, cantidades y precios que te dieron, o con el número de cotización. No
+  inventes precios, cantidades ni CUIT: si falta algo, preguntalo.
+- Precios: si no dicen si incluyen IVA, preguntá ("¿el precio es con IVA o más IVA?").
+  Moneda: US$ si dicen dólares/USD/u$s; si no, pesos. Si dan alícuota de IVA, pasala.
+- preparar_factura NO manda nada: mostrá la vista (tipo, cliente, renglones, neto, IVA,
+  total, dólar y avisos) y preguntá si la manda a Asimov. Solo con un sí claro llamá
+  enviar_factura con el factura_id. Si pide cambios, prepará una nueva.
+- Al enviarla queda como BORRADOR en Asimov: el CAE se pide desde Asimov con
+  "Autorizar ARCA". Decilo así; nunca digas que la factura quedó emitida o autorizada.`;
+
 const TOOLS: Anthropic.Tool[] = [
+    {
+        name: 'preparar_factura',
+        description: 'Arma una factura para Asimov (no la manda): busca el cliente en Asimov, decide A o B según su condición de IVA, discrimina IVA y pasa a pesos si los precios son en dólares. Devuelve la vista para mostrarle al usuario y un factura_id. Se puede facturar cualquier cosa que diga el usuario, no hace falta una cotización.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                cliente: { type: 'string', description: 'Razón social, nombre o CUIT del cliente' },
+                cliente_nuevo: {
+                    type: 'object', description: 'Solo si el cliente no está en Asimov y el usuario dio sus datos',
+                    properties: { razon_social: { type: 'string' }, cuit: { type: 'string' }, condicion_iva: { type: 'string', enum: ['responsable_inscripto', 'monotributista', 'exento', 'consumidor_final'] }, email: { type: 'string' } },
+                    required: ['razon_social', 'condicion_iva'],
+                },
+                renglones: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            descripcion: { type: 'string' }, cantidad: { type: 'number' },
+                            precio_unitario: { type: 'number', description: 'Precio por unidad tal como lo dijo el usuario' },
+                            codigo: { type: 'string', description: 'Código o número de parte, si lo dio' },
+                            iva_pct: { type: 'number', description: 'Alícuota (21, 10.5, 27, 0…) si la dijo' },
+                        },
+                        required: ['descripcion', 'cantidad', 'precio_unitario'],
+                    },
+                },
+                cotizacion: { type: 'string', description: 'Número de cotización del Cotizador, si pide facturar una cotización' },
+                moneda: { type: 'string', enum: ['ARS', 'USD'] },
+                precios_con_iva: { type: 'boolean', description: 'true si los precios que dio ya incluyen IVA' },
+                cotizacion_usd: { type: 'number', description: 'Dólar a usar, solo si el usuario lo dijo' },
+                observaciones: { type: 'string', description: 'Texto para la factura (orden de compra, condición de pago), si lo dio' },
+            },
+            required: ['cliente'],
+        },
+    },
+    {
+        name: 'enviar_factura',
+        description: 'Manda a Asimov, como borrador, una factura ya preparada y mostrada. Solo después de que el usuario dijo que sí.',
+        input_schema: { type: 'object', properties: { factura_id: { type: 'string' } }, required: ['factura_id'] },
+    },
+    {
+        name: 'facturas_recientes',
+        description: 'Las últimas facturas que Bartez AI mandó a Asimov y su estado: enviada (borrador, falta autorizar), autorizada (con número y CAE), rechazada por ARCA (con el motivo) o descartada.',
+        input_schema: { type: 'object', properties: {} },
+    },
     {
         name: 'resumen_del_dia',
         description: 'Estado del negocio hoy: lo que espera aprobación, WhatsApp y correos sin responder, cotizaciones recientes, leads calientes, tareas, proveedores y prioridades del día.',
@@ -104,7 +162,17 @@ async function tipoCambioActual(): Promise<number | null> {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function ejecutarTool(nombre: string, e: any): Promise<string> {
+async function ejecutarTool(nombre: string, e: any, texto = ''): Promise<string> {
+    if (nombre === 'preparar_factura') {
+        return JSON.stringify(await prepararFactura({ ...e, pedido: texto }));
+    }
+    if (nombre === 'enviar_factura') {
+        return JSON.stringify(await enviarFactura(String(e.factura_id ?? '')));
+    }
+    if (nombre === 'facturas_recientes') {
+        return JSON.stringify(await facturasRecientes());
+    }
+
     if (nombre === 'crear_cliente') {
         const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
         const r = await crearCliente({
@@ -231,7 +299,7 @@ export async function responderOperador(texto: string, conversacionId: string | 
     const inicio = Date.now();
     const { data: fila } = await supabase.from('asistentes').select('id, prompt, modelo').eq('area', 'operador').maybeSingle();
     const modelo = ((fila?.modelo as ModeloClaude | undefined) ?? 'sonnet');
-    const system = `${(fila?.prompt as string | null)?.trim() || PROMPT_DEFAULT}\n\n${contextoFecha()}`;
+    const system = `${(fila?.prompt as string | null)?.trim() || PROMPT_DEFAULT}\n\n${REGLAS_FACTURACION}\n\n${contextoFecha()}`;
 
     // Últimos mensajes de esta conversación, para que siga el hilo.
     const mensajes: Anthropic.MessageParam[] = [];
@@ -263,7 +331,7 @@ export async function responderOperador(texto: string, conversacionId: string | 
         const resultados: Anthropic.ToolResultBlockParam[] = [];
         for (const u of usos) {
             try {
-                resultados.push({ type: 'tool_result', tool_use_id: u.id, content: (await ejecutarTool(u.name, u.input)).slice(0, 40_000) });
+                resultados.push({ type: 'tool_result', tool_use_id: u.id, content: (await ejecutarTool(u.name, u.input, texto)).slice(0, 40_000) });
             } catch (err) {
                 resultados.push({ type: 'tool_result', tool_use_id: u.id, content: `ERROR: ${(err as Error).message}`, is_error: true });
             }

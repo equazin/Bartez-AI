@@ -168,6 +168,8 @@ function decidirArea(tarea: TareaEntrante): string {
 // que conoce el estado del negocio y puede cotizar.
 function areaDelPedido(texto: string): string {
     const t = texto.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    // Facturar lo hace el General (herramientas de factura contra Asimov).
+    if (/\bfactur(a|ame|ale|ales|alo|ar|en|emos|as)\b/.test(t) && !/\b(redacta|escribi|arma(me)? un (correo|mail))/.test(t)) return 'operador';
     if (/\b(prospect|busca(me)? (empresas|clientes|prospectos|leads))/.test(t)) return 'prospeccion';
     // Dar de alta clientes lo hace el General (herramienta crear_cliente), aunque
     // diga "nuevos clientes".

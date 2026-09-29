@@ -23,6 +23,8 @@ import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { infoCampania, proponerCampania } from './orchestrator/campanias.js';
+import { facturasRecientes, seguirFacturas } from './orchestrator/facturador.js';
+import { asimovConfigurado } from './connectors/asimov.js';
 import { bajarHistorial, busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
 import { leerWeb, leyendoWeb } from './orchestrator/web_mapa.js';
 import { generarAnuncios, listarAnuncios, proponerAnuncios, proponerPausa } from './orchestrator/anuncios.js';
@@ -775,6 +777,14 @@ app.post('/publicidad/anuncios/pausar', async (req, res) => {
         return { ok: true };
     } catch (err) {
         return res.status(400).send({ error: (err as Error).message });
+    }
+});
+
+app.get('/facturas', async (_req, res) => {
+    try {
+        return { configurado: asimovConfigurado(), facturas: await facturasRecientes(30) };
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
     }
 });
 
@@ -1647,6 +1657,11 @@ async function main() {
         try { if ((await estadoAds()).conectado) app.log.info(await sincronizarAds({ dias: 3 }), '[publicidad] métricas del día'); }
         catch (err) { app.log.error({ err }, '[publicidad] sincronización diaria falló'); }
     }, ZONA);
+    // Facturas mandadas a Asimov: ver si ya las autorizaron (o ARCA las rechazó).
+    cron.schedule('*/10 7-22 * * 1-6', async () => {
+        if (!asimovConfigurado().ok) return;
+        try { await seguirFacturas(); } catch (err) { console.warn('[facturas] seguimiento:', (err as Error).message); }
+    }, { timezone: 'America/Argentina/Buenos_Aires' });
     cron.schedule('0 8-21/2 * * *', async () => {
         try { const r = await guardiaPublicidad(); if (r.alertas) app.log.info(r, '[publicidad] guardia con alertas'); }
         catch (err) { app.log.error({ err }, '[publicidad] guardia falló'); }
