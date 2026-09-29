@@ -10,13 +10,14 @@ import { Rendimiento, SeccionRendimiento } from './components/Rendimiento.tsx';
 import { Seguimientos } from './components/Seguimientos.tsx';
 import { Cotizador } from './components/Cotizador.tsx';
 import { Publicidad } from './components/Publicidad.tsx';
+import { Facturacion } from './components/Facturacion.tsx';
 import { Login } from './components/Login.tsx';
 import { WhatsApp } from './components/WhatsApp.tsx';
 import { NotionPanel } from './components/NotionPanel.tsx';
 import { EVENTO_RESUELTA } from './components/Deshacer.tsx';
 import { BACKEND_ES_DEMO, BACKEND_NORMAL_ES_LOCAL, BACKEND_URL, EVENTO_LOGOUT, estadoAuth, logout, resumenHoy, volverAlBackendNormal } from './api/client.ts';
 
-export type Tab = 'home' | 'chat' | 'acciones' | 'asistentes' | 'rendimiento' | 'prospeccion' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion' | 'publicidad';
+export type Tab = 'home' | 'chat' | 'acciones' | 'asistentes' | 'rendimiento' | 'prospeccion' | 'seguimientos' | 'cotizador' | 'whatsapp' | 'notion' | 'publicidad' | 'facturacion';
 
 // Las tres pantallas viejas de Sistema viven ahora como pestañas de Rendimiento.
 const A_RENDIMIENTO: Record<string, SeccionRendimiento> = { dashboard: 'hoy', analitica: 'informes', bitacora: 'bitacora', modelos: 'modelos' };
@@ -32,6 +33,7 @@ const GRUPOS: Array<{ titulo: string; items: Array<{ id: Tab; label: string; con
     ] },
     { titulo: 'Ventas', items: [
         { id: 'cotizador', label: 'Cotizador' },
+        { id: 'facturacion', label: 'Facturación' },
         { id: 'prospeccion', label: 'Prospección' },
         { id: 'seguimientos', label: 'Clientes y seguimientos' },
         { id: 'publicidad', label: 'Publicidad' },
@@ -215,6 +217,7 @@ export function App() {
                 {tab === 'whatsapp' && <WhatsApp />}
                 {tab === 'notion' && <NotionPanel />}
                 {tab === 'publicidad' && <Publicidad />}
+                {tab === 'facturacion' && <Facturacion />}
             </main>
 
             {/* Celular: lo que se usa todos los días, al alcance del pulgar. */}

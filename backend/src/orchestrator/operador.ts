@@ -11,6 +11,7 @@ import { contextoFecha } from '../assistants/base.js';
 import { historicoConCliente } from '../inbound/importar_historico.js';
 import { cotizar } from './cotizador.js';
 import { enviarFactura, facturasRecientes, prepararFactura } from './facturador.js';
+import { prepararDesdePedido, resumenFacturacion } from './facturacion.js';
 import { crearCliente } from './clientes.js';
 import { documentosDeCliente, notasDeCliente, textoDeNota, ultimoInforme } from './memoria.js';
 import { resumenHoy } from './hoy.js';
@@ -94,6 +95,16 @@ const TOOLS: Anthropic.Tool[] = [
         input_schema: { type: 'object', properties: { factura_id: { type: 'string' } }, required: ['factura_id'] },
     },
     {
+        name: 'facturar_pedido',
+        description: 'Prepara (no manda) la factura de un pedido de venta de Asimov por su número, con el mismo cliente y renglones. Devuelve la vista y el factura_id, igual que preparar_factura.',
+        input_schema: { type: 'object', properties: { pedido: { type: 'string', description: 'Número del pedido en Asimov' } }, required: ['pedido'] },
+    },
+    {
+        name: 'cobranzas',
+        description: 'Facturas autorizadas de Asimov con saldo pendiente (de todos, no solo de Bartez AI): cliente, número, fecha, saldo, días y si está vencida. También totales por cobrar y vencido.',
+        input_schema: { type: 'object', properties: {} },
+    },
+    {
         name: 'facturas_recientes',
         description: 'Las últimas facturas que Bartez AI mandó a Asimov y su estado: enviada (borrador, falta autorizar), autorizada (con número y CAE), rechazada por ARCA (con el motivo) o descartada.',
         input_schema: { type: 'object', properties: {} },
@@ -168,6 +179,14 @@ async function ejecutarTool(nombre: string, e: any, texto = ''): Promise<string>
     }
     if (nombre === 'enviar_factura') {
         return JSON.stringify(await enviarFactura(String(e.factura_id ?? '')));
+    }
+    if (nombre === 'facturar_pedido') {
+        return JSON.stringify(await prepararDesdePedido(String(e.pedido ?? '')));
+    }
+    if (nombre === 'cobranzas') {
+        const r = await resumenFacturacion();
+        if (!r.api_lista) return JSON.stringify({ error: 'Asimov todavía no tiene la consulta de documentos publicada' });
+        return JSON.stringify({ totales: r.totales, pendientes: r.cobranzas.slice(0, 40).map((c) => ({ cliente: c.factura.cliente, factura: `${c.factura.tipo} ${c.factura.numero}`, fecha: c.factura.fecha, total: c.factura.total, saldo: c.factura.saldo, dias: c.dias, vencida: c.vencida })) });
     }
     if (nombre === 'facturas_recientes') {
         return JSON.stringify(await facturasRecientes());

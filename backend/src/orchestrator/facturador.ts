@@ -10,7 +10,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { supabase } from '../connectors/supabase.js';
-import { buscarClientesAsimov, crearClienteAsimov, empujarCambios, traerCambios, type ClienteAsimov } from '../connectors/asimov.js';
+import { buscarClientesAsimov, clienteAsimovPorId, crearClienteAsimov, empujarCambios, traerCambios, type ClienteAsimov } from '../connectors/asimov.js';
 import { tipoDeCambio } from './catalogo_proveedores.js';
 
 // ---------------------------------------------------------------- reglas de Asimov
@@ -95,6 +95,9 @@ const plata = (n: number) => `$ ${n.toLocaleString('es-AR', { minimumFractionDig
 
 export interface PedidoFactura {
     cliente: string;                                    // nombre, razón social o CUIT
+    cliente_asimov_id?: string | null;                  // si ya se sabe (desde un pedido de Asimov)
+    pedido_asimov?: { id: string; numero: string } | null;  // factura de un pedido de Asimov
+    renglones_netos_ars?: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number }> | null;
     cliente_nuevo?: { razon_social: string; cuit?: string | null; condicion_iva: string; email?: string | null } | null;
     renglones?: Array<{ descripcion: string; cantidad: number; precio_unitario: number; codigo?: string | null; iva_pct?: number | null }>;
     cotizacion?: string | null;                         // número de una cotización del Cotizador
@@ -122,8 +125,12 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
     let cliente: { asimov_id: string | null; razon_social: string; cuit: string | null; condicion: CondicionIva; email: string | null };
     const cuitPedido = soloDigitos(p.cliente_nuevo?.cuit ?? p.cliente);
     let encontrados: ClienteAsimov[] = [];
-    if (cuitPedido.length === 11) encontrados = (await buscarClientesAsimov(cuitPedido)).filter((c) => soloDigitos(c.cuit) === cuitPedido);
-    if (!encontrados.length && p.cliente.trim().length >= 3 && cuitPedido.length !== 11) encontrados = await buscarClientesAsimov(p.cliente.trim());
+    if (p.cliente_asimov_id) {
+        const c = await clienteAsimovPorId(p.cliente_asimov_id);
+        if (!c) return { ok: false, motivo: 'El cliente del pedido no está en Asimov (¿lo borraron?)' };
+        encontrados = [c];
+    } else if (cuitPedido.length === 11) encontrados = (await buscarClientesAsimov(cuitPedido)).filter((c) => soloDigitos(c.cuit) === cuitPedido);
+    if (!p.cliente_asimov_id && !encontrados.length && p.cliente.trim().length >= 3 && cuitPedido.length !== 11) encontrados = await buscarClientesAsimov(p.cliente.trim());
     if (encontrados.length > 1) {
         const exacto = encontrados.filter((c) => c.businessName.trim().toLowerCase() === p.cliente.trim().toLowerCase());
         if (exacto.length === 1) encontrados = exacto;
@@ -164,6 +171,15 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
         const raro = items.find((i) => !ALICUOTAS.includes(i.iva));
         if (raro) return { ok: false, motivo: `“${raro.descripcion}”: ${raro.iva === 0 ? SIN_EXENTOS : `IVA ${raro.iva}% no válido`}` };
     }
+    if (p.pedido_asimov) {
+        const { data: ya } = await supabase.from('facturas_asimov').select('id, estado').eq('pedido_asimov_id', p.pedido_asimov.id).in('estado', ['enviada', 'autorizada']).limit(1);
+        if (ya?.length) return { ok: false, motivo: `El pedido ${p.pedido_asimov.numero} ya tiene una factura hecha por Bartez AI (${ya[0]!.estado})` };
+        moneda = 'ARS'; conIva = false;
+        for (const it of p.renglones_netos_ars ?? []) items.push({ ...it, precio: round2(it.precio) });
+        const raro = items.find((i) => !ALICUOTAS.includes(i.iva));
+        if (raro) return { ok: false, motivo: `“${raro.descripcion}”: ${raro.iva === 0 ? SIN_EXENTOS : `IVA ${raro.iva}% no válido`}` };
+        if (!items.length) return { ok: false, motivo: 'El pedido no tiene renglones' };
+    }
     for (const r of p.renglones ?? []) {
         const descripcion = String(r.descripcion ?? '').trim();
         const cantidad = Number(r.cantidad);
@@ -199,7 +215,8 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
         cliente_asimov_id: cliente.asimov_id, razon_social: cliente.razon_social, cuit: cliente.cuit, condicion_iva: cliente.condicion,
         tipo, moneda, cotizacion_usd: tc, neto: calc.neto, iva: calc.iva, total: calc.total,
         renglones: { origen: items, pesos: calc.renglones, email: cliente.email }, avisos,
-        observaciones: p.observaciones?.trim().slice(0, 500) || null, cotizacion_id: cotizacionId, pedido: p.pedido?.slice(0, 1000) ?? null,
+        observaciones: [p.pedido_asimov ? `Pedido ${p.pedido_asimov.numero}` : null, p.observaciones?.trim()].filter(Boolean).join(' · ').slice(0, 500) || null,
+        cotizacion_id: cotizacionId, pedido: p.pedido?.slice(0, 1000) ?? null, pedido_asimov_id: p.pedido_asimov?.id ?? null,
     };
     const { error } = await supabase.from('facturas_asimov').insert(fila);
     if (error) throw new Error(error.message);
@@ -260,7 +277,10 @@ export async function enviarFactura(id: string): Promise<{ ok: boolean; detalle:
         await supabase.from('facturas_asimov').update({ cliente_asimov_id: asimovId }).eq('id', id);
     }
     const env = envelopeFactura({ ...(f as Parameters<typeof envelopeFactura>[0]), cliente_asimov_id: asimovId }, (process.env.ASIMOV_PUNTO_VENTA ?? '').trim() || '0001', fechaAR());
-    await empujarCambios([{ entity: 'document_snapshot', action: 'update', id, data: env as unknown as Record<string, unknown> }]);
+    const cambios: Array<{ entity: string; action: string; id: string; data: Record<string, unknown> }> = [{ entity: 'document_snapshot', action: 'update', id, data: env as unknown as Record<string, unknown> }];
+    // Factura de un pedido: el vínculo pedido → factura, como lo arma Asimov al facturar desde el pedido.
+    if (f.pedido_asimov_id) cambios.push({ entity: 'document_link', action: 'create', id: randomUUID(), data: { sourceType: 'sale_order', sourceId: f.pedido_asimov_id, targetType: 'invoice', targetId: id } });
+    await empujarCambios(cambios);
     await supabase.from('facturas_asimov').update({ estado: 'enviada', enviada_en: new Date().toISOString(), actualizado_en: new Date().toISOString() }).eq('id', id);
     return { ok: true, detalle: `Quedó en Asimov como borrador (${env.header.number}). Aparece en Facturas en las PCs conectadas en menos de un minuto; se autoriza desde ahí con “Autorizar ARCA”.` };
 }

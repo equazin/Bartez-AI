@@ -90,6 +90,13 @@ export async function buscarClientesAsimov(q: string): Promise<ClienteAsimov[]> 
     return r.data ?? [];
 }
 
+export async function clienteAsimovPorId(id: string): Promise<ClienteAsimov | null> {
+    try {
+        const r = await asimov<{ data?: ClienteAsimov }>(`/clients/${encodeURIComponent(id)}`);
+        return r.data ?? null;
+    } catch { return null; }
+}
+
 export async function crearClienteAsimov(c: { razon_social: string; cuit: string | null; condicion_iva: string; email?: string | null; domicilio?: string | null; ciudad?: string | null }): Promise<ClienteAsimov> {
     const r = await asimov<{ data?: ClienteAsimov } & Partial<ClienteAsimov>>('/clients', {
         method: 'POST',
@@ -118,4 +125,33 @@ export async function traerCambios(desde: string): Promise<CambioAsimov[]> {
     const r = await asimov<{ data?: { changes?: CambioAsimov[] } | CambioAsimov[] }>(`/sync/pull?since=${encodeURIComponent(desde)}`);
     const d = r.data;
     return Array.isArray(d) ? d : d?.changes ?? [];
+}
+
+// ---------------------------------------------------------------- documentos
+
+export interface DocumentoAsimov {
+    docId: string;
+    type: string;
+    number: string;
+    updatedAt: string;
+    header: Record<string, unknown>;
+    items: Array<Record<string, unknown>> | null;
+}
+
+// Consulta de documentos (facturas, pedidos, recibos) por tipo y fecha. Si la
+// API de Asimov todavía no tiene la consulta (versión vieja), devuelve null.
+export async function documentosAsimov(q: { tipos: string[]; desde?: string; hasta?: string; clienteId?: string; items?: boolean; limite?: number }): Promise<DocumentoAsimov[] | null> {
+    const p = new URLSearchParams({ types: q.tipos.join(',') });
+    if (q.desde) p.set('from', q.desde);
+    if (q.hasta) p.set('to', q.hasta);
+    if (q.clienteId) p.set('clientId', q.clienteId);
+    if (q.items) p.set('items', '1');
+    p.set('limit', String(q.limite ?? 1000));
+    try {
+        const r = await asimov<{ data?: DocumentoAsimov[] }>(`/sync/documents?${p.toString()}`);
+        return r.data ?? [];
+    } catch (e) {
+        if (/HTTP 404|Cannot GET/i.test((e as Error).message)) return null;
+        throw e;
+    }
 }

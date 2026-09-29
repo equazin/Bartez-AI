@@ -31,3 +31,7 @@ create table if not exists public.facturas_asimov (
 );
 create index if not exists facturas_asimov_estado on public.facturas_asimov (estado, creado_en desc);
 alter table public.facturas_asimov enable row level security;
+
+-- Factura hecha a partir de un pedido de Asimov (para no facturarlo dos veces).
+alter table public.facturas_asimov add column if not exists pedido_asimov_id text;
+create index if not exists facturas_asimov_pedido on public.facturas_asimov (pedido_asimov_id) where pedido_asimov_id is not null;

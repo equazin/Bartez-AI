@@ -1519,3 +1519,55 @@ export async function pausarAnuncioAds(d: { id: string; titulo: string; ruta: st
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d),
     }));
 }
+
+// Facturación (Asimov): facturas, pedidos y cobranzas; preparar y mandar facturas.
+export interface FacturaAsimov {
+    id: string; numero: string; fecha: string; vence: string | null; cliente: string | null; cliente_id: string | null;
+    tipo: string; estado: string; total: number; neto: number; iva: number; moneda: string; dolar: number | null;
+    cae: string | null; error_arca: string | null; de_bartez_ai: boolean; cobrado: number; saldo: number;
+    renglones: Array<{ descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number }>;
+}
+export interface PedidoAsimov {
+    id: string; numero: string; fecha: string; entrega: string | null; cliente: string | null; cliente_id: string | null;
+    estado: string; total: number; facturado_por_ai: string | null;
+    renglones: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number }>;
+}
+export interface CobranzaAsimov { factura: FacturaAsimov; dias: number; vencida: boolean; recordatorio_pendiente: boolean }
+export interface ResumenFacturacion {
+    configurado: boolean; faltan: string[]; api_lista: boolean; desde: string; hasta: string;
+    facturas: FacturaAsimov[]; pedidos: PedidoAsimov[]; cobranzas: CobranzaAsimov[];
+    totales: { facturado: number; por_autorizar: number; por_cobrar: number; vencido: number };
+}
+export interface VistaFactura {
+    comprobante: string; cliente: string;
+    renglones: Array<{ descripcion: string; cantidad: number; iva: string; unitario_sin_iva: string; subtotal_sin_iva: string }>;
+    neto: string; iva: string; total: string; dolar: string | null; observaciones: string | null; avisos: string[];
+}
+export type PreparadaFactura =
+    | { ok: true; factura_id: string; vista: VistaFactura }
+    | { ok: false; motivo: string; candidatos?: Array<{ razon_social: string; cuit: string | null; condicion_iva: string }> };
+export interface PedidoNuevaFactura {
+    cliente: string;
+    cliente_nuevo?: { razon_social: string; cuit?: string | null; condicion_iva: string; email?: string | null } | null;
+    renglones: Array<{ descripcion: string; cantidad: number; precio_unitario: number; codigo?: string | null; iva_pct?: number | null }>;
+    moneda: 'ARS' | 'USD';
+    precios_con_iva: boolean;
+    cotizacion_usd?: number | null;
+    observaciones?: string | null;
+}
+const json = (d: unknown) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
+export async function resumenFacturacion(desde?: string): Promise<ResumenFacturacion> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion${desde ? `?desde=${desde}` : ''}`));
+}
+export async function prepararFacturaPanel(d: PedidoNuevaFactura): Promise<PreparadaFactura> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion/preparar`, json(d)));
+}
+export async function prepararFacturaDePedido(id: string): Promise<PreparadaFactura> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion/pedido/${encodeURIComponent(id)}/preparar`, json({})));
+}
+export async function enviarFacturaAsimov(id: string): Promise<{ ok: boolean; detalle: string }> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion/enviar`, json({ id })));
+}
+export async function recordatorioCobranza(id: string): Promise<{ ok: boolean; detalle: string }> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion/cobranza/${encodeURIComponent(id)}/recordatorio`, json({})));
+}

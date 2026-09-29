@@ -3449,3 +3449,95 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
 .apr-campania-datos div { min-width: 0; }
 .apr-campania-datos dd code { word-break: break-all; }
 .gen-palabras li button { display: inline-grid; place-items: center; padding: 0; line-height: 1; }
+
+/* Facturación */
+.facturacion { display: flex; flex-direction: column; gap: 16px; }
+.fac-cab { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 20px; }
+.fac-cab > div:first-child { flex: 1 1 320px; min-width: 0; }
+.fac-cab h2 { margin: 0 0 4px; }
+.fac-cab .sub { margin: 0; color: var(--sutil); font-size: 14px; line-height: 1.5; }
+.fac-botones { display: flex; gap: 8px; flex-wrap: wrap; }
+.fac-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.fac-kpis > div { border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; background: var(--panel); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fac-kpis span { font-size: 12px; color: var(--sutil); }
+.fac-kpis strong { font-size: clamp(18px, 2.2vw, 24px); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.fac-kpis small { font-size: 12px; color: var(--sutil); }
+.fac-kpis .atencion { border-color: var(--alerta); }
+.fac-kpis .mal { border-color: var(--peligro); }
+.fac-kpis .mal strong { color: var(--peligro); }
+.fac-filtros { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.fac-filtros input[type="search"], .fac-filtros select { border-radius: 8px; border: 1px solid var(--borde); background: var(--bg); color: var(--texto); padding: 8px 10px; font: inherit; font-size: 14px; }
+.fac-filtros input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.fac-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fac-vacio { color: var(--sutil); padding: 24px 0; text-align: center; }
+.fac-tabla { border: 1px solid var(--borde); border-radius: 12px; overflow: hidden; background: var(--panel); }
+.fac-fila { display: grid; grid-template-columns: 90px minmax(150px, 1.2fr) minmax(160px, 2fr) 150px 130px 130px; gap: 12px; align-items: center; padding: 10px 16px; border: 0; border-top: 1px solid var(--borde-soft); background: none; color: var(--texto); font: inherit; font-size: 14px; text-align: left; width: 100%; }
+button.fac-fila { cursor: pointer; }
+button.fac-fila:hover, button.fac-fila:focus-visible { background: var(--hover); }
+.fac-titulos { border-top: 0; font-size: 12px; color: var(--sutil); font-weight: 600; background: var(--hover); }
+.fac-fila.fac-pedidos { grid-template-columns: 90px minmax(120px, 1fr) minmax(160px, 2fr) 170px 130px 110px; }
+.fac-fila.fac-cobr { grid-template-columns: minmax(160px, 2fr) minmax(170px, 1.4fr) 170px 170px 220px; }
+.fac-fila.vencida { box-shadow: inset 3px 0 0 var(--peligro); }
+.fac-fila .num { text-align: right; font-variant-numeric: tabular-nums; }
+.fac-fila small { display: block; color: var(--sutil); font-size: 12px; }
+.fac-nro { font-variant-numeric: tabular-nums; display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.fac-cliente { min-width: 0; overflow-wrap: anywhere; }
+.fac-ai { flex: 0 0 auto; white-space: nowrap; line-height: 1.4; font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; background: var(--acento-soft); color: var(--texto); }
+.fac-cobrada { color: var(--ok); font-weight: 600; }
+.fac-accion { display: flex; justify-content: flex-end; }
+.fac-detalle .fac-det-cliente { margin: 2px 0 0; color: var(--sutil); }
+.fac-renglones { width: 100%; border-collapse: collapse; font-size: 14px; }
+.fac-renglones th { text-align: left; font-size: 12px; color: var(--sutil); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--borde); }
+.fac-renglones td { padding: 8px; border-bottom: 1px solid var(--borde-soft); vertical-align: top; }
+.fac-renglones .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fac-totales { display: grid; gap: 4px; margin: 12px 0 0 auto; max-width: 340px; }
+.fac-totales div { display: flex; justify-content: space-between; gap: 16px; font-variant-numeric: tabular-nums; }
+.fac-totales dt { color: var(--sutil); }
+.fac-totales dd { margin: 0; }
+.fac-totales .total { font-weight: 700; font-size: 17px; border-top: 1px solid var(--borde); padding-top: 6px; }
+.fac-totales .total dt { color: var(--texto); }
+.fac-datos { display: grid; gap: 6px; margin: 16px 0 0; }
+.fac-datos div { display: flex; gap: 10px; }
+.fac-datos dt { color: var(--sutil); min-width: 140px; }
+.fac-datos dd { margin: 0; }
+.pub-modal.fac-nueva { width: min(960px, 100%); display: flex; flex-direction: column; gap: 14px; padding: 24px; background: var(--panel); border: 1px solid var(--borde); border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); margin: auto; }
+.fac-vista { overflow-x: auto; }
+.fac-form { display: flex; flex-direction: column; gap: 14px; }
+.fac-form-fila { display: flex; flex-wrap: wrap; gap: 12px; }
+.fac-form label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; flex: 1 1 170px; min-width: 0; }
+.fac-form label.fac-ancho { flex: 3 1 300px; }
+.fac-form input, .fac-form select { border-radius: 8px; border: 1px solid var(--borde); background: var(--bg); color: var(--texto); padding: 9px 10px; font: inherit; font-size: 14px; font-weight: 400; min-width: 0; }
+.fac-form > label, .fac-form > label.fac-ancho { flex: none; }
+.fac-item input, .fac-item select { width: 100%; min-width: 0; box-sizing: border-box; }
+.pub-modal.fac-nueva { box-sizing: border-box; min-width: 0; }
+.fac-vista-cab span { overflow-wrap: anywhere; }
+.fac-form label.fac-check { flex-direction: row; align-items: center; font-weight: 400; gap: 8px; }
+.fac-items { display: flex; flex-direction: column; gap: 6px; }
+.fac-item { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 1.2fr) 70px minmax(0, 1.2fr) 90px 36px; gap: 6px; align-items: center; }
+.fac-item-tit { font-size: 12px; color: var(--sutil); font-weight: 600; }
+.fac-quitar { border: 0; background: none; color: var(--sutil); cursor: pointer; width: 36px; height: 36px; border-radius: 8px; }
+.fac-quitar:hover, .fac-quitar:focus-visible { background: var(--peligro-soft); color: var(--peligro); }
+.fac-sumar { align-self: flex-start; }
+.fac-form > .pub-primario { align-self: flex-start; }
+.fac-candidatos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fac-vista { border: 1px solid var(--borde); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.fac-vista-cab { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; }
+.fac-vista-cab strong { font-size: 18px; }
+.fac-vista-cab span { color: var(--sutil); }
+.fac-obs { margin: 0; font-size: 13px; color: var(--sutil); }
+.fac-vista-acciones { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.fac-renglones-wrap { overflow-x: auto; }
+@media (max-width: 860px) {
+  .pub-modal.fac-nueva { padding: 18px 16px; border-radius: 14px; }
+  .fac-titulos { display: none; }
+  .fac-fila, .fac-fila.fac-pedidos, .fac-fila.fac-cobr { grid-template-columns: 1fr auto; gap: 4px 12px; padding: 12px 14px; }
+  .fac-fila > span:nth-child(1) { font-size: 12px; color: var(--sutil); }
+  .fac-fila .num { text-align: right; }
+  .fac-accion { grid-column: 1 / -1; justify-content: flex-start; }
+  .fac-item { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-bottom: 8px; border-bottom: 1px solid var(--borde-soft); }
+  .fac-quitar { justify-self: end; grid-column: 2; }
+  .fac-item > input:first-child { grid-column: 1 / -1; }
+  .fac-item-tit { display: none; }
+  .fac-renglones { font-size: 13px; }
+  .fac-renglones th:nth-child(4), .fac-renglones td:nth-child(4) { display: none; }
+}
