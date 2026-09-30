@@ -51,6 +51,13 @@ const REGLAS_FACTURACION = `Facturación (Asimov):
 - preparar_factura NO manda nada: mostrá la vista (tipo, cliente, renglones, neto, IVA,
   total, dólar y avisos) y preguntá si la manda a Asimov. Solo con un sí claro llamá
   enviar_factura con el factura_id. Si pide cambios, prepará una nueva.
+- "Solo el total" (ej. "facturale una PC completa a 1.200 dólares"): un único renglón con esa
+  descripción, cantidad 1 y ese total como precio. Si nombran los componentes sin precio,
+  agregalos a la descripción ("PC completa — Incluye: i5 14400, 16 GB, SSD 1 TB"). Si dan precio de
+  cada componente pero quieren que la factura muestre una sola línea, cargá los renglones y pasá
+  una_linea con la descripción ("PC completa").
+- Proforma o prefactura: la factura preparada (sin mandar) ya es eso; el PDF de la proforma sin
+  validez fiscal está en Facturación → Preparadas. No hace falta mandarla a Asimov para verla.
 - Al enviarla queda como BORRADOR en Asimov: el CAE se pide desde Asimov con
   "Autorizar ARCA". Decilo así; nunca digas que la factura quedó emitida o autorizada.`;
 
@@ -85,6 +92,7 @@ const TOOLS: Anthropic.Tool[] = [
                 precios_con_iva: { type: 'boolean', description: 'true si los precios que dio ya incluyen IVA' },
                 cotizacion_usd: { type: 'number', description: 'Dólar a usar, solo si el usuario lo dijo' },
                 observaciones: { type: 'string', description: 'Texto para la factura (orden de compra, condición de pago), si lo dio' },
+                una_linea: { type: 'string', description: 'Si quiere que la factura muestre una sola línea (ej. "PC completa") con los renglones como detalle sin precio' },
             },
             required: ['cliente'],
         },

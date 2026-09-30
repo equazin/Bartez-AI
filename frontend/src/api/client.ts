@@ -1543,6 +1543,7 @@ export interface VistaFactura {
     comprobante: string; cliente: string;
     renglones: Array<{ descripcion: string; cantidad: number; iva: string; unitario_sin_iva: string; subtotal_sin_iva: string }>;
     neto: string; iva: string; total: string; dolar: string | null; observaciones: string | null; avisos: string[];
+    una_linea?: string | null;
 }
 export type PreparadaFactura =
     | { ok: true; factura_id: string; vista: VistaFactura }
@@ -1555,6 +1556,7 @@ export interface PedidoNuevaFactura {
     precios_con_iva: boolean;
     cotizacion_usd?: number | null;
     observaciones?: string | null;
+    una_linea?: string | null;
 }
 const json = (d: unknown) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d) });
 export async function resumenFacturacion(desde?: string): Promise<ResumenFacturacion> {
@@ -1571,4 +1573,21 @@ export async function enviarFacturaAsimov(id: string): Promise<{ ok: boolean; de
 }
 export async function recordatorioCobranza(id: string): Promise<{ ok: boolean; detalle: string }> {
     return jsonOError(await apiFetch(`${BASE}/facturacion/cobranza/${encodeURIComponent(id)}/recordatorio`, json({})));
+}
+export interface FacturaPreparada { id: string; razon_social: string; tipo: string; total: number; moneda: string; creado_en: string; renglones: number; una_linea: string | null }
+export async function facturasPreparadas(): Promise<{ preparadas: FacturaPreparada[] }> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion/preparadas`));
+}
+export async function descartarFacturaPreparada(id: string): Promise<{ ok: boolean }> {
+    return jsonOError(await apiFetch(`${BASE}/facturacion/preparada/${encodeURIComponent(id)}/descartar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }));
+}
+// Proforma en PDF (sin validez fiscal): de una factura preparada en Bartez AI o de un borrador de Asimov.
+export async function pdfProforma(origen: 'bartez' | 'asimov', id: string): Promise<{ blob: Blob; archivo: string }> {
+    const res = await apiFetch(`${BASE}/facturacion/proforma/${origen}/${encodeURIComponent(id)}`);
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(typeof err.error === 'string' ? err.error : `Backend respondió ${res.status}`);
+    }
+    const disp = res.headers.get('Content-Disposition') ?? '';
+    return { blob: await res.blob(), archivo: /filename="([^"]+)"/.exec(disp)?.[1] ?? 'Proforma.pdf' };
 }

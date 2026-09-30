@@ -3542,3 +3542,18 @@ button.fac-fila:hover, button.fac-fila:focus-visible { background: var(--hover);
   .fac-renglones th:nth-child(4), .fac-renglones td:nth-child(4) { display: none; }
 }
 .fac-nota { color: var(--sutil); font-size: 13px; font-family: inherit; }
+.fac-modo { align-self: flex-start; }
+.fac-total { display: flex; flex-direction: column; gap: 12px; }
+.fac-form textarea { border-radius: 8px; border: 1px solid var(--borde); background: var(--bg); color: var(--texto); padding: 9px 10px; font: inherit; font-size: 14px; font-weight: 400; resize: vertical; min-width: 0; }
+.fac-proforma { align-self: flex-start; margin: 4px 0 12px; }
+.fac-preparadas { border: 1px solid var(--alerta); border-radius: 12px; background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.fac-preparadas h3 { margin: 0; font-size: 15px; }
+.fac-preparadas h3 small { color: var(--sutil); font-weight: 400; }
+.fac-preparadas .sub { margin: 0; font-size: 13px; color: var(--sutil); }
+.fac-preparadas ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.fac-preparadas li { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 16px; padding: 10px 0; border-top: 1px solid var(--borde-soft); }
+.fac-prep-dato { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.fac-prep-dato strong { overflow-wrap: anywhere; }
+.fac-prep-dato span { font-size: 13px; color: var(--sutil); }
+.fac-prep-botones { display: flex; flex-wrap: wrap; gap: 8px; }
+.fac-total > label, .fac-total > label.fac-ancho { flex: none; }

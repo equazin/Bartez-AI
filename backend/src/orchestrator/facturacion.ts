@@ -7,7 +7,8 @@
 
 import { supabase } from '../connectors/supabase.js';
 import { asimovConfigurado, clienteAsimovPorId, documentosAsimov, type DocumentoAsimov } from '../connectors/asimov.js';
-import { prepararFactura, type ResultadoPreparar } from './facturador.js';
+import { TEXTO_CONDICION, filaFactura, normalizarCondicion, prepararFactura, type ResultadoPreparar } from './facturador.js';
+import type { DatosProforma } from '../pdf/proforma.js';
 
 export const DIAS_PLAZO = 30;
 const TZ = 'America/Argentina/Buenos_Aires';
@@ -217,4 +218,42 @@ export async function proponerRecordatorio(facturaId: string): Promise<{ ok: boo
     });
     if (error) return { ok: false, detalle: error.message };
     return { ok: true, detalle: 'El recordatorio quedó en Para aprobar' };
+}
+
+// ---------------------------------------------------------------- proforma
+
+// Proforma de una factura preparada en Bartez AI (antes de mandarla) o ya
+// mandada/rechazada: los mismos importes que van a Asimov.
+export async function proformaDePreparada(id: string): Promise<DatosProforma | null> {
+    const f = await filaFactura(id);
+    if (!f) return null;
+    const r = f.renglones as { pesos: DatosProforma['renglones']; una_linea?: string | null };
+    return {
+        tipo: String(f.tipo), fecha: String(f.creado_en).slice(0, 10),
+        cliente: { razon_social: String(f.razon_social), cuit: (f.cuit as string | null) ?? null, condicion: TEXTO_CONDICION[normalizarCondicion(f.condicion_iva as string | null)] },
+        renglones: r.pesos, una_linea: r.una_linea ?? null,
+        neto: Number(f.neto), iva: Number(f.iva), total: Number(f.total),
+        moneda: String(f.moneda), dolar: f.cotizacion_usd != null ? Number(f.cotizacion_usd) : null,
+        observaciones: (f.observaciones as string | null) ?? null, referencia: String(f.id).slice(0, 6).toUpperCase(),
+    };
+}
+
+// Proforma de un borrador que ya está en Asimov (hecho por Bartez AI o a mano).
+export async function proformaDeAsimov(docId: string): Promise<DatosProforma | { error: string }> {
+    const docs = await documentosAsimov({ tipos: ['invoice'], items: true, limite: 2000 });
+    if (!docs) return { error: 'Asimov todavía no tiene la consulta de documentos' };
+    const d = docs.find((x) => x.docId === docId);
+    if (!d) return { error: 'No encontré esa factura en Asimov' };
+    const h = d.header;
+    if (h.cae) return { error: 'Esa factura ya está autorizada: el comprobante válido se imprime desde Asimov' };
+    const cli = h.client_id ? await clienteAsimovPorId(String(h.client_id)) : null;
+    return {
+        tipo: String(h.tipo ?? 'B'), fecha: String(h.date ?? '').slice(0, 10),
+        cliente: { razon_social: cli?.businessName ?? String(h.client_name ?? 'Cliente'), cuit: cli?.cuit ?? null, condicion: TEXTO_CONDICION[normalizarCondicion(cli?.fiscalType)] },
+        renglones: (d.items ?? []).map((i) => ({ codigo: str(i.code), descripcion: String(i.description ?? ''), cantidad: num(i.qty), precio: num(i.unit_price), iva: num(i.iva_pct), subtotal: num(i.subtotal), iva_monto: num(i.iva_amount) })),
+        una_linea: num(h.consolidated_print) ? String(h.consolidated_label ?? 'Equipo armado') : null,
+        neto: num(h.subtotal), iva: num(h.iva_amount), total: num(h.total),
+        moneda: String(h.source_currency ?? 'ARS'), dolar: h.usd_rate != null ? num(h.usd_rate) : null,
+        observaciones: str(h.notes), referencia: String(h.number ?? d.number).replace(/[^A-Za-z0-9-]/g, ''),
+    };
 }

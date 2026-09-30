@@ -105,6 +105,7 @@ export interface PedidoFactura {
     precios_con_iva?: boolean;
     cotizacion_usd?: number | null;
     observaciones?: string | null;
+    una_linea?: string | null;                          // imprimir todo en un solo renglón con esta descripción (ej. "PC completa")
     pedido?: string | null;
 }
 
@@ -193,7 +194,7 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
         if (iva != null && !ALICUOTAS.includes(iva)) return { ok: false, motivo: `“${descripcion}”: ${iva === 0 ? SIN_EXENTOS : `el catálogo tiene IVA ${iva}%, que Asimov no maneja`}` };
         if (iva == null) { iva = 21; avisos.push(`“${descripcion}”: no me dijiste el IVA, puse 21%.`); }
         const neto = conIva ? precio / (1 + iva / 100) : precio;
-        items.push({ codigo: r.codigo?.trim() || null, descripcion: descripcion.slice(0, 250), cantidad, precio: round2(neto), iva });
+        items.push({ codigo: r.codigo?.trim() || null, descripcion: descripcion.slice(0, 600), cantidad, precio: round2(neto), iva });
     }
     if (!items.length) return { ok: false, motivo: 'Decime qué productos van en la factura (descripción, cantidad y precio)' };
     if (items.length > 60) return { ok: false, motivo: 'Demasiados renglones para una factura (máximo 60)' };
@@ -214,7 +215,7 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
         id, estado: 'preparada', cliente_id: (cliBartez?.[0]?.id as string | undefined) ?? null,
         cliente_asimov_id: cliente.asimov_id, razon_social: cliente.razon_social, cuit: cliente.cuit, condicion_iva: cliente.condicion,
         tipo, moneda, cotizacion_usd: tc, neto: calc.neto, iva: calc.iva, total: calc.total,
-        renglones: { origen: items, pesos: calc.renglones, email: cliente.email }, avisos,
+        renglones: { origen: items, pesos: calc.renglones, email: cliente.email, una_linea: p.una_linea?.trim().slice(0, 200) || null }, avisos,
         observaciones: [p.pedido_asimov ? `Pedido ${p.pedido_asimov.numero}` : null, p.observaciones?.trim()].filter(Boolean).join(' · ').slice(0, 500) || null,
         cotizacion_id: cotizacionId, pedido: p.pedido?.slice(0, 1000) ?? null, pedido_asimov_id: p.pedido_asimov?.id ?? null,
     };
@@ -223,7 +224,7 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
     return { ok: true, factura_id: id, vista: vistaFactura(fila) };
 }
 
-function vistaFactura(f: { tipo: string; razon_social: string; cuit: string | null; condicion_iva: string | null; moneda: string; cotizacion_usd: number | null; neto: number; iva: number; total: number; renglones: { origen: Array<{ descripcion: string; cantidad: number; precio: number; iva: number }>; pesos: RenglonArs[] }; avisos: string[]; observaciones: string | null }) {
+function vistaFactura(f: { tipo: string; razon_social: string; cuit: string | null; condicion_iva: string | null; moneda: string; cotizacion_usd: number | null; neto: number; iva: number; total: number; renglones: { origen: Array<{ descripcion: string; cantidad: number; precio: number; iva: number }>; pesos: RenglonArs[]; una_linea?: string | null }; avisos: string[]; observaciones: string | null }) {
     return {
         comprobante: `Factura ${f.tipo}`,
         cliente: `${f.razon_social}${f.cuit ? ` · CUIT ${f.cuit}` : ''} · ${TEXTO_CONDICION[normalizarCondicion(f.condicion_iva)]}`,
@@ -235,7 +236,8 @@ function vistaFactura(f: { tipo: string; razon_social: string; cuit: string | nu
         neto: plata(f.neto), iva: plata(f.iva), total: plata(f.total),
         dolar: f.cotizacion_usd ? plata(Number(f.cotizacion_usd)) : null,
         observaciones: f.observaciones, avisos: f.avisos,
-        siguiente_paso: 'Mostrale esto al usuario y preguntale si la manda a Asimov. Solo con su sí llamá enviar_factura.',
+        una_linea: f.renglones.una_linea ?? null,
+        siguiente_paso: 'Mostrale esto al usuario y preguntale si la manda a Asimov. Solo con su sí llamá enviar_factura. La proforma en PDF (sin validez fiscal) la puede ver en Facturación → Preparadas.',
     };
 }
 
@@ -243,7 +245,7 @@ function vistaFactura(f: { tipo: string; razon_social: string; cuit: string | nu
 
 const fechaAR = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
 
-export function envelopeFactura(f: { id: string; cliente_asimov_id: string; razon_social: string; tipo: string; moneda: string; cotizacion_usd: number | null; neto: number; iva: number; total: number; observaciones: string | null; renglones: { pesos: RenglonArs[] } }, puntoVenta: string, fecha: string) {
+export function envelopeFactura(f: { id: string; cliente_asimov_id: string; razon_social: string; tipo: string; moneda: string; cotizacion_usd: number | null; neto: number; iva: number; total: number; observaciones: string | null; renglones: { pesos: RenglonArs[]; una_linea?: string | null } }, puntoVenta: string, fecha: string) {
     const ahora = new Date().toISOString().replace('T', ' ').slice(0, 19);
     return {
         type: 'invoice',
@@ -255,7 +257,7 @@ export function envelopeFactura(f: { id: string; cliente_asimov_id: string; razo
             cae: null, cae_expiry: null, afip_error: null,
             notes: ['Preparada por Bartez AI', f.observaciones].filter(Boolean).join(' · '),
             usd_rate: f.moneda === 'USD' ? Number(f.cotizacion_usd) : null, source_currency: f.moneda,
-            show_kit_components: 1, consolidated_print: 0, consolidated_label: null, created_at: ahora,
+            show_kit_components: 1, consolidated_print: f.renglones.una_linea ? 1 : 0, consolidated_label: f.renglones.una_linea ?? null, created_at: ahora,
         },
         items: f.renglones.pesos.map((r) => ({
             id: randomUUID(), invoice_id: f.id, article_id: null, code: r.codigo, description: r.descripcion,
@@ -314,4 +316,26 @@ export async function facturasRecientes(limite = 15) {
     const { data } = await supabase.from('facturas_asimov').select('id, estado, razon_social, tipo, total, moneda, numero, cae, error_arca, creado_en, enviada_en')
         .neq('estado', 'preparada').order('creado_en', { ascending: false }).limit(limite);
     return data ?? [];
+}
+
+// ---------------------------------------------------------------- preparadas
+
+export async function facturasPreparadas() {
+    const desde = new Date(Date.now() - 24 * 3600_000).toISOString();
+    const { data } = await supabase.from('facturas_asimov').select('id, razon_social, tipo, total, moneda, creado_en, pedido, renglones')
+        .eq('estado', 'preparada').gte('creado_en', desde).order('creado_en', { ascending: false }).limit(30);
+    return (data ?? []).map((f) => ({
+        id: f.id as string, razon_social: f.razon_social as string, tipo: f.tipo as string, total: Number(f.total), moneda: f.moneda as string, creado_en: f.creado_en as string,
+        renglones: ((f.renglones as { pesos?: unknown[] }).pesos ?? []).length, una_linea: (f.renglones as { una_linea?: string | null }).una_linea ?? null,
+    }));
+}
+
+export async function descartarPreparada(id: string): Promise<boolean> {
+    const { data } = await supabase.from('facturas_asimov').update({ estado: 'descartada', actualizado_en: new Date().toISOString() }).eq('id', id).eq('estado', 'preparada').select('id');
+    return !!data?.length;
+}
+
+export async function filaFactura(id: string) {
+    const { data } = await supabase.from('facturas_asimov').select('*').eq('id', id).maybeSingle();
+    return data;
 }

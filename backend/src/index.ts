@@ -23,8 +23,9 @@ import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { infoCampania, proponerCampania } from './orchestrator/campanias.js';
-import { enviarFactura, facturasRecientes, prepararFactura, seguirFacturas } from './orchestrator/facturador.js';
-import { prepararDesdePedido, proponerRecordatorio, resumenFacturacion } from './orchestrator/facturacion.js';
+import { descartarPreparada, enviarFactura, facturasPreparadas, facturasRecientes, prepararFactura, seguirFacturas } from './orchestrator/facturador.js';
+import { generarProformaPdf } from './pdf/proforma.js';
+import { prepararDesdePedido, proformaDeAsimov, proformaDePreparada, proponerRecordatorio, resumenFacturacion } from './orchestrator/facturacion.js';
 import { asimovConfigurado } from './connectors/asimov.js';
 import { bajarHistorial, busquedasRecientes, guardarConfig, guardiaPublicidad, paginasConMetricas, resumenPublicidad, revisarDestinos, sincronizarAds } from './orchestrator/publicidad.js';
 import { leerWeb, leyendoWeb } from './orchestrator/web_mapa.js';
@@ -791,7 +792,7 @@ app.get('/facturacion', async (req, res) => {
 });
 
 const RenglonSchema = z.object({
-    descripcion: z.string().min(1).max(250), cantidad: z.number().positive().max(1e6), precio_unitario: z.number().positive().max(1e12),
+    descripcion: z.string().min(1).max(600), cantidad: z.number().positive().max(1e6), precio_unitario: z.number().positive().max(1e12),
     codigo: z.string().max(80).nullable().optional(), iva_pct: z.number().nullable().optional(),
 });
 
@@ -805,10 +806,44 @@ app.post('/facturacion/preparar', async (req, res) => {
         precios_con_iva: z.boolean().optional(),
         cotizacion_usd: z.number().positive().nullable().optional(),
         observaciones: z.string().max(500).nullable().optional(),
+        una_linea: z.string().max(200).nullable().optional(),
     }).safeParse(req.body ?? {});
     if (!parseo.success) return res.status(400).send({ error: 'Faltan datos de la factura' });
     try {
         return await prepararFactura({ ...parseo.data, pedido: 'Nueva factura desde el panel' });
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
+    }
+});
+
+app.get('/facturacion/preparadas', async () => ({ preparadas: await facturasPreparadas() }));
+
+app.post('/facturacion/preparada/:id/descartar', async (req, res) => {
+    const id = String((req.params as { id: string }).id);
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).send({ error: 'Factura inválida' });
+    return (await descartarPreparada(id)) ? { ok: true } : res.status(404).send({ error: 'Esa factura ya no está preparada' });
+});
+
+// Proforma (PDF sin validez fiscal): de una factura preparada en Bartez AI o de un borrador de Asimov.
+app.get('/facturacion/proforma/:origen/:id', async (req, res) => {
+    const { origen, id } = req.params as { origen: string; id: string };
+    try {
+        let datos;
+        if (origen === 'bartez') {
+            if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).send({ error: 'Factura inválida' });
+            datos = await proformaDePreparada(id);
+            if (!datos) return res.status(404).send({ error: 'No encontré esa factura' });
+        } else if (origen === 'asimov') {
+            const r = await proformaDeAsimov(id);
+            if ('error' in r) return res.status(400).send({ error: r.error });
+            datos = r;
+        } else return res.status(400).send({ error: 'Origen inválido' });
+        const { pdf, archivo } = generarProformaPdf(datos);
+        return res
+            .header('Content-Type', 'application/pdf')
+            .header('Content-Disposition', `inline; filename="${archivo}"`)
+            .header('Access-Control-Expose-Headers', 'Content-Disposition')
+            .send(pdf);
     } catch (err) {
         return res.status(502).send({ error: (err as Error).message });
     }

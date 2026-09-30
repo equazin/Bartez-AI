@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     CobranzaAsimov, FacturaAsimov, PedidoAsimov, PedidoNuevaFactura, PreparadaFactura, ResumenFacturacion,
+    FacturaPreparada, descartarFacturaPreparada, facturasPreparadas, pdfProforma,
     enviarFacturaAsimov, prepararFacturaDePedido, prepararFacturaPanel, recordatorioCobranza, resumenFacturacion,
 } from '../api/client.ts';
 
@@ -25,6 +26,16 @@ const ESTADO: Record<string, { texto: string; clase: string }> = {
     pendiente_cae: { texto: 'Reintentar ARCA', clase: 'medio' },
     rechazada: { texto: 'Rechazada por ARCA', clase: 'mal' },
 };
+// Abre la proforma en una pestaña nueva (o la descarga si el navegador bloquea la ventana).
+async function abrirProforma(origen: 'bartez' | 'asimov', id: string): Promise<void> {
+    const ventana = window.open('', '_blank');
+    const { blob, archivo } = await pdfProforma(origen, id);
+    const url = URL.createObjectURL(blob);
+    if (ventana) ventana.location.href = url;
+    else { const a = document.createElement('a'); a.href = url; a.download = archivo; document.body.append(a); a.click(); a.remove(); }
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 const estadoFactura = (e: string) => ESTADO[e] ?? { texto: e, clase: '' };
 const esNC = (f: FacturaAsimov) => /^NC$/i.test(f.tipo);
 
@@ -50,11 +61,13 @@ export function Facturacion() {
     const [detalle, setDetalle] = useState<FacturaAsimov | null>(null);
     const [nueva, setNueva] = useState<{ preparada?: PreparadaFactura & { ok: true } } | null>(null);
     const [ocupado, setOcupado] = useState<string>('');
+    const [preparadas, setPreparadas] = useState<FacturaPreparada[]>([]);
 
     const setVista = (v: Vista) => { setVistaState(v); guardar('bartez_fac_vista', v); };
 
     const cargar = useCallback(async () => {
         setCargando(true); setError(undefined);
+        facturasPreparadas().then((x) => setPreparadas(x.preparadas)).catch(() => setPreparadas([]));
         try { setR(await resumenFacturacion(diasAntes(dias))); }
         catch (e) {
             const m = (e as Error).message;
@@ -86,6 +99,16 @@ export function Facturacion() {
             if (res.ok) setNueva({ preparada: res });
             else setAviso({ ok: false, texto: res.motivo });
         } catch (e) { setError((e as Error).message); }
+        finally { setOcupado(''); }
+    }
+
+    async function prepAccion(p: FacturaPreparada, accion: 'proforma' | 'mandar' | 'descartar') {
+        setOcupado(p.id); setError(undefined);
+        try {
+            if (accion === 'proforma') await abrirProforma('bartez', p.id);
+            else if (accion === 'mandar') { const res = await enviarFacturaAsimov(p.id); setAviso({ ok: true, texto: res.detalle }); await cargar(); }
+            else { await descartarFacturaPreparada(p.id); setPreparadas((xs) => xs.filter((x) => x.id !== p.id)); }
+        } catch (e) { setAviso({ ok: false, texto: (e as Error).message }); }
         finally { setOcupado(''); }
     }
 
@@ -121,6 +144,28 @@ export function Facturacion() {
             {r && !r.configurado && <p className="pub-aviso mal">Falta cargar en Railway: {r.faltan.map((f) => <code key={f}>{f}</code>)}.</p>}
             {r && r.configurado && !r.api_lista && (
                 <p className="pub-aviso">Asimov todavía no tiene publicada la consulta de documentos, así que no se pueden listar sus facturas y pedidos. Falta aprobar el cambio en su repo (PR #1 de asimov-app). Mientras tanto podés armar y mandar facturas.</p>
+            )}
+
+            {preparadas.length > 0 && (
+                <section className="fac-preparadas" aria-labelledby="fac-prep-titulo">
+                    <h3 id="fac-prep-titulo">Preparadas, sin mandar a Asimov <small>({preparadas.length})</small></h3>
+                    <p className="sub">Prefacturas armadas en el chat o acá. Revisá la proforma y mandalas cuando estén bien; se borran solas a las 24 horas.</p>
+                    <ul>
+                        {preparadas.map((p) => (
+                            <li key={p.id}>
+                                <div className="fac-prep-dato">
+                                    <strong>Factura {p.tipo} · {p.razon_social}</strong>
+                                    <span>{plata(p.total)} · {p.una_linea ? `una línea: “${p.una_linea}”` : `${p.renglones} ${p.renglones === 1 ? 'renglón' : 'renglones'}`}{p.moneda === 'USD' ? ' · precios en dólares' : ''}</span>
+                                </div>
+                                <div className="fac-prep-botones">
+                                    <button className="boton-fantasma" onClick={() => void prepAccion(p, 'proforma')} disabled={!!ocupado}>Ver proforma</button>
+                                    <button className="pub-primario" onClick={() => void prepAccion(p, 'mandar')} disabled={!!ocupado}>{ocupado === p.id ? '…' : 'Mandar a Asimov'}</button>
+                                    <button className="boton-fantasma peligro" onClick={() => void prepAccion(p, 'descartar')} disabled={!!ocupado}>Descartar</button>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                </section>
             )}
 
             {r?.api_lista && (
@@ -218,7 +263,7 @@ export function Facturacion() {
             {nueva && (
                 <NuevaFactura
                     inicial={nueva.preparada}
-                    cerrar={() => setNueva(null)}
+                    cerrar={() => { setNueva(null); facturasPreparadas().then((x) => setPreparadas(x.preparadas)).catch(() => undefined); }}
                     listo={(texto) => { setNueva(null); setAviso({ ok: true, texto }); void cargar(); }}
                 />
             )}
@@ -227,6 +272,7 @@ export function Facturacion() {
 }
 
 function DetalleFactura({ f, cerrar }: { f: FacturaAsimov; cerrar: () => void }) {
+    const [err, setErr] = useState<string>();
     useEffect(() => {
         const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar(); };
         window.addEventListener('keydown', esc);
@@ -246,6 +292,8 @@ function DetalleFactura({ f, cerrar }: { f: FacturaAsimov; cerrar: () => void })
                     <button className="pub-cerrar" onClick={cerrar} aria-label="Cerrar">✕</button>
                 </header>
                 {f.error_arca && <p className="pub-aviso mal">ARCA: {f.error_arca}</p>}
+                {f.estado !== 'autorizada' && <button className="boton-fantasma fac-proforma" onClick={() => { setErr(undefined); abrirProforma('asimov', f.id).catch((e) => setErr((e as Error).message)); }}>Ver proforma (PDF)</button>}
+                {err && <p className="error" role="alert">{err}</p>}
                 {f.estado !== 'autorizada' && !f.error_arca && <p className="pub-aviso">Todavía no tiene CAE: se autoriza desde Asimov con “Autorizar ARCA”.</p>}
                 <table className="fac-renglones">
                     <thead><tr><th>Descripción</th><th className="num">Cant.</th><th className="num">Unitario s/IVA</th><th className="num">IVA</th><th className="num">Subtotal</th></tr></thead>
@@ -284,6 +332,11 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
     const [dolar, setDolar] = useState('');
     const [renglones, setRenglones] = useState<Renglon[]>([renglonVacio()]);
     const [obs, setObs] = useState('');
+    // "Solo el total": un renglón con la descripción (ej. PC completa) y el total.
+    const [modo, setModo] = useState<'detalle' | 'total'>('detalle');
+    const [tot, setTot] = useState({ descripcion: '', incluye: '', cantidad: '1', total: '', iva: '21' });
+    const [unaLinea, setUnaLinea] = useState(false);
+    const [etiqueta, setEtiqueta] = useState('');
     const [prep, setPrep] = useState<PreparadaFactura | null>(inicial ?? null);
     const [ocupado, setOcupado] = useState<'' | 'calcular' | 'enviar'>('');
     const [error, setError] = useState<string>();
@@ -298,18 +351,30 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
 
     async function calcular() {
         setError(undefined);
-        const rs = renglones.filter((r) => r.descripcion.trim() || r.precio.trim());
         if (!esNuevo && cliente.trim().length < 2) { setError('Poné el cliente (razón social o CUIT).'); return; }
         if (esNuevo && nuevo.razon_social.trim().length < 2) { setError('Poné la razón social del cliente nuevo.'); return; }
-        if (!rs.length) { setError('Agregá al menos un renglón.'); return; }
-        for (const r of rs) {
-            if (!r.descripcion.trim() || !(numero(r.cantidad) > 0) || !(numero(r.precio) > 0)) { setError('Cada renglón necesita descripción, cantidad y precio.'); return; }
+        let renglonesPedido: PedidoNuevaFactura['renglones'];
+        if (modo === 'total') {
+            const cant = numero(tot.cantidad), total = numero(tot.total);
+            if (tot.descripcion.trim().length < 2 || !(cant > 0) || !(total > 0)) { setError('Poné la descripción, la cantidad y el total.'); return; }
+            const incluye = tot.incluye.split(/\n|,/).map((x) => x.trim()).filter(Boolean);
+            // El precio unitario sale del total: con una unidad, es el total tal cual.
+            renglonesPedido = [{ descripcion: `${tot.descripcion.trim()}${incluye.length ? ` — Incluye: ${incluye.join(', ')}` : ''}`.slice(0, 600), cantidad: cant, precio_unitario: Math.round((total / cant) * 100) / 100, codigo: null, iva_pct: Number(tot.iva) }];
+        } else {
+            const rs = renglones.filter((r) => r.descripcion.trim() || r.precio.trim());
+            if (!rs.length) { setError('Agregá al menos un renglón.'); return; }
+            for (const r of rs) {
+                if (!r.descripcion.trim() || !(numero(r.cantidad) > 0) || !(numero(r.precio) > 0)) { setError('Cada renglón necesita descripción, cantidad y precio.'); return; }
+            }
+            if (unaLinea && etiqueta.trim().length < 2) { setError('Poné la descripción de la línea única (ej. “PC completa”).'); return; }
+            renglonesPedido = rs.map((r) => ({ descripcion: r.descripcion.trim(), cantidad: numero(r.cantidad), precio_unitario: numero(r.precio), codigo: r.codigo.trim() || null, iva_pct: Number(r.iva) }));
         }
         const d: PedidoNuevaFactura = {
             cliente: esNuevo ? nuevo.razon_social : cliente,
             cliente_nuevo: esNuevo ? { razon_social: nuevo.razon_social.trim(), cuit: nuevo.cuit.trim() || null, condicion_iva: nuevo.condicion_iva, email: nuevo.email.trim() || null } : null,
-            renglones: rs.map((r) => ({ descripcion: r.descripcion.trim(), cantidad: numero(r.cantidad), precio_unitario: numero(r.precio), codigo: r.codigo.trim() || null, iva_pct: Number(r.iva) })),
+            renglones: renglonesPedido,
             moneda, precios_con_iva: conIva, cotizacion_usd: moneda === 'USD' && numero(dolar) > 0 ? numero(dolar) : null, observaciones: obs.trim() || null,
+            una_linea: modo === 'detalle' && unaLinea ? etiqueta.trim() : null,
         };
         setOcupado('calcular');
         try { setPrep(await prepararFacturaPanel(d)); }
@@ -375,6 +440,31 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
                             )}
                         </div>
 
+                        <div className="segmentos fac-modo" role="group" aria-label="Cómo cargar los productos">
+                            <button className={modo === 'detalle' ? 'on' : ''} aria-pressed={modo === 'detalle'} onClick={() => { setModo('detalle'); setPrep(null); }}>Producto por producto</button>
+                            <button className={modo === 'total' ? 'on' : ''} aria-pressed={modo === 'total'} onClick={() => { setModo('total'); setPrep(null); }}>Solo el total</button>
+                        </div>
+
+                        {modo === 'total' ? (
+                            <div className="fac-total">
+                                <label htmlFor="fac-tot-desc" className="fac-ancho">Descripción
+                                    <input id="fac-tot-desc" value={tot.descripcion} onChange={(e) => { setTot({ ...tot, descripcion: e.target.value }); setPrep(null); }} placeholder="PC completa Core i5 14400 / 32 GB / SSD 1 TB" />
+                                </label>
+                                <label htmlFor="fac-tot-incluye" className="fac-ancho">Qué incluye (opcional, sin precios; sale en la descripción)
+                                    <textarea id="fac-tot-incluye" rows={3} value={tot.incluye} onChange={(e) => { setTot({ ...tot, incluye: e.target.value }); setPrep(null); }} placeholder={'Gabinete, fuente 650 W\nMonitor 24"\nTeclado y mouse'} />
+                                </label>
+                                <div className="fac-form-fila">
+                                    <label htmlFor="fac-tot-cant">Cantidad<input id="fac-tot-cant" inputMode="decimal" value={tot.cantidad} onChange={(e) => { setTot({ ...tot, cantidad: e.target.value }); setPrep(null); }} /></label>
+                                    <label htmlFor="fac-tot-total">Total{conIva ? ' con IVA' : ' sin IVA'} ({moneda === 'USD' ? 'US$' : '$'})<input id="fac-tot-total" inputMode="decimal" value={tot.total} onChange={(e) => { setTot({ ...tot, total: e.target.value }); setPrep(null); }} /></label>
+                                    <label htmlFor="fac-tot-iva">IVA
+                                        <select id="fac-tot-iva" value={tot.iva} onChange={(e) => { setTot({ ...tot, iva: e.target.value }); setPrep(null); }}>
+                                            {ALICUOTAS.map((a) => <option key={a} value={a}>{String(a).replace('.', ',')}%</option>)}
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                        ) : (
+                        <>
                         <div className="fac-items" role="group" aria-label="Renglones">
                             <div className="fac-item fac-item-tit" aria-hidden="true"><span>Descripción</span><span>Código</span><span>Cant.</span><span>Precio unitario</span><span>IVA</span><span /></div>
                             {renglones.map((r, i) => (
@@ -391,6 +481,14 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
                             ))}
                             <button className="boton-fantasma fac-sumar" onClick={() => setRenglones((rs) => [...rs, renglonVacio()])}>+ Agregar renglón</button>
                         </div>
+                        <label className="fac-check"><input type="checkbox" checked={unaLinea} onChange={(e) => { setUnaLinea(e.target.checked); setPrep(null); }} /> Imprimir la factura en una sola línea (los productos van debajo, sin precio)</label>
+                        {unaLinea && (
+                            <label htmlFor="fac-etiqueta" className="fac-ancho">Descripción de la línea
+                                <input id="fac-etiqueta" value={etiqueta} onChange={(e) => { setEtiqueta(e.target.value); setPrep(null); }} placeholder="PC completa" />
+                            </label>
+                        )}
+                        </>
+                        )}
                         <label htmlFor="fac-obs" className="fac-ancho">Observaciones (salen en la factura)
                             <input id="fac-obs" value={obs} onChange={(e) => { setObs(e.target.value); setPrep(null); }} placeholder="Ej.: OC 4512 · pago a 30 días" />
                         </label>
@@ -427,12 +525,14 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
                             <div className="total"><dt>Total</dt><dd>{prep.vista.total}</dd></div>
                             {prep.vista.dolar && <div><dt>Dólar</dt><dd>{prep.vista.dolar}</dd></div>}
                         </dl>
+                        {prep.vista.una_linea && <p className="fac-obs">En la factura sale una sola línea: “{prep.vista.una_linea}” por el neto total; los productos van debajo, sin precio.</p>}
                         {prep.vista.observaciones && <p className="fac-obs">Observaciones: {prep.vista.observaciones}</p>}
                         {prep.vista.avisos.map((a) => <p key={a} className="gen-aviso">{a}</p>)}
                         <div className="fac-vista-acciones">
                             <button className="pub-primario" onClick={() => void enviar()} disabled={!!ocupado}>{ocupado === 'enviar' ? 'Mandando…' : 'Mandar a Asimov como borrador'}</button>
+                            <button className="boton-fantasma" onClick={() => { setError(undefined); abrirProforma('bartez', prep.factura_id).catch((e) => setError((e as Error).message)); }} disabled={!!ocupado}>Ver proforma (PDF)</button>
                             {!soloVista && <button className="boton-fantasma" onClick={() => setPrep(null)} disabled={!!ocupado}>Corregir</button>}
-                            <span className="gen-nota">Queda como borrador en Asimov. El CAE se pide desde ahí con “Autorizar ARCA”.</span>
+                            <span className="gen-nota">La proforma no tiene validez fiscal. Al mandarla queda como borrador en Asimov; el CAE se pide desde ahí con “Autorizar ARCA”. Si la cerrás sin mandar, queda en Preparadas por 24 horas.</span>
                         </div>
                     </div>
                 )}
