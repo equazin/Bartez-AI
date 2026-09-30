@@ -357,9 +357,9 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
         if (modo === 'total') {
             const cant = numero(tot.cantidad), total = numero(tot.total);
             if (tot.descripcion.trim().length < 2 || !(cant > 0) || !(total > 0)) { setError('Poné la descripción, la cantidad y el total.'); return; }
-            const incluye = tot.incluye.split(/\n|,/).map((x) => x.trim()).filter(Boolean);
+            const incluye = tot.incluye.split(/\n/).map((x) => x.trim()).filter(Boolean);
             // El precio unitario sale del total: con una unidad, es el total tal cual.
-            renglonesPedido = [{ descripcion: `${tot.descripcion.trim()}${incluye.length ? ` — Incluye: ${incluye.join(', ')}` : ''}`.slice(0, 600), cantidad: cant, precio_unitario: Math.round((total / cant) * 100) / 100, codigo: null, iva_pct: Number(tot.iva) }];
+            renglonesPedido = [{ descripcion: tot.descripcion.trim().slice(0, 600), cantidad: cant, precio_unitario: Math.round((total / cant) * 100) / 100, codigo: null, iva_pct: Number(tot.iva), incluye }];
         } else {
             const rs = renglones.filter((r) => r.descripcion.trim() || r.precio.trim());
             if (!rs.length) { setError('Agregá al menos un renglón.'); return; }
@@ -450,7 +450,7 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
                                 <label htmlFor="fac-tot-desc" className="fac-ancho">Descripción
                                     <input id="fac-tot-desc" value={tot.descripcion} onChange={(e) => { setTot({ ...tot, descripcion: e.target.value }); setPrep(null); }} placeholder="PC completa Core i5 14400 / 32 GB / SSD 1 TB" />
                                 </label>
-                                <label htmlFor="fac-tot-incluye" className="fac-ancho">Qué incluye (opcional, sin precios; sale en la descripción)
+                                <label htmlFor="fac-tot-incluye" className="fac-ancho">Qué incluye (opcional, uno por renglón; sale debajo, sin precio)
                                     <textarea id="fac-tot-incluye" rows={3} value={tot.incluye} onChange={(e) => { setTot({ ...tot, incluye: e.target.value }); setPrep(null); }} placeholder={'Gabinete, fuente 650 W\nMonitor 24"\nTeclado y mouse'} />
                                 </label>
                                 <div className="fac-form-fila">
@@ -517,7 +517,12 @@ function NuevaFactura({ inicial, cerrar, listo }: { inicial?: PreparadaFactura &
                         </div>
                         <table className="fac-renglones">
                             <thead><tr><th>Descripción</th><th className="num">Cant.</th><th className="num">Unitario s/IVA</th><th className="num">IVA</th><th className="num">Subtotal</th></tr></thead>
-                            <tbody>{prep.vista.renglones.map((x, i) => <tr key={i}><td>{x.descripcion}</td><td className="num">{x.cantidad}</td><td className="num">{x.unitario_sin_iva}</td><td className="num">{x.iva}</td><td className="num">{x.subtotal_sin_iva}</td></tr>)}</tbody>
+                            <tbody>{prep.vista.renglones.map((x, i) => (
+                                <tr key={i}>
+                                    <td>{x.descripcion}{x.incluye && x.incluye.length > 0 && <ul className="fac-incluye">{x.incluye.map((c) => <li key={c}>{c}</li>)}</ul>}</td>
+                                    <td className="num">{x.cantidad}</td><td className="num">{x.unitario_sin_iva}</td><td className="num">{x.iva}</td><td className="num">{x.subtotal_sin_iva}</td>
+                                </tr>
+                            ))}</tbody>
                         </table>
                         <dl className="fac-totales">
                             <div><dt>Neto</dt><dd>{prep.vista.neto}</dd></div>

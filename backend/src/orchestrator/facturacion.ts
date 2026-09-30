@@ -250,10 +250,25 @@ export async function proformaDeAsimov(docId: string): Promise<DatosProforma | {
     return {
         tipo: String(h.tipo ?? 'B'), fecha: String(h.date ?? '').slice(0, 10),
         cliente: { razon_social: cli?.businessName ?? String(h.client_name ?? 'Cliente'), cuit: cli?.cuit ?? null, condicion: TEXTO_CONDICION[normalizarCondicion(cli?.fiscalType)] },
-        renglones: (d.items ?? []).map((i) => ({ codigo: str(i.code), descripcion: String(i.description ?? ''), cantidad: num(i.qty), precio: num(i.unit_price), iva: num(i.iva_pct), subtotal: num(i.subtotal), iva_monto: num(i.iva_amount) })),
-        una_linea: num(h.consolidated_print) ? String(h.consolidated_label ?? 'Equipo armado') : null,
+        ...renglonesProforma(d.items ?? [], num(h.consolidated_print) ? String(h.consolidated_label ?? 'Equipo armado') : null),
         neto: num(h.subtotal), iva: num(h.iva_amount), total: num(h.total),
         moneda: String(h.source_currency ?? 'ARS'), dolar: h.usd_rate != null ? num(h.usd_rate) : null,
         observaciones: str(h.notes), referencia: String(h.number ?? d.number).replace(/[^A-Za-z0-9-]/g, ''),
     };
+}
+
+// Renglones de Asimov para la proforma. Los renglones sin precio que siguen a
+// uno con precio son componentes (así los manda Bartez AI para una PC completa):
+// van debajo de ese renglón. Si la consolidada es justo "equipo + componentes",
+// se muestra igual, sin repetir el nombre del equipo.
+function renglonesProforma(items: Array<Record<string, unknown>>, consolidada: string | null): { renglones: DatosProforma['renglones']; una_linea: string | null } {
+    const out: DatosProforma['renglones'] = [];
+    for (const i of items) {
+        const r = { codigo: str(i.code), descripcion: String(i.description ?? ''), cantidad: num(i.qty), precio: num(i.unit_price), iva: num(i.iva_pct), subtotal: num(i.subtotal), iva_monto: num(i.iva_amount) };
+        const previo = out[out.length - 1];
+        if (r.subtotal === 0 && r.precio === 0 && previo && previo.subtotal > 0) (previo.incluye ??= []).push(r.descripcion);
+        else out.push(r);
+    }
+    const esEquipo = out.length === 1 && (out[0]!.incluye?.length ?? 0) > 0;
+    return { renglones: out, una_linea: esEquipo ? null : consolidada };
 }

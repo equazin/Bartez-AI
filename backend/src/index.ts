@@ -794,6 +794,7 @@ app.get('/facturacion', async (req, res) => {
 const RenglonSchema = z.object({
     descripcion: z.string().min(1).max(600), cantidad: z.number().positive().max(1e6), precio_unitario: z.number().positive().max(1e12),
     codigo: z.string().max(80).nullable().optional(), iva_pct: z.number().nullable().optional(),
+    incluye: z.array(z.string().max(200)).max(30).nullable().optional(),
 });
 
 app.post('/facturacion/preparar', async (req, res) => {

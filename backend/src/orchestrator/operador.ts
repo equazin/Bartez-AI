@@ -53,7 +53,7 @@ const REGLAS_FACTURACION = `Facturación (Asimov):
   enviar_factura con el factura_id. Si pide cambios, prepará una nueva.
 - "Solo el total" (ej. "facturale una PC completa a 1.200 dólares"): un único renglón con esa
   descripción, cantidad 1 y ese total como precio. Si nombran los componentes sin precio,
-  agregalos a la descripción ("PC completa — Incluye: i5 14400, 16 GB, SSD 1 TB"). Si dan precio de
+  pasalos en "incluye" de ese renglón, uno por elemento (salen debajo, sin precio). Si dan precio de
   cada componente pero quieren que la factura muestre una sola línea, cargá los renglones y pasá
   una_linea con la descripción ("PC completa").
 - Proforma o prefactura: la factura preparada (sin mandar) ya es eso; el PDF de la proforma sin
@@ -83,6 +83,7 @@ const TOOLS: Anthropic.Tool[] = [
                             precio_unitario: { type: 'number', description: 'Precio por unidad tal como lo dijo el usuario' },
                             codigo: { type: 'string', description: 'Código o número de parte, si lo dio' },
                             iva_pct: { type: 'number', description: 'Alícuota (21, 10.5, 27, 0…) si la dijo' },
+                            incluye: { type: 'array', items: { type: 'string' }, description: 'Componentes de un equipo (ej. PC completa), sin precio: salen debajo del renglón' },
                         },
                         required: ['descripcion', 'cantidad', 'precio_unitario'],
                     },

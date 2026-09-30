@@ -35,7 +35,8 @@ export const TEXTO_CONDICION: Record<CondicionIva, string> = {
     consumidor_final: 'Consumidor final', no_responsable: 'No responsable',
 };
 
-export interface RenglonArs { codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number; iva_monto: number }
+// incluye: componentes de un equipo (ej. una PC completa), sin precio; van debajo del renglón.
+export interface RenglonArs { codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number; iva_monto: number; incluye?: string[] }
 
 // Precios netos por unidad → renglones en pesos, igual que normalizeSaleItemsToArs + computeSaleTotals.
 export function renglonesEnPesos(items: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number }>, moneda: 'ARS' | 'USD', tc: number | null): { renglones: RenglonArs[]; neto: number; iva: number; total: number } {
@@ -99,7 +100,7 @@ export interface PedidoFactura {
     pedido_asimov?: { id: string; numero: string } | null;  // factura de un pedido de Asimov
     renglones_netos_ars?: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number }> | null;
     cliente_nuevo?: { razon_social: string; cuit?: string | null; condicion_iva: string; email?: string | null } | null;
-    renglones?: Array<{ descripcion: string; cantidad: number; precio_unitario: number; codigo?: string | null; iva_pct?: number | null }>;
+    renglones?: Array<{ descripcion: string; cantidad: number; precio_unitario: number; codigo?: string | null; iva_pct?: number | null; incluye?: string[] | null }>;
     cotizacion?: string | null;                         // número de una cotización del Cotizador
     moneda?: 'USD' | 'ARS';
     precios_con_iva?: boolean;
@@ -156,7 +157,7 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
     let moneda: 'USD' | 'ARS' = p.moneda === 'USD' ? 'USD' : 'ARS';
     let conIva = p.precios_con_iva === true;
     let cotizacionId: string | null = null;
-    let items: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number }> = [];
+    let items: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number; incluye?: string[] }> = [];
     if (p.cotizacion?.trim()) {
         const n = p.cotizacion.trim().replace(/^#/, '');
         const { data: cots } = await supabase.from('cotizaciones').select('id, numero, numero_externo, items').or(`numero.eq.${Number(n) || -1},numero_externo.eq.${n.replace(/[,()]/g, '')}`).limit(2);
@@ -194,7 +195,8 @@ export async function prepararFactura(p: PedidoFactura): Promise<ResultadoPrepar
         if (iva != null && !ALICUOTAS.includes(iva)) return { ok: false, motivo: `“${descripcion}”: ${iva === 0 ? SIN_EXENTOS : `el catálogo tiene IVA ${iva}%, que Asimov no maneja`}` };
         if (iva == null) { iva = 21; avisos.push(`“${descripcion}”: no me dijiste el IVA, puse 21%.`); }
         const neto = conIva ? precio / (1 + iva / 100) : precio;
-        items.push({ codigo: r.codigo?.trim() || null, descripcion: descripcion.slice(0, 600), cantidad, precio: round2(neto), iva });
+        const incluye = (r.incluye ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 30).map((x) => x.slice(0, 200));
+        items.push({ codigo: r.codigo?.trim() || null, descripcion: descripcion.slice(0, 600), cantidad, precio: round2(neto), iva, ...(incluye.length ? { incluye } : {}) });
     }
     if (!items.length) return { ok: false, motivo: 'Decime qué productos van en la factura (descripción, cantidad y precio)' };
     if (items.length > 60) return { ok: false, motivo: 'Demasiados renglones para una factura (máximo 60)' };
@@ -232,6 +234,7 @@ function vistaFactura(f: { tipo: string; razon_social: string; cuit: string | nu
             descripcion: r.descripcion, cantidad: r.cantidad, iva: `${r.iva}%`,
             unitario_sin_iva: f.moneda === 'USD' ? `US$ ${f.renglones.origen[i]!.precio.toFixed(2)} → ${plata(r.precio)}` : plata(r.precio),
             subtotal_sin_iva: plata(r.subtotal),
+            incluye: r.incluye ?? [],
         })),
         neto: plata(f.neto), iva: plata(f.iva), total: plata(f.total),
         dolar: f.cotizacion_usd ? plata(Number(f.cotizacion_usd)) : null,
@@ -247,6 +250,10 @@ const fechaAR = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Americ
 
 export function envelopeFactura(f: { id: string; cliente_asimov_id: string; razon_social: string; tipo: string; moneda: string; cotizacion_usd: number | null; neto: number; iva: number; total: number; observaciones: string | null; renglones: { pesos: RenglonArs[]; una_linea?: string | null } }, puntoVenta: string, fecha: string) {
     const ahora = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    // Un equipo con componentes: Asimov lo imprime como una sola línea (el equipo con
+    // su precio) y los componentes debajo, sin precio.
+    const unico = f.renglones.pesos.length === 1 && f.renglones.pesos[0]!.incluye?.length ? f.renglones.pesos[0]! : null;
+    const consolidada = f.renglones.una_linea ?? (unico ? `${unico.cantidad !== 1 ? `${unico.cantidad} x ` : ''}${unico.descripcion}`.slice(0, 200) : null);
     return {
         type: 'invoice',
         header: {
@@ -257,12 +264,15 @@ export function envelopeFactura(f: { id: string; cliente_asimov_id: string; razo
             cae: null, cae_expiry: null, afip_error: null,
             notes: ['Preparada por Bartez AI', f.observaciones].filter(Boolean).join(' · '),
             usd_rate: f.moneda === 'USD' ? Number(f.cotizacion_usd) : null, source_currency: f.moneda,
-            show_kit_components: 1, consolidated_print: f.renglones.una_linea ? 1 : 0, consolidated_label: f.renglones.una_linea ?? null, created_at: ahora,
+            show_kit_components: 1, consolidated_print: consolidada ? 1 : 0, consolidated_label: consolidada, created_at: ahora,
         },
-        items: f.renglones.pesos.map((r) => ({
-            id: randomUUID(), invoice_id: f.id, article_id: null, code: r.codigo, description: r.descripcion,
-            qty: r.cantidad, unit_price: r.precio, iva_pct: r.iva, subtotal: r.subtotal, iva_amount: r.iva_monto, cost: 0,
-        })),
+        items: f.renglones.pesos.flatMap((r) => [
+            { id: randomUUID(), invoice_id: f.id, article_id: null, code: r.codigo, description: r.descripcion,
+                qty: r.cantidad, unit_price: r.precio, iva_pct: r.iva, subtotal: r.subtotal, iva_amount: r.iva_monto, cost: 0 },
+            // Componentes: renglones sin precio (no cambian neto, IVA ni lo que va a ARCA).
+            ...(r.incluye ?? []).map((c) => ({ id: randomUUID(), invoice_id: f.id, article_id: null, code: null, description: c,
+                qty: r.cantidad, unit_price: 0, iva_pct: r.iva, subtotal: 0, iva_amount: 0, cost: 0 })),
+        ]),
         stockMovements: [], cashMovements: [],
     };
 }

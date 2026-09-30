@@ -1541,7 +1541,7 @@ export interface ResumenFacturacion {
 }
 export interface VistaFactura {
     comprobante: string; cliente: string;
-    renglones: Array<{ descripcion: string; cantidad: number; iva: string; unitario_sin_iva: string; subtotal_sin_iva: string }>;
+    renglones: Array<{ descripcion: string; cantidad: number; iva: string; unitario_sin_iva: string; subtotal_sin_iva: string; incluye?: string[] }>;
     neto: string; iva: string; total: string; dolar: string | null; observaciones: string | null; avisos: string[];
     una_linea?: string | null;
 }
@@ -1551,7 +1551,7 @@ export type PreparadaFactura =
 export interface PedidoNuevaFactura {
     cliente: string;
     cliente_nuevo?: { razon_social: string; cuit?: string | null; condicion_iva: string; email?: string | null } | null;
-    renglones: Array<{ descripcion: string; cantidad: number; precio_unitario: number; codigo?: string | null; iva_pct?: number | null }>;
+    renglones: Array<{ descripcion: string; cantidad: number; precio_unitario: number; codigo?: string | null; iva_pct?: number | null; incluye?: string[] | null }>;
     moneda: 'ARS' | 'USD';
     precios_con_iva: boolean;
     cotizacion_usd?: number | null;

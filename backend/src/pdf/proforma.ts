@@ -20,7 +20,7 @@ export interface DatosProforma {
     tipo: string;                               // A, B
     fecha: string;                              // yyyy-mm-dd
     cliente: { razon_social: string; cuit: string | null; condicion: string; domicilio?: string | null };
-    renglones: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number; iva_monto: number }>;
+    renglones: Array<{ codigo: string | null; descripcion: string; cantidad: number; precio: number; iva: number; subtotal: number; iva_monto: number; incluye?: string[] }>;
     una_linea: string | null;                   // se imprime como un solo renglón con esta descripción
     neto: number; iva: number; total: number;
     moneda: string; dolar: number | null;
@@ -92,7 +92,22 @@ export function generarProformaPdf(d: DatosProforma): { pdf: Buffer; archivo: st
                 '', '', '',
             ]),
         ]
-        : d.renglones.map((r) => [String(r.cantidad), r.codigo ? `${r.descripcion} (${r.codigo})` : r.descripcion, pct(r.iva), pesos(r.precio), pesos(r.subtotal)]);
+        : d.renglones.flatMap((r) => [
+            [String(r.cantidad), r.codigo ? `${r.descripcion} (${r.codigo})` : r.descripcion, pct(r.iva), pesos(r.precio), pesos(r.subtotal)],
+            // Componentes de un equipo: todos juntos debajo, sin precio.
+            ...(r.incluye?.length ? [[
+                { content: '', styles: { cellPadding: { top: 0, bottom: 2.4, left: 3, right: 3 } } },
+                { content: r.incluye.map((c) => `•  ${c}`).join('\n'), styles: { textColor: GRIS, fontSize: 8, cellPadding: { top: 0, bottom: 2.4, left: 5, right: 3 } } },
+                '', '', '',
+            ]] : []),
+        ]);
+
+    // Filas (del cuerpo) de equipos que llevan componentes debajo.
+    const conComponentes = new Set<number>();
+    if (!d.una_linea) {
+        let fila = 0;
+        for (const r of d.renglones) { if (r.incluye?.length) { conComponentes.add(fila); fila += 2; } else fila += 1; }
+    }
 
     autoTable(doc, {
         startY: y,
@@ -116,6 +131,8 @@ export function generarProformaPdf(d: DatosProforma): { pdf: Buffer; archivo: st
             4: { cellWidth: 32, halign: 'right' },
         },
         didParseCell: (c) => {
+            // El renglón de un equipo y sus componentes se ven como un solo bloque.
+            if (c.section === 'body' && !d.una_linea && conComponentes.has(c.row.index)) c.cell.styles.lineWidth = 0;
             if (c.section === 'head' && (c.column.index === 3 || c.column.index === 4)) c.cell.styles.halign = 'right';
             if (c.section === 'head' && (c.column.index === 0 || c.column.index === 2)) c.cell.styles.halign = 'center';
             if (c.section === 'foot') c.cell.styles.halign = c.column.index === 4 ? 'right' : 'left';
