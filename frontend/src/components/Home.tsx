@@ -1,5 +1,5 @@
 import { CSSProperties, useCallback, useEffect, useState } from 'react';
-import { AccionPendiente, SIN_MAPA, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, listarEnviosFallidos, mapaNegocio, resumenHoy } from '../api/client.ts';
+import { AccionPendiente, PeriodoKpis, kpisPeriodo, SIN_MAPA, AreaMapa, AsistenteMapa, Mapa, NodoMapa, Pulso, ResumenHoy, listarAcciones, listarEnviosFallidos, mapaNegocio, resumenHoy } from '../api/client.ts';
 import { AvisosDeshacer, escribiendo, useColaDeshacer } from './Deshacer.tsx';
 import { CANAL, hace, resumenAccion } from '../lib/acciones.ts';
 import { preguntarABartez } from '../lib/bartez.ts';
@@ -25,14 +25,14 @@ const PANTALLA: Record<AreaMapa | 'notion', IrA> = {
 };
 const QUE_ES: Record<NodoMapa['tipo'], string> = { cliente: 'Cliente', presupuesto: 'Presupuesto', conversacion: 'Conversación de WhatsApp', pagina: 'Página de bartez.com.ar' };
 
-function Delta({ actual, anterior }: { actual: number; anterior: number }) {
+function Delta({ actual, anterior, contra }: { actual: number; anterior: number; contra: string }) {
     if (!anterior) return null;
     const pct = Math.round(((actual - anterior) / anterior) * 100);
-    if (!pct) return <span className="g-delta">= mes pasado</span>;
-    return <span className="g-delta" title={`El mes pasado a esta altura: ${usd(anterior)}`}>{pct > 0 ? '+' : '−'}{Math.abs(pct)}%</span>;
+    if (!pct) return <span className="g-delta" title={contra}>= período anterior</span>;
+    return <span className="g-delta" title={`${contra}: ${usd(anterior)}`}>{pct > 0 ? '+' : '−'}{Math.abs(pct)}%</span>;
 }
 
-// ---------- Tarjeta del mes: Ganado o Cotizado como número principal ----------
+// ---------- Tarjeta del período: Ganado o Cotizado como número principal ----------
 
 type Principal = 'ganado' | 'cotizado';
 const CLAVE_PRINCIPAL = 'bartez_mes_principal';
@@ -40,34 +40,124 @@ function leerPrincipal(): Principal {
     try { return localStorage.getItem(CLAVE_PRINCIPAL) === 'cotizado' ? 'cotizado' : 'ganado'; } catch { return 'ganado'; }
 }
 
-function TarjetaMes({ p, cierre, irA }: { p: Pulso; cierre: number | null; irA: (t: IrA) => void }) {
-    const k = p.kpis;
+// Período de la tarjeta. Queda guardado: es el que se ve por defecto al entrar.
+type TipoPeriodo = 'mes' | 'mes_pasado' | '7d' | '30d' | '90d' | 'anio' | 'personalizado';
+interface Periodo { tipo: TipoPeriodo; desde?: string; hasta?: string }
+const CLAVE_PERIODO = 'bartez_inicio_periodo';
+const NOMBRE_PERIODO: Record<TipoPeriodo, string> = {
+    mes: 'Este mes', mes_pasado: 'Mes pasado', '7d': 'Últimos 7 días', '30d': 'Últimos 30 días', '90d': 'Últimos 90 días', anio: 'Este año', personalizado: 'Elegir fechas…',
+};
+const hoyAr = () => new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+const menosDias = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
+function rango(p: Periodo): { desde: string; hasta: string } {
+    const h = hoyAr();
+    switch (p.tipo) {
+        case 'mes_pasado': {
+            const [a, m] = h.split('-').map(Number) as [number, number];
+            const pa = m === 1 ? a - 1 : a, pm = m === 1 ? 12 : m - 1;
+            const fin = new Date(Date.UTC(pa, pm, 0)).getUTCDate();
+            return { desde: `${pa}-${String(pm).padStart(2, '0')}-01`, hasta: `${pa}-${String(pm).padStart(2, '0')}-${fin}` };
+        }
+        case '7d': return { desde: menosDias(h, 6), hasta: h };
+        case '30d': return { desde: menosDias(h, 29), hasta: h };
+        case '90d': return { desde: menosDias(h, 89), hasta: h };
+        case 'anio': return { desde: `${h.slice(0, 4)}-01-01`, hasta: h };
+        case 'personalizado': return { desde: p.desde ?? `${h.slice(0, 8)}01`, hasta: p.hasta ?? h };
+        default: return { desde: `${h.slice(0, 8)}01`, hasta: h };
+    }
+}
+function leerPeriodo(): Periodo {
+    try {
+        const p = JSON.parse(localStorage.getItem(CLAVE_PERIODO) ?? 'null') as Periodo | null;
+        if (p && p.tipo in NOMBRE_PERIODO) return p;
+    } catch { /* sin storage o dato viejo */ }
+    return { tipo: 'mes' };
+}
+const fechaCorta = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
+function textoPeriodo(p: Periodo, r: { desde: string; hasta: string }): string {
+    if (p.tipo === 'mes') return 'este mes';
+    if (p.tipo === 'mes_pasado') return `en ${MESES_LARGOS[Number(r.desde.slice(5, 7)) - 1]!.toLowerCase()}`;
+    if (p.tipo === 'anio') return `en ${r.desde.slice(0, 4)}`;
+    if (p.tipo === 'personalizado') return `del ${fechaCorta(r.desde)} al ${fechaCorta(r.hasta)}`;
+    return `· ${NOMBRE_PERIODO[p.tipo].toLowerCase()}`;
+}
+
+function TarjetaMes({ p, irA }: { p: Pulso; irA: (t: IrA) => void }) {
     const [principal, setPrincipal] = useState<Principal>(leerPrincipal);
+    const [periodo, setPeriodoState] = useState<Periodo>(leerPeriodo);
+    const [datos, setDatos] = useState<PeriodoKpis | null>(null);
+    const [error, setError] = useState(false);
+    const r = rango(periodo);
     const elegirPrincipal = (x: Principal) => {
         setPrincipal(x);
         try { localStorage.setItem(CLAVE_PRINCIPAL, x); } catch { /* sin storage: solo esta vez */ }
     };
-    const ganado = k.ganado_mes_usd ?? 0, cotizado = k.cotizado_mes_usd;
-    const valor = principal === 'ganado' ? ganado : cotizado;
-    const anterior = principal === 'ganado' ? k.ganado_mes_anterior_usd ?? 0 : k.cotizado_mes_anterior_usd;
+    const setPeriodo = (x: Periodo) => {
+        setPeriodoState(x);
+        try { localStorage.setItem(CLAVE_PERIODO, JSON.stringify(x)); } catch { /* sin storage: solo esta vez */ }
+    };
+    useEffect(() => {
+        let vivo = true;
+        setError(false);
+        kpisPeriodo(r.desde, r.hasta).then((d) => { if (vivo) setDatos(d); }).catch(() => { if (vivo) { setDatos(null); setError(true); } });
+        return () => { vivo = false; };
+    }, [r.desde, r.hasta]);
+
+    // Mientras carga (o si el servidor es viejo), "este mes" sale del resumen del día.
+    const k = p.kpis;
+    const d = datos && datos.desde === r.desde && datos.hasta === r.hasta ? datos
+        : periodo.tipo === 'mes' ? {
+            cotizado_usd: k.cotizado_mes_usd, presupuestos: k.presupuestos_mes, ganado_usd: k.ganado_mes_usd ?? 0,
+            ganadas: k.ganadas_90d, perdidas: k.perdidas_90d, consultas: k.consultas_30d,
+            previo: { cotizado_usd: k.cotizado_mes_anterior_usd, presupuestos: k.presupuestos_mes_anterior, ganado_usd: k.ganado_mes_anterior_usd ?? 0, consultas: k.consultas_30d_anterior },
+            anterior: null as PeriodoKpis['anterior'] | null,
+        } : null;
+    const propio = !!(datos && datos.desde === r.desde);
+    const valor = d ? (principal === 'ganado' ? d.ganado_usd : d.cotizado_usd) : 0;
+    const anterior = d ? (principal === 'ganado' ? d.previo.ganado_usd : d.previo.cotizado_usd) : 0;
+    const cerradas = d ? d.ganadas + d.perdidas : 0;
+    const cierre = d && cerradas ? Math.round((d.ganadas / cerradas) * 100) : null;
     const animado = useContar(valor);
+    const cuando = textoPeriodo(periodo, r);
+    const contra = d && 'anterior' in d && d.anterior ? `Del ${fechaCorta(d.anterior.desde)} al ${fechaCorta(d.anterior.hasta)}` : 'Período anterior';
     return (
-        <section className="g-ganado" aria-label={principal === 'ganado' ? 'Ganado este mes' : 'Cotizado este mes'}>
+        <section className="g-ganado" aria-label={`${principal === 'ganado' ? 'Ganado' : 'Cotizado'} ${cuando}`}>
             <div className="g-ganado-cab">
                 <div className="g-mes-elegir" role="group" aria-label="Número principal">
                     <button className="g-b" aria-pressed={principal === 'ganado'} onClick={() => elegirPrincipal('ganado')}>Ganado</button>
                     <button className="g-b" aria-pressed={principal === 'cotizado'} onClick={() => elegirPrincipal('cotizado')}>Cotizado</button>
                 </div>
-                <Delta actual={valor} anterior={anterior} />
+                {d && <Delta actual={valor} anterior={anterior} contra={contra} />}
             </div>
-            <span className="g-ganado-etq">{principal === 'ganado' ? 'Ganado este mes' : `Cotizado este mes · ${plural(k.presupuestos_mes, 'presupuesto', 'presupuestos')}`}</span>
-            <strong className="g-ganado-num" key={principal}>{usd(Math.round(animado))}</strong>
+            <div className="g-periodo">
+                <label className="solo-lector" htmlFor="g-periodo-sel">Período</label>
+                <select id="g-periodo-sel" value={periodo.tipo} onChange={(e) => {
+                    const tipo = e.target.value as TipoPeriodo;
+                    setPeriodo(tipo === 'personalizado' ? { tipo, ...rango(periodo) } : { tipo });
+                }}>
+                    {(Object.keys(NOMBRE_PERIODO) as TipoPeriodo[]).map((t) => <option key={t} value={t}>{NOMBRE_PERIODO[t]}</option>)}
+                </select>
+                {periodo.tipo === 'personalizado' && (
+                    <span className="g-periodo-fechas">
+                        <label className="solo-lector" htmlFor="g-desde">Desde</label>
+                        <input id="g-desde" type="date" value={r.desde} max={r.hasta} onChange={(e) => e.target.value && setPeriodo({ tipo: 'personalizado', desde: e.target.value, hasta: r.hasta })} />
+                        <span aria-hidden="true">→</span>
+                        <label className="solo-lector" htmlFor="g-hasta">Hasta</label>
+                        <input id="g-hasta" type="date" value={r.hasta} min={r.desde} max={hoyAr()} onChange={(e) => e.target.value && setPeriodo({ tipo: 'personalizado', desde: r.desde, hasta: e.target.value })} />
+                    </span>
+                )}
+            </div>
+            <span className="g-ganado-etq">
+                {principal === 'ganado' ? `Ganado ${cuando}` : `Cotizado ${cuando}${d ? ` · ${plural(d.presupuestos, 'presupuesto', 'presupuestos')}` : ''}`}
+                {error && !propio && periodo.tipo !== 'mes' ? ' · no se pudo calcular' : ''}
+            </span>
+            <strong className="g-ganado-num" key={`${principal}-${r.desde}-${r.hasta}`}>{d ? usd(Math.round(animado)) : '—'}</strong>
             <div className="g-ganado-mini">
                 {principal === 'ganado'
-                    ? <button className="g-b" onClick={() => elegirPrincipal('cotizado')} title="Ver lo cotizado como número principal"><span>Cotizado</span><strong>{usdCorto(cotizado)}</strong></button>
-                    : <button className="g-b" onClick={() => elegirPrincipal('ganado')} title="Ver lo ganado como número principal"><span>Ganado</span><strong>{usdCorto(ganado)}</strong></button>}
-                <button className="g-b" onClick={() => irA('cotizador')}><span>Cierre · 90 d</span><strong>{cierre != null ? `${cierre}%` : '—'}</strong></button>
-                <button className="g-b" onClick={() => irA('whatsapp')}><span>Consultas · 30 d</span><strong>{k.consultas_30d.toLocaleString('es-AR')}</strong></button>
+                    ? <button className="g-b" onClick={() => elegirPrincipal('cotizado')} title="Ver lo cotizado como número principal"><span>Cotizado</span><strong>{d ? usdCorto(d.cotizado_usd) : '—'}</strong></button>
+                    : <button className="g-b" onClick={() => elegirPrincipal('ganado')} title="Ver lo ganado como número principal"><span>Ganado</span><strong>{d ? usdCorto(d.ganado_usd) : '—'}</strong></button>}
+                <button className="g-b" onClick={() => irA('cotizador')} title={d ? `${d.ganadas} ganados y ${d.perdidas} perdidos en el período` : undefined}><span>Cierre{propio ? '' : ' · 90 d'}</span><strong>{cierre != null ? `${cierre}%` : '—'}</strong></button>
+                <button className="g-b" onClick={() => irA('whatsapp')}><span>Consultas{propio ? '' : ' · 30 d'}</span><strong>{d ? d.consultas.toLocaleString('es-AR') : '—'}</strong></button>
             </div>
         </section>
     );
@@ -489,7 +579,7 @@ export function Home({ irA }: { irA: (t: IrA) => void }) {
                         </section>
 
                         <div className="g-lado">
-                            {p && <TarjetaMes p={p} cierre={mapa?.cierre_pct ?? null} irA={irA} />}
+                            {p && <TarjetaMes p={p} irA={irA} />}
                             {nodoSel && asistenteSel ? (
                                 <DetalleNodo key={nodoSel.id} n={nodoSel} area={asistenteSel} irA={irA} cerrar={() => setSeleccion(null)} />
                             ) : seleccion?.tipo === 'asistente' ? (

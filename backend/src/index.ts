@@ -23,6 +23,7 @@ import { crearCliente, editarCliente } from './orchestrator/clientes.js';
 import { NOTA_LARGA, borrarDocumento, borrarNota, cambiarCotizadoDocumento, completarDatosDocumentos, crearNota, retomarPendientes, documentosDeCliente, informesDeCliente, notasDeCliente, reprocesarDocumento, subirDocumento, urlDocumento } from './orchestrator/memoria.js';
 import { correrAnalitica, listarReportes, obtenerReporte } from './orchestrator/analitica.js';
 import { infoCampania, proponerCampania } from './orchestrator/campanias.js';
+import { calcularPeriodo } from './orchestrator/pulso.js';
 import { descartarPreparada, enviarFactura, facturasPreparadas, facturasRecientes, prepararFactura, seguirFacturas } from './orchestrator/facturador.js';
 import { generarProformaPdf } from './pdf/proforma.js';
 import { prepararDesdePedido, proformaDeAsimov, proformaDePreparada, proponerRecordatorio, resumenFacturacion } from './orchestrator/facturacion.js';
@@ -779,6 +780,16 @@ app.post('/publicidad/anuncios/pausar', async (req, res) => {
         return { ok: true };
     } catch (err) {
         return res.status(400).send({ error: (err as Error).message });
+    }
+});
+
+// Indicadores del Inicio para el período que elija el usuario (por defecto, este mes).
+app.get('/pulso/periodo', async (req, res) => {
+    const q = req.query as { desde?: string; hasta?: string };
+    try {
+        return await calcularPeriodo(String(q.desde ?? ''), String(q.hasta ?? ''));
+    } catch (err) {
+        return res.status(502).send({ error: (err as Error).message });
     }
 });
 

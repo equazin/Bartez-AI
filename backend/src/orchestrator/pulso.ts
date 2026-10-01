@@ -160,3 +160,68 @@ export async function calcularPulso(): Promise<Pulso> {
         },
     };
 }
+
+// ---------------------------------------------------------------- período elegido
+
+export interface PeriodoKpis {
+    desde: string; hasta: string;                   // yyyy-mm-dd, horario de Argentina, inclusive
+    anterior: { desde: string; hasta: string };
+    cotizado_usd: number; presupuestos: number;
+    ganado_usd: number; ganadas: number; perdidas: number;
+    consultas: number;
+    previo: { cotizado_usd: number; presupuestos: number; ganado_usd: number; consultas: number };
+}
+
+const esFecha = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(`${s}T12:00:00Z`));
+const inicioAr = (d: string) => new Date(`${d}T00:00:00-03:00`).toISOString();
+const finAr = (d: string) => new Date(`${d}T23:59:59.999-03:00`).toISOString();
+const sumarDias = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * DIA_MS).toISOString().slice(0, 10);
+
+// Con qué se compara: si el período arranca el día 1, el mismo tramo de días del
+// mes anterior (1 al 15 de octubre → 1 al 15 de septiembre); si no, la misma
+// cantidad de días justo antes.
+export function periodoAnterior(desde: string, hasta: string): { desde: string; hasta: string } {
+    const dias = Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / DIA_MS) + 1;
+    if (desde.endsWith('-01') && dias <= 31) {
+        const [a, m] = desde.split('-').map(Number) as [number, number];
+        const pa = m === 1 ? a - 1 : a, pm = m === 1 ? 12 : m - 1;
+        const finMes = new Date(Date.UTC(pa, pm, 0)).getUTCDate();
+        const ini = `${pa}-${String(pm).padStart(2, '0')}-01`;
+        return { desde: ini, hasta: `${pa}-${String(pm).padStart(2, '0')}-${String(Math.min(dias, finMes)).padStart(2, '0')}` };
+    }
+    return { desde: sumarDias(desde, -dias), hasta: sumarDias(desde, -1) };
+}
+
+export async function calcularPeriodo(desdeIn: string, hastaIn: string): Promise<PeriodoKpis> {
+    const hoy = dia(new Date().toISOString());
+    let desde = esFecha(desdeIn) ? desdeIn : `${hoy.slice(0, 8)}01`;
+    let hasta = esFecha(hastaIn) ? hastaIn : hoy;
+    if (hasta < desde) [desde, hasta] = [hasta, desde];
+    if (Date.parse(hasta) - Date.parse(desde) > 3 * 366 * DIA_MS) desde = sumarDias(hasta, -3 * 366);
+    const ant = periodoAnterior(desde, hasta);
+    const a = inicioAr(ant.desde), z = finAr(hasta);
+
+    const [cots, cerradas, correos, wa] = await Promise.all([
+        todas<{ creado_en: string; total_usd: number | string | null }>((x, y) => supabase.from('cotizaciones').select('creado_en, total_usd').neq('estado', 'abierta').gte('creado_en', a).lte('creado_en', z).range(x, y)),
+        todas<{ estado: string; total_usd: number | string | null; cerrada_en: string }>((x, y) => supabase.from('cotizaciones').select('estado, total_usd, cerrada_en').in('estado', ['ganada', 'perdida']).gte('cerrada_en', a).lte('cerrada_en', z).range(x, y)),
+        todas<{ fecha: string }>((x, y) => supabase.from('correos_historicos').select('fecha').eq('direccion', 'entrante').eq('ignorable', false).gte('fecha', a).lte('fecha', z).range(x, y)),
+        todas<{ creado_en: string }>((x, y) => supabase.from('wa_mensajes').select('creado_en').eq('origen', 'cliente').gte('creado_en', a).lte('creado_en', z).range(x, y)),
+    ]);
+    const en = (iso: string, d: string, h: string) => { const x = dia(iso); return x >= d && x <= h; };
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const calc = (d: string, h: string) => {
+        const c = cots.filter((x) => en(x.creado_en, d, h));
+        const g = cerradas.filter((x) => en(x.cerrada_en, d, h));
+        return {
+            cotizado_usd: r2(c.reduce((s, x) => s + Number(x.total_usd ?? 0), 0)), presupuestos: c.length,
+            ganado_usd: r2(g.filter((x) => x.estado === 'ganada').reduce((s, x) => s + Number(x.total_usd ?? 0), 0)),
+            ganadas: g.filter((x) => x.estado === 'ganada').length, perdidas: g.filter((x) => x.estado === 'perdida').length,
+            consultas: correos.filter((x) => en(x.fecha, d, h)).length + wa.filter((x) => en(x.creado_en, d, h)).length,
+        };
+    };
+    const act = calc(desde, hasta), prev = calc(ant.desde, ant.hasta);
+    return {
+        desde, hasta, anterior: ant, ...act,
+        previo: { cotizado_usd: prev.cotizado_usd, presupuestos: prev.presupuestos, ganado_usd: prev.ganado_usd, consultas: prev.consultas },
+    };
+}

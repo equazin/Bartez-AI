@@ -3558,3 +3558,8 @@ button.fac-fila:hover, button.fac-fila:focus-visible { background: var(--hover);
 .fac-prep-botones { display: flex; flex-wrap: wrap; gap: 8px; }
 .fac-total > label, .fac-total > label.fac-ancho { flex: none; }
 .fac-incluye { margin: 4px 0 0; padding-left: 16px; font-size: 12px; color: var(--sutil); line-height: 1.5; }
+.g-periodo { position: relative; z-index: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+.g-periodo select, .g-periodo input { background: rgba(255, 255, 255, 0.16); color: #fff; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; color-scheme: dark; }
+.g-periodo select option { color: #111; }
+.g-periodo-fechas { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; flex-wrap: wrap; }
+.g-periodo input { padding: 3px 6px; max-width: 140px; }

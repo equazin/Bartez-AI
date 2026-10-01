@@ -1591,3 +1591,13 @@ export async function pdfProforma(origen: 'bartez' | 'asimov', id: string): Prom
     const disp = res.headers.get('Content-Disposition') ?? '';
     return { blob: await res.blob(), archivo: /filename="([^"]+)"/.exec(disp)?.[1] ?? 'Proforma.pdf' };
 }
+
+// Indicadores del Inicio para un rango de fechas (yyyy-mm-dd, horario de Argentina).
+export interface PeriodoKpis {
+    desde: string; hasta: string; anterior: { desde: string; hasta: string };
+    cotizado_usd: number; presupuestos: number; ganado_usd: number; ganadas: number; perdidas: number; consultas: number;
+    previo: { cotizado_usd: number; presupuestos: number; ganado_usd: number; consultas: number };
+}
+export async function kpisPeriodo(desde: string, hasta: string): Promise<PeriodoKpis> {
+    return jsonOError(await apiFetch(`${BASE}/pulso/periodo?desde=${desde}&hasta=${hasta}`));
+}
