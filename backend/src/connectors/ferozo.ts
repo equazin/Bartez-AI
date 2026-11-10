@@ -100,6 +100,8 @@ const CARPETAS_ENVIADOS = ['Sent', 'INBOX.Sent', 'Enviados', 'INBOX.Enviados', '
 async function copiarAEnviados(c: CorreoAEnviar, messageId: string): Promise<void> {
     if (!ferozoConfigurado) return;
     const imap = new ImapFlow({ host: imapHost, port: imapPort, secure: true, auth: { user: email, pass: password }, logger: false });
+    // Sin este listener, un corte de la conexión tira abajo todo el servidor.
+    imap.on('error', (err: Error) => console.warn('[correo] conexión IMAP (Enviados) cortada:', err.message));
     try {
         const crudo = await new MailComposer({
             from: remitente(), to: c.para, subject: c.asunto, text: c.cuerpo, messageId, date: new Date(),
@@ -185,14 +187,22 @@ export async function iniciarListener(handler: Handler): Promise<void> {
     corriendo = true;
     console.log(`[ferozo] intentando conectar IMAP a ${imapHost}:${imapPort} como ${email}...`);
 
+    let conectando = false;
     async function conectar() {
-        cliente = new ImapFlow({
+        if (conectando) return;
+        conectando = true;
+        const nuevo = new ImapFlow({
             host: imapHost,
             port: imapPort,
             secure: true,
             auth: { user: email, pass: password },
             logger: false,
         });
+        // Un corte del servidor de correo (ECONNRESET, timeout, mantenimiento) llega
+        // como evento 'error'. Sin este listener, Node tira abajo todo el proceso y
+        // el panel queda sin servidor; con él, el bucle de reconexión lo levanta.
+        nuevo.on('error', (err: Error) => console.warn('[ferozo] conexión IMAP cortada:', err.message));
+        cliente = nuevo;
 
         try {
             await cliente.connect();
@@ -205,22 +215,26 @@ export async function iniciarListener(handler: Handler): Promise<void> {
             }
 
             // Escuchar eventos de "correo nuevo" (IMAP EXISTS / IDLE)
-            cliente.on('exists', async () => {
-                const lock2 = await cliente!.getMailboxLock('INBOX');
+            nuevo.on('exists', async () => {
+                // Todo adentro del try: si la conexión se cortó, pedir el lock falla.
+                let lock2: { release: () => void } | null = null;
                 try {
+                    lock2 = await nuevo.getMailboxLock('INBOX');
                     await procesarNoLeidos(handler);
                 } catch (err) {
-                    console.error('[ferozo] error procesando correos:', err);
+                    console.error('[ferozo] error procesando correos:', (err as Error).message);
                 } finally {
-                    lock2.release();
+                    lock2?.release();
                 }
             });
 
             console.log(`[ferozo] listener IMAP conectado a ${imapHost} como ${email}`);
         } catch (err) {
-            console.error('[ferozo] error conectando IMAP:', err);
+            console.error('[ferozo] error conectando IMAP:', (err as Error).message);
             // Reintentar en 30 s
-            setTimeout(conectar, 30_000);
+            setTimeout(() => { void conectar(); }, 30_000);
+        } finally {
+            conectando = false;
         }
     }
 
@@ -258,11 +272,12 @@ export async function iniciarListener(handler: Handler): Promise<void> {
 
     // Reconectar si la conexión se cae
     const bucleReconexion = setInterval(async () => {
+        if (conectando) return;
         if (!cliente || !cliente.usable) {
             console.warn('[ferozo] conexión IMAP caída, reconectando...');
-            try { await cliente?.close(); } catch { /* ignore */ }
+            try { cliente?.close(); } catch { /* ignore */ }
             cliente = null;
-            await conectar();
+            await conectar().catch((err) => console.error('[ferozo] reconexión falló:', (err as Error).message));
         }
     }, 60_000);
 

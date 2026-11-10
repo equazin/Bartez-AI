@@ -1874,6 +1874,26 @@ async function main() {
     }
 }
 
+// Red de seguridad: un error de red que se escape (un servicio externo que corta
+// la conexión) se registra y el servidor sigue andando. Antes, uno solo tiraba
+// abajo el panel entero. Un error de programación sí reinicia el proceso.
+const ERRORES_DE_RED = /^(ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|ENETDOWN|ESOCKET|ERR_SSL_|ERR_TLS_|UND_ERR_|NoConnection|ETIMEOUT)/;
+const esDeRed = (err: unknown) => {
+    const e = err as { code?: string; name?: string; message?: string } | null;
+    return ERRORES_DE_RED.test(String(e?.code ?? '')) || /socket hang up|Socket timeout|Connection not available|Unexpected close/i.test(String(e?.message ?? ''));
+};
+process.on('unhandledRejection', (razon) => {
+    app.log.error({ err: razon }, 'promesa rechazada sin manejar (el servidor sigue andando)');
+});
+process.on('uncaughtException', (err) => {
+    if (esDeRed(err)) {
+        app.log.error({ err }, 'error de conexión sin manejar (el servidor sigue andando)');
+        return;
+    }
+    app.log.fatal({ err }, 'error inesperado: se reinicia el proceso');
+    process.exit(1);
+});
+
 main().catch((err) => {
     app.log.error(err);
     process.exit(1);

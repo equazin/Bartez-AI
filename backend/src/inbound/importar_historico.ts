@@ -103,6 +103,8 @@ export async function importarHistorico(
         auth: { user: emailBartez, pass: password },
         logger: false,
     });
+    // Sin este listener, un corte de la conexión tira abajo todo el servidor.
+    client.on('error', (err: Error) => console.warn('[importar] conexión IMAP cortada:', err.message));
 
     try {
         await client.connect();
