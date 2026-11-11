@@ -2,7 +2,7 @@
 // Expone una API HTTP mínima que el panel web consume.
 
 import 'dotenv/config';
-import Fastify from 'fastify';
+import Fastify, { type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import cron from 'node-cron';
 import { registrarAuth } from './auth.js';
@@ -35,8 +35,9 @@ import { adsConfig, canjearCodigo, desconectar as desconectarAds, estadoConexion
 import { COSTO_ESTIMADO_POR_CASO, armarBanco, evaluacionEnCurso, iniciarEvaluacion } from './orchestrator/evaluacion.js';
 import { refrescarWebBartez, textoWebBartez } from './connectors/bartez_web.js';
 import { importarCsv, sincronizarProveedor, sincronizarTodos, tipoDeCambio } from './orchestrator/catalogo_proveedores.js';
-import { ajustesWa, borradorWhatsapp, crearClienteDesdeWa, enviarPlantillaAMano, detalleConversacionWa, guardarAjustesWa, guardarPlantillasWa, listarConversacionesWa, listarPlantillasWa, proponerPlantillaWa, proponerRespuestaWhatsapp, responderWhatsappAMano, sincronizarWhatsapp, vincularClienteWa } from './orchestrator/whatsapp.js';
-import { studioConfigurado } from './connectors/studio.js';
+import { ajustesWa, avisoDeLaWeb, avisosActivos, borradorWhatsapp, crearClienteDesdeWa, descartarPropuestasWa, enviarPlantillaAMano, detalleConversacionWa, guardarAjustesWa, guardarPlantillasWa, listarConversacionesWa, listarPlantillasWa, minutosEntreSyncs, proponerPlantillaWa, proponerRespuestaWhatsapp, refrescarConversacionWa, responderWhatsappAMano, sincronizarWhatsapp, vincularClienteWa } from './orchestrator/whatsapp.js';
+import { archivoPorToken, enviarAdjuntoWhatsapp, MAX_BYTES_ADJUNTO, opcionesAdjuntoWa, urlAdjuntoWa } from './orchestrator/whatsapp_adjuntos.js';
+import { firmaAvisoValida, studioConfigurado } from './connectors/studio.js';
 import { DE_DOCUMENTO, actualizarCotizacion, borrarCotizacion, cerrarCotizacion, cotizar, listarCotizaciones, numeroPresupuesto, obtenerCotizacion, proponerEnvioCotizacion } from './orchestrator/cotizador.js';
 import { generarPresupuestoPdf } from './pdf/presupuesto.js';
 import { importarHistorico, historicoConCliente } from './inbound/importar_historico.js';
@@ -624,6 +625,109 @@ app.post('/whatsapp/conversaciones/:waId/crear-cliente', async (req, res) => {
     const r = await crearClienteDesdeWa(waId, parseo.data.nombre);
     if (!r.ok) return res.status(400).send({ error: r.detalle });
     return r;
+});
+
+// Trae ya de la web la conversación abierta en el panel: al tocarla (motivo
+// "abrir") siempre; mientras se chatea ("chat", cada 15 s) solo si la web no
+// está avisando sola de cada mensaje. Como mucho una consulta cada 10 s.
+app.post('/whatsapp/conversaciones/:waId/refrescar', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = z.object({ motivo: z.enum(['abrir', 'chat']).default('abrir') }).safeParse(req.body ?? {});
+    if (!esWaId(waId) || !parseo.success) return res.status(400).send({ error: 'datos inválidos' });
+    let nuevos = 0;
+    if (parseo.data.motivo === 'abrir' || !avisosActivos()) {
+        try { nuevos = (await refrescarConversacionWa(waId, { cadaMs: 10_000 })).nuevos; }
+        catch (err) { req.log.warn({ err }, 'refrescar conversación de WhatsApp falló'); }
+    }
+    const d = await detalleConversacionWa(waId);
+    if (!d) return res.status(404).send({ error: 'conversación no encontrada' });
+    return { ...d, nuevos };
+});
+
+// Aviso de la web (bartez.com.ar): una conversación tuvo un mensaje y se trae
+// esa sola al instante. Va firmado con el token de la API de la web.
+app.post('/whatsapp/aviso', async (req, res) => {
+    const cuerpo = (req.body ?? {}) as { waId?: unknown; ts?: unknown };
+    const waId = typeof cuerpo.waId === 'string' ? cuerpo.waId : '';
+    const ts = Number(cuerpo.ts);
+    const firma = String(req.headers['x-bartez-firma'] ?? '');
+    if (!studioConfigurado() || !esWaId(waId) || !Number.isFinite(ts)) return res.status(400).send({ error: 'datos inválidos' });
+    if (Math.abs(Date.now() - ts) > 5 * 60_000 || !firmaAvisoValida(waId, ts, firma)) return res.status(401).send({ error: 'firma inválida' });
+    avisoDeLaWeb(waId);
+    return { ok: true };
+});
+
+// Qué se puede adjuntar en esta conversación (presupuestos y documentos del cliente).
+app.get('/whatsapp/conversaciones/:waId/adjuntables', async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    if (!esWaId(waId)) return res.status(400).send({ error: 'número inválido' });
+    const r = await opcionesAdjuntoWa(waId);
+    if (!r) return res.status(404).send({ error: 'conversación no encontrada' });
+    return r;
+});
+
+const AdjuntoWaSchema = z.object({
+    texto: z.string().max(4000).optional(),
+    adjunto: z.discriminatedUnion('tipo', [
+        z.object({ tipo: z.literal('cotizacion'), id: z.string().uuid() }),
+        z.object({ tipo: z.literal('documento'), id: z.string().uuid() }),
+        z.object({
+            tipo: z.literal('archivo'),
+            nombre: z.string().min(1).max(200),
+            mime: z.string().max(200).optional(),
+            base64: z.string().min(1).max(Math.ceil(MAX_BYTES_ADJUNTO / 3) * 4 + 8),
+        }),
+    ]),
+});
+
+// Dirección pública del backend, para el link del archivo.
+const urlPublica = (req: FastifyRequest) =>
+    (process.env.PUBLIC_URL ?? '').trim().replace(/\/+$/, '') || `${req.protocol}://${req.host}`;
+
+// Archivo por WhatsApp (presupuesto, documento de la ficha o archivo de la compu): sale ya.
+app.post('/whatsapp/conversaciones/:waId/adjunto', { bodyLimit: 25 * 1024 * 1024 }, async (req, res) => {
+    const { waId } = req.params as { waId: string };
+    const parseo = AdjuntoWaSchema.safeParse(req.body ?? {});
+    if (!esWaId(waId)) return res.status(400).send({ error: 'número inválido' });
+    if (!parseo.success) return res.status(400).send({ error: 'Elegí qué archivo mandar (hasta 15 MB)' });
+    try {
+        const r = await enviarAdjuntoWhatsapp(waId, parseo.data.adjunto, parseo.data.texto ?? '', urlPublica(req));
+        if (!r.ok) return res.status(400).send({ error: r.detalle });
+        if (parseo.data.texto?.trim()) await descartarPropuestasWa(waId, 'Respondido a mano con un archivo desde el chat de WhatsApp');
+        invalidarResumenHoy();
+        return r;
+    } catch (err) {
+        req.log.error({ err }, 'enviar archivo por WhatsApp falló');
+        return res.status(502).send({ error: `No se pudo enviar: ${(err as Error).message}` });
+    }
+});
+
+// Abrir desde el chat un archivo que se mandó (link de 10 minutos).
+app.get('/whatsapp/adjuntos/:id/url', async (req, res) => {
+    const { id } = req.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) return res.status(400).send({ error: 'id inválido' });
+    try { return { url: await urlAdjuntoWa(id) }; }
+    catch (err) { return res.status(404).send({ error: (err as Error).message }); }
+});
+
+const LINK_VENCIDO = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bartez Tecnología</title>
+<style>body{font-family:system-ui,sans-serif;background:#f4f6fb;color:#1e1e1e;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px}main{background:#fff;border-radius:12px;padding:28px;max-width:420px;box-shadow:0 2px 12px #0001}h1{font-size:18px;color:#1b3a8c;margin:0 0 8px}p{margin:0;line-height:1.5}</style></head>
+<body><main><h1>Este link ya no está disponible</h1><p>Pedinos el archivo de nuevo por WhatsApp y te lo volvemos a mandar.<br>Bartez Tecnología · bartez.com.ar</p></main></body></html>`;
+
+// Link que recibe el cliente por WhatsApp mientras la web no manda archivos.
+app.get('/d/:token', async (req, res) => {
+    const { token } = req.params as { token: string };
+    const a = await archivoPorToken(token).catch(() => null);
+    if (!a) return res.status(404).type('text/html; charset=utf-8').header('X-Robots-Tag', 'noindex').send(LINK_VENCIDO);
+    const seVe = a.mime === 'application/pdf' || a.mime.startsWith('image/') || a.mime === 'text/plain';
+    const ascii = a.nombre.normalize('NFD').replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '') || 'archivo';
+    return res
+        .header('Content-Type', a.mime)
+        .header('Content-Disposition', `${seVe ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(a.nombre)}`)
+        .header('Cache-Control', 'private, max-age=300')
+        .header('X-Robots-Tag', 'noindex, nofollow')
+        .header('X-Content-Type-Options', 'nosniff')
+        .send(a.contenido);
 });
 
 app.post('/bartez/refresh-web', async () => {
@@ -1860,15 +1964,19 @@ async function main() {
         app.log.info('[cron] Notion: tablero cada 30 min (7-21 h), curador 8:30 / 13 / 18 h');
     }
 
-    // Cada 2 minutos — traer conversaciones de WhatsApp del bot de la web y
-    // proponer respuestas en las escaladas. Sin STUDIO_API_TOKEN no hace nada.
+    // Traer conversaciones de WhatsApp del bot de la web y proponer respuestas
+    // en las escaladas: cada minuto en horario comercial (lun a sáb, 8 a 20),
+    // cada 5 el resto, y cada 5 si la web ya avisa sola de cada mensaje.
+    // Sin STUDIO_API_TOKEN no hace nada.
     if (studioConfigurado()) {
-        cron.schedule('*/2 * * * *', async () => {
+        cron.schedule('* * * * *', async () => {
+            const ahora = new Date();
+            if (ahora.getMinutes() % minutosEntreSyncs(ahora, avisosActivos()) !== 0) return;
             const r = await sincronizarWhatsapp();
             if (!r.ok && r.detalle !== 'Ya hay una sincronización en curso') app.log.warn({ r }, '[cron] sync WhatsApp falló');
             else if (r.actualizadas > 0) app.log.info({ r }, '[cron] sync WhatsApp');
         });
-        app.log.info('[cron] sync de WhatsApp programado cada 2 min');
+        app.log.info('[cron] sync de WhatsApp: cada 1 min en horario comercial, cada 5 el resto');
     } else {
         app.log.info('[whatsapp] deshabilitado (falta STUDIO_API_TOKEN)');
     }

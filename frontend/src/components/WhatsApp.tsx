@@ -12,11 +12,15 @@ import {
     guardarAjustesWhatsapp,
     listarConversacionesWa,
     listarEmpresasSeguimiento,
+    refrescarConversacionWa,
     resolverAccion,
     sincronizarWa,
+    urlAdjuntoWa,
+    enviarAdjuntoWa,
     vincularClienteWa,
 } from '../api/client.ts';
 import { ConfigPlantillas, RetomarConPlantilla } from './whatsapp/Plantillas.tsx';
+import { AdjuntoElegido, ElegirAdjunto } from './whatsapp/Adjuntar.tsx';
 
 type Filtro = 'todas' | 'escaladas' | 'ventana' | 'pendientes' | 'sin_cliente';
 
@@ -26,6 +30,15 @@ const ESTADOS: Record<string, string> = {
     pending_lead_confirmation: 'Bot esperando confirmación',
 };
 const QUIEN: Record<string, string> = { cliente: 'Cliente', bot: 'Bot web', humano: 'Bartez' };
+// Lo que mandó el cliente sin texto (la web no deja ver el archivo desde acá).
+const SIN_TEXTO: Record<string, string> = {
+    image: '📷 Foto', document: '📄 Archivo', audio: '🎤 Audio', voice: '🎤 Audio', video: '🎥 Video', sticker: 'Sticker', location: '📍 Ubicación',
+};
+// Cada cuánto se refresca la pantalla (de la base de Bartez AI, no le pega a la web).
+const REFRESCO_MS = 15_000;
+// Mientras se chatea (último mensaje hace menos de esto) también se consulta la web.
+const CHAT_ACTIVO_MS = 15 * 60_000;
+const mismoHilo = (a: MensajeWa[], b: MensajeWa[]) => a.length === b.length && a[a.length - 1]?.id === b[b.length - 1]?.id;
 
 const hora = (iso: string) => new Date(iso).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 // En el celular Enter hace un salto de línea; en la compu, Enter envía (como WhatsApp Web).
@@ -46,6 +59,8 @@ export function WhatsApp() {
     const [desdePropuesta, setDesdePropuesta] = useState<string | null>(null);
     const [propuesta, setPropuesta] = useState<Propuesta | null>(null);
     const [errorEnvio, setErrorEnvio] = useState<string>();
+    // Cómo salió el último archivo (se muestra debajo de la caja).
+    const [avisoEnvio, setAvisoEnvio] = useState<string>();
     const [firma, setFirma] = useState<string | null>(null);
     const cajaRef = useRef<HTMLTextAreaElement>(null);
     const [ocupado, setOcupado] = useState<string | null>(null);
@@ -53,18 +68,51 @@ export function WhatsApp() {
     const [aviso, setAviso] = useState<string>();
     const [clientes, setClientes] = useState<EmpresaSeguimiento[]>([]);
     const [verPlantillas, setVerPlantillas] = useState(false);
+    // Archivo elegido para mandar (sale con el texto de la caja).
+    const [adjunto, setAdjunto] = useState<AdjuntoElegido | null>(null);
+    const [verAdjuntar, setVerAdjuntar] = useState(false);
     const hiloRef = useRef<HTMLDivElement>(null);
-    // Al abrir una conversación se ve lo último, como en WhatsApp.
+    // Para el refresco automático (corre fuera del render).
+    const selRef = useRef<string | null>(null);
+    const mensajesRef = useRef<MensajeWa[]>([]);
+    const convsRef = useRef<ConversacionWa[]>([]);
+    const abajoRef = useRef(true);
+    const selVistoRef = useRef<string | null>(null);
+    useEffect(() => { selRef.current = sel; }, [sel]);
+    useEffect(() => { mensajesRef.current = mensajes; }, [mensajes]);
+    useEffect(() => { convsRef.current = convs; }, [convs]);
+    // Al abrir una conversación se ve lo último, como en WhatsApp. Si llega un
+    // mensaje nuevo baja solo, salvo que estés leyendo más arriba.
     useEffect(() => {
         const h = hiloRef.current;
-        if (h) h.scrollTop = h.scrollHeight;
+        if (!h) return;
+        if (selVistoRef.current !== sel || abajoRef.current) h.scrollTop = h.scrollHeight;
+        selVistoRef.current = sel;
     }, [mensajes, sel]);
     const [versionPl, setVersionPl] = useState(0);
 
-    async function cargar() {
+    async function cargar(): Promise<ConversacionWa[] | null> {
         try {
-            setConvs((await listarConversacionesWa()).conversaciones);
-        } catch (e) { setError((e as Error).message); }
+            const lista = (await listarConversacionesWa()).conversaciones;
+            setConvs(lista);
+            return lista;
+        } catch (e) { setError((e as Error).message); return null; }
+    }
+
+    // Mensajes y propuesta de la conversación abierta (si sigue abierta y cambió algo).
+    function aplicarDetalle(waId: string, d: { mensajes: MensajeWa[]; propuesta?: Propuesta | null }) {
+        if (selRef.current !== waId) return;
+        if (!mismoHilo(mensajesRef.current, d.mensajes)) setMensajes(d.mensajes);
+        setPropuesta(d.propuesta ?? null);
+    }
+
+    // Trae lo último de la web para la conversación abierta.
+    async function refrescarAbierta(waId: string, motivo: 'abrir' | 'chat') {
+        try {
+            const d = await refrescarConversacionWa(waId, motivo);
+            aplicarDetalle(waId, d);
+            if (d.nuevos > 0) await cargar();
+        } catch { /* la próxima vuelta lo intenta de nuevo */ }
     }
 
     async function abrir(waId: string) {
@@ -78,13 +126,20 @@ export function WhatsApp() {
             setDesdePropuesta(b?.desde ?? null);
             setPropuesta(null);
             setErrorEnvio(undefined);
+            setAvisoEnvio(undefined);
+            setAdjunto(null);
+            setVerAdjuntar(false);
+            setMensajes([]);
+            abajoRef.current = true; // otra conversación: se abre mostrando lo último
         }
         setSel(waId);
+        selRef.current = waId;
         setAviso(undefined);
         try {
+            // Primero lo que ya está guardado (al instante) y después lo último de la web.
             const d = await detalleConversacionWa(waId);
-            setMensajes(d.mensajes);
-            setPropuesta(d.propuesta ?? null);
+            if (selRef.current === waId) { setMensajes(d.mensajes); setPropuesta(d.propuesta ?? null); }
+            void refrescarAbierta(waId, 'abrir');
         } catch (e) { setError((e as Error).message); }
     }
 
@@ -93,9 +148,34 @@ export function WhatsApp() {
         ajustesWhatsapp().then((r) => setFirma(r.ajustes.presentarse_como)).catch(() => setFirma(null));
         cargar();
         listarEmpresasSeguimiento().then((r) => setClientes(r.empresas.filter((e) => !e.id.startsWith('det:')))).catch(() => {});
-        // La sincronización corre sola cada 2 min en el backend: refrescamos la lista.
-        const t = setInterval(cargar, 60_000);
-        return () => clearInterval(t);
+
+        // El backend trae lo nuevo de la web solo (cada minuto en horario
+        // comercial, o al instante si la web avisa). Acá se refresca la pantalla
+        // y, si estás chateando, se pide lo último de la conversación abierta.
+        let corriendo = false;
+        async function vuelta() {
+            if (corriendo || document.visibilityState !== 'visible') return;
+            corriendo = true;
+            try {
+                const antes = convsRef.current;
+                const lista = await cargar();
+                const waId = selRef.current;
+                if (!waId || !lista) return;
+                const ultimo = mensajesRef.current[mensajesRef.current.length - 1];
+                const activa = !!ultimo && Date.now() - new Date(ultimo.creado_en).getTime() < CHAT_ACTIVO_MS;
+                const a = antes.find((c) => c.wa_id === waId);
+                const b = lista.find((c) => c.wa_id === waId);
+                const cambio = !a || !b || a.actualizado_en !== b.actualizado_en || a.ultimo_mensaje !== b.ultimo_mensaje || a.respuesta_pendiente !== b.respuesta_pendiente;
+                if (activa) await refrescarAbierta(waId, 'chat');
+                else if (cambio) aplicarDetalle(waId, await detalleConversacionWa(waId));
+            } catch { /* la próxima vuelta lo intenta de nuevo */ }
+            finally { corriendo = false; }
+        }
+        const t = setInterval(vuelta, REFRESCO_MS);
+        // Al volver a la pestaña, se actualiza enseguida.
+        const alVolver = () => { if (document.visibilityState === 'visible') void vuelta(); };
+        document.addEventListener('visibilitychange', alVolver);
+        return () => { clearInterval(t); document.removeEventListener('visibilitychange', alVolver); };
     }, []);
 
     async function sincronizar() {
@@ -111,25 +191,51 @@ export function WhatsApp() {
         finally { setOcupado(null); }
     }
 
-    // Manda lo escrito, sin pasar por Para aprobar.
+    // Manda lo escrito (y el archivo elegido), sin pasar por Para aprobar.
     async function enviar() {
         const waId = sel;
         const cuerpo = texto.trim();
-        if (!waId || !cuerpo || ocupado === 'enviar') return;
+        if (!waId || (!cuerpo && !adjunto) || ocupado === 'enviar') return;
         setOcupado('enviar');
         setErrorEnvio(undefined);
+        setAvisoEnvio(undefined);
         try {
-            const { mensaje } = await enviarWhatsappAMano(waId, cuerpo, desdePropuesta);
-            borradores.current.delete(waId);
-            if (sel === waId) {
-                setMensajes((m) => [...m, mensaje]);
-                setTexto('');
-                setDesdePropuesta(null);
-                setPropuesta(null);
+            if (adjunto) {
+                const r = await enviarAdjuntoWa(waId, adjunto.origen, cuerpo);
+                if (selRef.current === waId) {
+                    setMensajes((m) => [...m, ...r.mensajes]);
+                    setAdjunto(null);
+                    if (cuerpo) { setTexto(''); setDesdePropuesta(null); setPropuesta(null); }
+                    setAvisoEnvio(r.detalle
+                        ? `⚠ ${r.detalle}`
+                        : r.como === 'link'
+                            ? '✓ Enviado como link para abrir el archivo (la web todavía no manda adjuntos).'
+                            : '✓ Archivo enviado.');
+                }
+                if (cuerpo) borradores.current.delete(waId);
+            } else {
+                const { mensaje } = await enviarWhatsappAMano(waId, cuerpo, desdePropuesta);
+                borradores.current.delete(waId);
+                if (selRef.current === waId) {
+                    setMensajes((m) => [...m, mensaje]);
+                    setTexto('');
+                    setDesdePropuesta(null);
+                    setPropuesta(null);
+                }
             }
+            abajoRef.current = true;
             await cargar();
         } catch (e) { setErrorEnvio((e as Error).message); }
         finally { setOcupado(null); }
+    }
+
+    // Abre un archivo que se mandó (pestaña nueva; si el navegador la bloquea, en esta).
+    async function abrirAdjunto(id: string) {
+        const ventana = window.open('', '_blank');
+        try {
+            const { url } = await urlAdjuntoWa(id);
+            if (ventana) { ventana.opener = null; ventana.location.href = url; } else window.location.assign(url);
+        } catch (e) { ventana?.close(); setErrorEnvio((e as Error).message); }
     }
 
     // Bartez redacta en la caja: desde cero o a partir de lo que escribiste.
@@ -222,8 +328,8 @@ export function WhatsApp() {
                 <div>
                     <h2>WhatsApp</h2>
                     <p className="sub">
-                        Conversaciones del bot de bartez.com.ar. Respondé desde acá cuando quieras: lo que escribís sale directo.
-                        Si querés, Bartez te lo redacta. Se actualiza sola cada 2 minutos.
+                        Conversaciones del bot de bartez.com.ar. Respondé desde acá: lo que escribís sale directo, Bartez te lo
+                        redacta si querés y con 📎 mandás presupuestos y archivos. Se actualiza sola.
                     </p>
                 </div>
                 <div className="wa-cab-acciones">
@@ -313,16 +419,28 @@ export function WhatsApp() {
                                 </div>
                             </div>
 
-                            <div className="wa-hilo" ref={hiloRef}>
+                            <div
+                                className="wa-hilo" ref={hiloRef}
+                                onScroll={(e) => { const h = e.currentTarget; abajoRef.current = h.scrollHeight - h.scrollTop - h.clientHeight < 120; }}
+                            >
                                 {mensajes.map((m) => (
                                     <div key={m.id} className={`wa-burbuja ${m.origen === 'cliente' ? 'entrante' : 'saliente'} ${m.origen}`}>
                                         <span className="wa-quien">{QUIEN[m.origen] ?? m.origen} · {hora(m.creado_en)}</span>
-                                        {m.cuerpo || <em>(sin texto: audio, imagen o archivo)</em>}
+                                        {m.adjunto ? (
+                                            <>
+                                                <button type="button" className="wa-archivo" onClick={() => abrirAdjunto(m.adjunto!.id)} title="Abrir el archivo que se mandó">
+                                                    <span aria-hidden="true">{m.adjunto.mime.startsWith('image/') ? '🖼' : '📄'}</span>
+                                                    <span className="wa-archivo-nombre">{m.adjunto.nombre}</span>
+                                                </button>
+                                                {m.adjunto.texto && <span className="wa-archivo-texto">{m.adjunto.texto}</span>}
+                                                {m.adjunto.como === 'link' && <span className="wa-archivo-como">Salió como link para abrirlo</span>}
+                                            </>
+                                        ) : m.cuerpo || <em>{m.tipo && SIN_TEXTO[m.tipo] ? `${SIN_TEXTO[m.tipo]} (no se puede ver acá)` : '(sin texto: audio, imagen o archivo)'}</em>}
                                     </div>
                                 ))}
                             </div>
 
-                            <div className="wa-proponer">
+                            <div className={`wa-proponer ${verAdjuntar ? 'con-adjuntar' : ''}`}>
                                 <div className={`wa-ventana ${actual.en_ventana ? 'abierta' : 'cerrada'}`}>
                                     {actual.en_ventana
                                         ? `Ventana abierta hasta ${actual.ventana_hasta ? hora(actual.ventana_hasta) : ''}: se puede responder con texto libre.`
@@ -349,6 +467,21 @@ export function WhatsApp() {
                                 )}
                                 {actual.en_ventana && (
                                     <div className="wa-escribir">
+                                        {verAdjuntar && (
+                                            <ElegirAdjunto
+                                                key={actual.wa_id}
+                                                waId={actual.wa_id}
+                                                alElegir={(a) => { setAdjunto(a); setVerAdjuntar(false); cajaRef.current?.focus(); }}
+                                                alCerrar={() => setVerAdjuntar(false)}
+                                            />
+                                        )}
+                                        {adjunto && (
+                                            <div className="wa-adjunto-elegido">
+                                                <span aria-hidden="true">📎</span>
+                                                <span className="wa-adjunto-nombre">{adjunto.etiqueta}</span>
+                                                <button type="button" className="enlace" onClick={() => setAdjunto(null)} disabled={ocupado === 'enviar'} aria-label="Quitar el archivo">Quitar</button>
+                                            </div>
+                                        )}
                                         <textarea
                                             ref={cajaRef}
                                             rows={3}
@@ -358,17 +491,27 @@ export function WhatsApp() {
                                             onKeyDown={(e) => {
                                                 if (e.key === 'Enter' && !e.shiftKey && !esTactil() && !e.nativeEvent.isComposing) { e.preventDefault(); void enviar(); }
                                             }}
-                                            placeholder="Escribí tu respuesta… (o escribí la idea y tocá «Mejorar con Bartez»)"
+                                            placeholder={adjunto
+                                                ? 'Escribí algo para acompañar el archivo (opcional)…'
+                                                : 'Escribí tu respuesta… (o escribí la idea y tocá «Mejorar con Bartez»)'}
                                             disabled={ocupado === 'enviar'}
                                         />
                                         {errorEnvio && <p className="wa-error" role="alert">{errorEnvio}</p>}
+                                        {avisoEnvio && !errorEnvio && <p className={`wa-aviso-envio ${avisoEnvio.startsWith('⚠') ? 'alerta' : ''}`} role="status">{avisoEnvio}</p>}
                                         <div className="wa-escribir-pie">
+                                            <button
+                                                type="button" className={`secundario wa-clip ${verAdjuntar ? 'on' : ''}`}
+                                                onClick={() => setVerAdjuntar((v) => !v)} disabled={ocupado === 'enviar'}
+                                                aria-expanded={verAdjuntar} aria-label="Adjuntar un presupuesto o un archivo" title="Mandar un presupuesto o un archivo"
+                                            >
+                                                <span aria-hidden="true">📎</span><span className="wa-clip-txt"> Adjuntar</span>
+                                            </button>
                                             <button type="button" className="secundario" onClick={redactarConBartez} disabled={ocupado === 'borrador' || ocupado === 'enviar'}>
                                                 {ocupado === 'borrador' ? 'Redactando…' : texto.trim() ? '✦ Mejorar con Bartez' : '✦ Redactar con Bartez'}
                                             </button>
                                             <span className="tenue wa-atajo">{esTactil() ? '' : 'Enter envía · Shift + Enter, otra línea'}</span>
-                                            <button type="button" className="primario" onClick={enviar} disabled={!texto.trim() || ocupado === 'enviar'}>
-                                                {ocupado === 'enviar' ? 'Enviando…' : 'Enviar'}
+                                            <button type="button" className="primario" onClick={enviar} disabled={(!texto.trim() && !adjunto) || ocupado === 'enviar'}>
+                                                {ocupado === 'enviar' ? 'Enviando…' : adjunto ? 'Enviar archivo' : 'Enviar'}
                                             </button>
                                         </div>
                                     </div>

@@ -1126,10 +1126,13 @@ export interface ConversacionWa {
 
 export interface MensajeWa {
     id: string;
-    direccion: string;
+    direccion?: string;
     origen: 'cliente' | 'bot' | 'humano' | string;
+    tipo?: string | null;
     cuerpo: string | null;
     creado_en: string;
+    // Archivo que mandó Bartez: "adjunto" (llegó como archivo) o "link" (para abrirlo).
+    adjunto?: { id: string; nombre: string; mime: string; como: 'adjunto' | 'link' | null; texto: string | null } | null;
 }
 
 export interface ResultadoSyncWa {
@@ -1186,6 +1189,66 @@ export async function detalleConversacionWa(waId: string): Promise<{
     propuesta?: { accion_id: string; cuerpo: string; creado_en: string } | null;
 }> {
     return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}`));
+}
+
+// Trae ya de la web la conversación abierta: "abrir" al tocarla, "chat" cada
+// tantos segundos mientras se chatea (el backend decide si hace falta consultar).
+export async function refrescarConversacionWa(waId: string, motivo: 'abrir' | 'chat'): Promise<Awaited<ReturnType<typeof detalleConversacionWa>> & { nuevos: number }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/refrescar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }),
+    }));
+}
+
+export interface PresupuestoAdjuntable {
+    id: string;
+    titulo: string;
+    numero: number | null;
+    numero_externo: string | null;
+    estado: string;
+    total_usd: number;
+    total_ars: number;
+    creado_en: string;
+    de_documento: boolean;
+    del_cliente: boolean;
+}
+
+export interface DocumentoAdjuntable {
+    id: string;
+    nombre: string;
+    tipo_mime: string | null;
+    tamano_bytes: number;
+    creado_en: string;
+    se_puede: boolean;
+}
+
+export interface Adjuntables {
+    cliente_id: string | null;
+    cliente_nombre: string | null;
+    presupuestos: PresupuestoAdjuntable[];
+    documentos: DocumentoAdjuntable[];
+    // ¿La web ya manda archivos? "no": sale un link para abrirlo.
+    media_en_la_web: 'si' | 'no' | 'sin_probar';
+}
+
+export async function adjuntablesWa(waId: string): Promise<Adjuntables> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/adjuntables`));
+}
+
+export type AdjuntoWa =
+    | { tipo: 'cotizacion'; id: string }
+    | { tipo: 'documento'; id: string }
+    | { tipo: 'archivo'; nombre: string; mime?: string; base64: string };
+
+// Manda un archivo (y el texto que lo acompaña): sale ya, sin Para aprobar.
+export async function enviarAdjuntoWa(waId: string, adjunto: AdjuntoWa, texto: string): Promise<{ ok: boolean; como: 'adjunto' | 'link'; mensajes: MensajeWa[]; detalle?: string }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/conversaciones/${waId}/adjunto`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ adjunto, texto }),
+    }));
+}
+
+// Link de 10 minutos para abrir un archivo que se mandó.
+export async function urlAdjuntoWa(id: string): Promise<{ url: string }> {
+    return jsonOError(await apiFetch(`${BASE}/whatsapp/adjuntos/${id}/url`));
 }
 
 // Lo que escribió el operador sale ya (dentro de las 24 h), sin pasar por Para aprobar.

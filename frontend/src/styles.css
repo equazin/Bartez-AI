@@ -3071,6 +3071,48 @@ a.notion-abrir { text-decoration: none; display: inline-flex; align-items: cente
     .wa-escribir-pie { justify-content: space-between; }
 }
 
+/* ---------- Archivos por WhatsApp (presupuestos, documentos, archivos) ---------- */
+.wa-adjuntar { display: flex; flex-direction: column; gap: 8px; padding: 10px; border: 1px solid var(--borde); border-radius: 10px; background: var(--panel); }
+.wa-adj-cab { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wa-adj-cab .segmentos { flex-wrap: wrap; }
+.contenido .wa-adj-cerrar { padding: 4px 8px; color: var(--sutil); font-size: var(--t-sm); }
+.wa-adj-lista { display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow-y: auto; }
+.wa-adj-lista ul { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
+.wa-adj-grupo { margin: 6px 4px 2px; font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sutil); }
+.wa-adj-fila { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 6px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--texto); font: inherit; text-align: left; cursor: pointer; }
+.wa-adj-fila:hover:not(:disabled) { background: var(--hover); border-color: var(--borde-soft); }
+.wa-adj-fila:focus-visible { outline: 2px solid var(--acento); outline-offset: -2px; }
+.wa-adj-fila:disabled { opacity: 0.5; cursor: default; }
+.wa-adj-principal { display: flex; gap: 8px; max-width: 100%; min-width: 0; font-size: var(--t-sm); }
+.wa-adj-principal strong { white-space: nowrap; }
+.wa-adj-titulo { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wa-adj-meta { font-size: var(--t-xs); color: var(--sutil); }
+.wa-adj-vacio { margin: 4px; font-size: var(--t-sm); }
+.wa-adj-compu { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: var(--t-sm); }
+.wa-adj-compu input[type='file'] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.wa-adj-elegir { display: inline-block; padding: 7px 14px; border: 1px solid var(--borde); border-radius: 8px; background: var(--panel); font-weight: 600; cursor: pointer; }
+.wa-adj-elegir:hover { background: var(--hover); }
+.wa-adj-compu input[type='file']:focus-visible + .wa-adj-elegir { outline: 2px solid var(--acento); outline-offset: 1px; }
+.wa-adj-nota { margin: 0; font-size: var(--t-xs); }
+.wa-proponer.con-adjuntar { max-height: 78%; }
+.wa-aviso-envio { margin: 0; font-size: var(--t-xs); color: var(--ok); }
+.wa-aviso-envio.alerta { color: var(--alerta); }
+.wa-adjunto-elegido { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 10px; border-radius: 8px; background: var(--acento-soft); font-size: var(--t-sm); }
+.wa-adjunto-nombre { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.contenido .wa-adjunto-elegido .enlace { font-size: var(--t-xs); }
+.contenido .wa-escribir-pie .wa-clip.on { background: var(--acento-soft); border-color: var(--acento); color: var(--acento); }
+.wa-archivo { display: flex; align-items: center; gap: 8px; max-width: 100%; margin: 2px 0; padding: 8px 10px; border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 8px; background: rgba(0, 0, 0, 0.05); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.wa-archivo:hover .wa-archivo-nombre { text-decoration: underline; }
+.wa-archivo:focus-visible { outline: 2px solid var(--acento); outline-offset: 1px; }
+.wa-archivo-nombre { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.wa-archivo-texto { display: block; margin-top: 4px; }
+.wa-archivo-como { display: block; margin-top: 3px; font-size: 10.5px; color: var(--wa-meta); }
+@media (max-width: 560px) {
+    .wa-clip-txt { display: none; }
+    .wa-escribir-pie { flex-wrap: wrap; row-gap: 8px; }
+    .wa-proponer .wa-escribir-pie button.primario { margin-left: auto; }
+}
+
 /* ---------- Envíos aprobados que no salieron ---------- */
 .envios-fallidos { margin: 0 0 16px; padding: 12px 14px; border-radius: 12px; background: var(--peligro-soft); border: 1px solid var(--peligro); }
 .ef-cab { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }

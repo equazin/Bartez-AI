@@ -106,17 +106,25 @@ function origenDe(m: MensajeStudio): 'cliente' | 'bot' | 'humano' {
     return m.waMessageId.startsWith('bot_') ? 'bot' : 'humano';
 }
 
-async function guardarConversacion(c: ConversacionStudio): Promise<void> {
+// Un archivo que mandó Bartez se ve como "📎 nombre" aunque la web no guarde texto.
+function cuerpoDe(m: MensajeStudio): string | null {
+    if (m.body) return m.body;
+    const adj = (m.metadata as { attachment?: { filename?: unknown } } | null)?.attachment;
+    return typeof adj?.filename === 'string' ? `📎 ${adj.filename}` : null;
+}
+
+// `guardados`: ids que ya están en wa_mensajes (solo se escriben los demás).
+async function guardarConversacion(c: ConversacionStudio, guardados?: Set<string>): Promise<void> {
     const mensajes = [...c.messages].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     if (mensajes.length > 0) {
-        const filas = mensajes.map((m) => ({
+        const filas = mensajes.filter((m) => !guardados?.has(m.id)).map((m) => ({
             id: m.id,
             wa_id: c.waId,
             wa_message_id: m.waMessageId,
             direccion: m.direction,
             origen: origenDe(m),
             tipo: m.type,
-            cuerpo: m.body,
+            cuerpo: cuerpoDe(m),
             creado_en: m.createdAt,
         }));
         // Primero la conversación (FK), después los mensajes.
@@ -135,6 +143,9 @@ async function upsertConversacion(c: ConversacionStudio, mensajes: MensajeStudio
     const ultimoEntrante = [...mensajes].reverse().find((m) => m.direction === 'inbound');
     const { data: previa } = await supabase.from('wa_conversaciones').select('cliente_id').eq('wa_id', c.waId).maybeSingle();
     const clienteId = (previa?.cliente_id as string | null) ?? await clientePorTelefono(c.waId);
+    // La web no mueve updatedAt con cada mensaje: para ordenar la lista vale lo
+    // más nuevo entre los dos.
+    const actualizado = ultimo && new Date(ultimo.createdAt).getTime() > new Date(c.updatedAt).getTime() ? ultimo.createdAt : c.updatedAt;
     const { error } = await supabase.from('wa_conversaciones').upsert({
         wa_id: c.waId,
         studio_id: c.id,
@@ -142,9 +153,9 @@ async function upsertConversacion(c: ConversacionStudio, mensajes: MensajeStudio
         estado: c.status,
         categoria: c.category,
         cliente_id: clienteId,
-        actualizado_en: c.updatedAt,
+        actualizado_en: actualizado,
         ultimo_entrante_en: ultimoEntrante?.createdAt ?? null,
-        ultimo_mensaje: ultimo?.body?.slice(0, 500) ?? null,
+        ultimo_mensaje: (ultimo ? cuerpoDe(ultimo) : null)?.slice(0, 500) ?? null,
         ultimo_direccion: ultimo ? origenDe(ultimo) : null,
         sincronizado_en: new Date().toISOString(),
     }, { onConflict: 'wa_id' });
@@ -161,22 +172,53 @@ export interface ResultadoSyncWa {
 
 let sincronizando = false;
 
+// Ids de mensajes que ya están guardados.
+async function idsGuardados(ids: string[]): Promise<Set<string>> {
+    const tenemos = new Set<string>();
+    for (let i = 0; i < ids.length; i += 100) {
+        const { data, error } = await supabase.from('wa_mensajes').select('id').in('id', ids.slice(i, i + 100));
+        if (error) throw new Error(`wa_mensajes: ${error.message}`);
+        for (const f of data ?? []) tenemos.add(f.id as string);
+    }
+    return tenemos;
+}
+
+// Qué conversaciones hay que traer completas. La web no mueve el updatedAt de
+// la conversación cuando escribe el cliente ni cuando contesta el bot (solo al
+// cambiar estado o categoría, o al responder por su API): por eso además se
+// mira el último mensaje que trae la lista. Si no lo tenemos, hay mensajes nuevos.
+export function conversacionesACambiar(
+    remotas: ConversacionStudio[],
+    conocidas: Map<string, string | null>,
+    guardados: Set<string>,
+): ConversacionStudio[] {
+    return remotas.filter((r) => {
+        if (!conocidas.has(r.waId)) return true;
+        const previa = conocidas.get(r.waId);
+        if (!previa || new Date(r.updatedAt).getTime() > new Date(previa).getTime()) return true;
+        const ultimo = r.messages?.[0];
+        return !!ultimo && !guardados.has(ultimo.id);
+    });
+}
+
 export async function sincronizarWhatsapp(opts: { proponer?: boolean } = {}): Promise<ResultadoSyncWa> {
     if (!studioConfigurado()) return { ok: false, conversaciones: 0, actualizadas: 0, borradores: 0, detalle: 'Falta STUDIO_API_TOKEN en el .env' };
     if (sincronizando) return { ok: false, conversaciones: 0, actualizadas: 0, borradores: 0, detalle: 'Ya hay una sincronización en curso' };
     sincronizando = true;
     try {
         const remotas = await listarConversacionesStudio();
-        const { data: locales } = await supabase.from('wa_conversaciones').select('wa_id, actualizado_en');
-        const conocida = new Map((locales ?? []).map((l) => [l.wa_id as string, l.actualizado_en as string | null]));
+        const { data: locales, error } = await supabase.from('wa_conversaciones').select('wa_id, actualizado_en');
+        if (error) throw new Error(`wa_conversaciones: ${error.message}`);
+        const conocidas = new Map((locales ?? []).map((l) => [l.wa_id as string, l.actualizado_en as string | null]));
+        const ultimos = remotas.map((r) => r.messages?.[0]?.id).filter((id): id is string => !!id);
+        const cambiadas = conversacionesACambiar(remotas, conocidas, await idsGuardados(ultimos));
 
         let actualizadas = 0;
         const tocadas: string[] = [];
-        for (const r of remotas) {
-            const previa = conocida.get(r.waId);
-            if (previa && new Date(previa).getTime() >= new Date(r.updatedAt).getTime()) continue;
+        for (const r of cambiadas) {
             const completa = await obtenerConversacionStudio(r.waId);
             await guardarConversacion(completa);
+            ultimaConsulta.set(r.waId, Date.now());
             actualizadas++;
             tocadas.push(r.waId);
         }
@@ -199,6 +241,72 @@ export async function sincronizarWhatsapp(opts: { proponer?: boolean } = {}): Pr
     }
 }
 
+// ---------- Una conversación puntual ----------
+//
+// Directo de la web: al abrirla en el panel, mientras se chatea o cuando la web
+// avisa que entró un mensaje. Una sola consulta cada `cadaMs` por conversación,
+// para no cargar la web (su base tiene cuota de transferencia).
+
+const ultimaConsulta = new Map<string, number>();
+
+export async function refrescarConversacionWa(
+    waId: string,
+    opts: { cadaMs?: number; proponer?: boolean } = {},
+): Promise<{ consultada: boolean; nuevos: number }> {
+    if (!studioConfigurado()) return { consultada: false, nuevos: 0 };
+    const ahora = Date.now();
+    if (ahora - (ultimaConsulta.get(waId) ?? 0) < (opts.cadaMs ?? 10_000)) return { consultada: false, nuevos: 0 };
+    ultimaConsulta.set(waId, ahora);
+    if (ultimaConsulta.size > 1000) {
+        for (const [k, t] of ultimaConsulta) if (ahora - t > 3600_000) ultimaConsulta.delete(k);
+    }
+    const completa = await obtenerConversacionStudio(waId);
+    const guardados = await idsGuardados(completa.messages.map((m) => m.id));
+    const nuevos = completa.messages.filter((m) => !guardados.has(m.id)).length;
+    await guardarConversacion(completa, guardados); // solo escribe lo que falta
+    if (nuevos > 0 && opts.proponer !== false) {
+        await proponerSiCorresponde(waId).catch((err) => {
+            console.warn('[whatsapp] no se pudo proponer respuesta', waId, (err as Error).message);
+            return false;
+        });
+    }
+    return { consultada: true, nuevos };
+}
+
+// ---------- Aviso de la web ----------
+//
+// Cuando la web avisa (POST /whatsapp/aviso) que una conversación tuvo un
+// mensaje, se trae esa sola en ~1 segundo. Mientras los avisos lleguen, la
+// lista completa se revisa cada 5 minutos como red de seguridad.
+
+let ultimoAviso = 0;
+const avisosEnEspera = new Map<string, ReturnType<typeof setTimeout>>();
+
+export const avisosActivos = () => Date.now() - ultimoAviso < 24 * 3600_000;
+
+export function avisoDeLaWeb(waId: string): void {
+    ultimoAviso = Date.now();
+    if (avisosEnEspera.has(waId)) return; // juntamos los que llegan seguidos
+    avisosEnEspera.set(waId, setTimeout(() => {
+        avisosEnEspera.delete(waId);
+        refrescarConversacionWa(waId, { cadaMs: 0 })
+            .catch((err) => console.warn('[whatsapp] aviso de la web', waId, (err as Error).message));
+    }, 1200));
+}
+
+// Cada cuántos minutos se revisa la lista completa de la web: cada minuto en
+// horario comercial (lunes a sábado de 8 a 20), cada 5 el resto del tiempo o
+// si los avisos de la web ya están funcionando.
+export function minutosEntreSyncs(fecha: Date, conAvisos: boolean): number {
+    if (conAvisos) return 5;
+    const partes = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Argentina/Buenos_Aires', weekday: 'short', hour: 'numeric', hourCycle: 'h23',
+    }).formatToParts(fecha);
+    const dia = partes.find((p) => p.type === 'weekday')?.value;
+    const hora = Number(partes.find((p) => p.type === 'hour')?.value);
+    return dia !== 'Sun' && hora >= 8 && hora < 20 ? 1 : 5;
+}
+
 // ---------- Propuesta de respuesta ----------
 
 interface FilaConv {
@@ -218,11 +326,11 @@ export function dentroDeVentana(ultimoEntrante: string | null): boolean {
 async function mensajesDe(waId: string, limite = 40) {
     const { data } = await supabase
         .from('wa_mensajes')
-        .select('id, direccion, origen, cuerpo, creado_en')
+        .select('id, direccion, origen, tipo, cuerpo, creado_en')
         .eq('wa_id', waId)
         .order('creado_en', { ascending: false })
         .limit(limite);
-    return (data ?? []).reverse() as Array<{ id: string; direccion: string; origen: string; cuerpo: string | null; creado_en: string }>;
+    return (data ?? []).reverse() as Array<{ id: string; direccion: string; origen: string; tipo: string | null; cuerpo: string | null; creado_en: string }>;
 }
 
 async function hayPendiente(waId: string): Promise<boolean> {
@@ -235,9 +343,20 @@ async function hayPendiente(waId: string): Promise<boolean> {
     return (count ?? 0) > 0;
 }
 
+// Una propuesta a la vez por conversación (la sync, los avisos de la web y el
+// panel pueden llegar juntos).
+const proponiendo = new Set<string>();
+
+async function proponerSiCorresponde(waId: string): Promise<boolean> {
+    if (proponiendo.has(waId)) return false;
+    proponiendo.add(waId);
+    try { return await proponerSiCorrespondeSinGuardia(waId); }
+    finally { proponiendo.delete(waId); }
+}
+
 // Automático: solo escaladas, con un mensaje del cliente sin respuesta humana,
 // dentro de la ventana de 24 h, y una sola propuesta por mensaje.
-async function proponerSiCorresponde(waId: string): Promise<boolean> {
+async function proponerSiCorrespondeSinGuardia(waId: string): Promise<boolean> {
     const { data: conv } = await supabase.from('wa_conversaciones').select('*').eq('wa_id', waId).maybeSingle();
     if (!conv || conv.estado !== 'escalated' || !dentroDeVentana(conv.ultimo_entrante_en as string | null)) return false;
     const msgs = await mensajesDe(waId, 60);
@@ -399,20 +518,33 @@ export async function enviarWhatsapp(waId: string, cuerpo: string, clienteId?: s
         };
     }
     const enviado = await enviarTextoStudio(waId, cuerpo);
+    await registrarSalienteWa(waId, enviado, cuerpo, 'text', clienteId);
+    return { ok: true, id: enviado.id };
+}
+
+// Lo que salió por la web queda al instante en el chat y en la ficha del cliente.
+export async function registrarSalienteWa(
+    waId: string,
+    enviado: MensajeStudio,
+    cuerpo: string,
+    tipo: string,
+    clienteId?: string | null,
+): Promise<void> {
+    const creado = enviado.createdAt ?? new Date().toISOString();
     await supabase.from('wa_mensajes').upsert({
         id: enviado.id,
         wa_id: waId,
         wa_message_id: enviado.waMessageId,
         direccion: 'outbound',
         origen: 'humano',
-        tipo: 'text',
+        tipo,
         cuerpo,
-        creado_en: enviado.createdAt ?? new Date().toISOString(),
+        creado_en: creado,
     }, { onConflict: 'id' });
     await supabase.from('wa_conversaciones').update({
         ultimo_mensaje: cuerpo.slice(0, 500),
         ultimo_direccion: 'humano',
-        actualizado_en: enviado.createdAt ?? new Date().toISOString(),
+        actualizado_en: creado,
     }).eq('wa_id', waId);
     if (clienteId) {
         const { data: c } = await supabase.from('clientes').select('intentos_contacto').eq('id', clienteId).maybeSingle();
@@ -421,7 +553,6 @@ export async function enviarWhatsapp(waId: string, cuerpo: string, clienteId?: s
             intentos_contacto: (c?.intentos_contacto ?? 0) + 1,
         }).eq('id', clienteId);
     }
-    return { ok: true, id: enviado.id };
 }
 
 // ---------- Respuesta a mano desde el panel ----------
@@ -454,6 +585,16 @@ export async function responderWhatsappAMano(
         }).eq('id', a.id).eq('estado', 'pendiente');
     }
     return { ok: true, mensaje: { id: r.id ?? `local-${Date.now()}`, cuerpo, origen: 'humano', creado_en: new Date().toISOString() } };
+}
+
+// El operador ya contestó por otro lado (un archivo con texto): la propuesta que
+// esperaba en Para aprobar para este contacto queda descartada.
+export async function descartarPropuestasWa(waId: string, nota: string): Promise<void> {
+    await supabase.from('acciones_pendientes').update({
+        estado: 'descartada',
+        respuesta: { por: 'humano', nota },
+        resuelto_en: new Date().toISOString(),
+    }).eq('accion', 'enviar_whatsapp').eq('estado', 'pendiente').contains('payload', { waId });
 }
 
 // ---------- Consultas para el panel ----------
@@ -490,7 +631,16 @@ export async function listarConversacionesWa() {
 export async function detalleConversacionWa(waId: string) {
     const { data: conv } = await supabase.from('wa_conversaciones').select('*, clientes(nombre, email)').eq('wa_id', waId).maybeSingle();
     if (!conv) return null;
-    const mensajes = await mensajesDe(waId, 500);
+    const lista = await mensajesDe(waId, 500);
+    // Archivos que mandó Bartez (para abrirlos desde el chat).
+    const { data: adjs } = await supabase.from('wa_adjuntos')
+        .select('id, mensaje_id, nombre, tipo_mime, enviado_como, texto')
+        .eq('wa_id', waId).not('mensaje_id', 'is', null);
+    const porMensaje = new Map((adjs ?? []).map((a) => [a.mensaje_id as string, {
+        id: a.id as string, nombre: a.nombre as string, mime: a.tipo_mime as string,
+        como: a.enviado_como as 'adjunto' | 'link' | null, texto: (a.texto as string | null) ?? null,
+    }]));
+    const mensajes = lista.map((m) => ({ ...m, adjunto: porMensaje.get(m.id) ?? null }));
     // La propuesta de Bartez que espera en Para aprobar, para usarla desde el chat.
     const { data: pend } = await supabase.from('acciones_pendientes').select('id, payload, creado_en')
         .eq('accion', 'enviar_whatsapp').eq('estado', 'pendiente').contains('payload', { waId })
@@ -641,27 +791,6 @@ export async function enviarPlantillaWa(
     clienteId?: string | null,
 ): Promise<{ ok: boolean; detalle?: string; id?: string }> {
     const enviado = await enviarPlantillaStudio(waId, { nombre: plantilla.nombre, idioma: plantilla.idioma, parametros: plantilla.parametros, vista });
-    await supabase.from('wa_mensajes').upsert({
-        id: enviado.id,
-        wa_id: waId,
-        wa_message_id: enviado.waMessageId,
-        direccion: 'outbound',
-        origen: 'humano',
-        tipo: 'template',
-        cuerpo: vista,
-        creado_en: enviado.createdAt ?? new Date().toISOString(),
-    }, { onConflict: 'id' });
-    await supabase.from('wa_conversaciones').update({
-        ultimo_mensaje: vista.slice(0, 500),
-        ultimo_direccion: 'humano',
-        actualizado_en: enviado.createdAt ?? new Date().toISOString(),
-    }).eq('wa_id', waId);
-    if (clienteId) {
-        const { data: c } = await supabase.from('clientes').select('intentos_contacto').eq('id', clienteId).maybeSingle();
-        await supabase.from('clientes').update({
-            ultimo_contacto_en: new Date().toISOString(),
-            intentos_contacto: (c?.intentos_contacto ?? 0) + 1,
-        }).eq('id', clienteId);
-    }
+    await registrarSalienteWa(waId, enviado, vista, 'template', clienteId);
     return { ok: true, id: enviado.id };
 }

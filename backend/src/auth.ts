@@ -6,7 +6,10 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 
 const DURACION_MS = 30 * 24 * 60 * 60 * 1000; // 30 días
-const RUTAS_PUBLICAS = new Set(['/health', '/auth/login', '/auth/estado', '/ads/oauth/callback']);
+// /whatsapp/aviso lo llama la web (va firmado); /d/<token> es el link de un
+// archivo mandado por WhatsApp (lo abre el cliente).
+const RUTAS_PUBLICAS = new Set(['/health', '/auth/login', '/auth/estado', '/ads/oauth/callback', '/whatsapp/aviso']);
+const esPublica = (ruta: string) => RUTAS_PUBLICAS.has(ruta) || /^\/d\/[A-Za-z0-9_-]+$/.test(ruta);
 
 const enProduccion = () => Boolean(process.env.RAILWAY_ENVIRONMENT) || process.env.NODE_ENV === 'production';
 const password = () => process.env.PANEL_PASSWORD ?? '';
@@ -73,7 +76,7 @@ export function registrarAuth(app: FastifyInstance): void {
     app.addHook('preHandler', async (req, reply) => {
         if (!authActiva() || req.method === 'OPTIONS') return;
         const ruta = req.url.split('?')[0] ?? '';
-        if (RUTAS_PUBLICAS.has(ruta)) return;
+        if (esPublica(ruta)) return;
         if (!tokenValido(tokenDe(req.headers.authorization))) {
             return reply.code(401).send({ error: 'no autorizado' });
         }
